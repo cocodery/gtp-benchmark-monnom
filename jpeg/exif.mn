@@ -1,0 +1,1353 @@
+# exif.rkt: parsing of the EXIF data of an APP1 segment
+# The module-level tables (*exif-tag-names*, *value-interpreters*, *type-widths*, *type-parsers*)
+# are an ExifState made by main before the timed region (module instantiation in the original);
+# symbols are interned Ints; the value interpreters and type parsers are closure classes.
+
+class ParseArgs implements IParseArgs
+{
+	private readonly IBytes bv;
+	private readonly Int pos;
+	private readonly Int order;
+	public constructor(IBytes b, Int p, Int o)
+	{
+		bv = b;
+		pos = p;
+		order = o;
+	}
+	public fun Bv() : IBytes
+	{
+		return bv;
+	}
+	public fun Pos() : Int
+	{
+		return pos;
+	}
+	public fun Order() : Int
+	{
+		return order;
+	}
+}
+
+class TPByte implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.U8Ref(a.Bv(), a.Pos()));
+	}
+}
+
+class TPUnreachable implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		ERROR("unreachable");
+	}
+}
+
+class TPShort implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.U16Ref(a.Bv(), a.Pos(), a.Order()));
+	}
+}
+
+class TPLong implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.U32Ref(a.Bv(), a.Pos(), a.Order()));
+	}
+}
+
+class TPRational implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Pair(Bytevectors.U32Ref(a.Bv(), a.Pos(), a.Order()), Bytevectors.U32Ref(a.Bv(), a.Pos() + 4, a.Order()));
+	}
+}
+
+class TPSByte implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.S8Ref(a.Bv(), a.Pos()));
+	}
+}
+
+class TPSShort implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.S16Ref(a.Bv(), a.Pos(), a.Order()));
+	}
+}
+
+class TPSLong implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.S32Ref(a.Bv(), a.Pos(), a.Order()));
+	}
+}
+
+class TPFloat implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.IeeeSingleRef(a.Bv(), a.Pos(), a.Order()));
+	}
+}
+
+class TPDouble implements ITypeParser
+{
+	public constructor()
+	{
+	}
+	public fun this(IParseArgs a) : IInterp
+	{
+		return Interps.Nat(Bytevectors.IeeeDoubleRef(a.Bv(), a.Pos(), a.Order()));
+	}
+}
+
+class VIOrientation implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737120454606));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 56743145087218893));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3549279812696487890), 7335179886803818552), 115));
+		}
+		if (value == 4)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3549279812696487890), 7335179886803818552), 7627553463296921715), 3463326726514));
+		}
+		if (value == 5)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 4125740564999911378), 8343929407227367472), 8346260130307453344), 7627553463296921701), 3463326726514));
+		}
+		if (value == 6)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 4125740564999911378), 8343929407227367472), 8346260130307453344), 101));
+		}
+		if (value == 7)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 4125740564999911378), 8343929407227367472), 3307216244599157152), 7343022155098748515), 8274155981755791904), 27057240050));
+		}
+		if (value == 8)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 4125740564999911378), 8343929407227367472), 3307216244599157152), 7343022155098748515));
+		}
+		return Interps.VoidValue();
+	}
+}
+
+class VIPhotometricInterpretation implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 1090514));
+		}
+		if (value == 6)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 30743765465));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIPlanarConfiguratino implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 4186483553347));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3943280703056));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIYCbCrPositioning implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 56743142406992579));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 56743212197050307));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIResolutionUnit implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3978701633353));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7343567168767505091), 14834));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIFocalPlaneResolutionUnit implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3978701633353));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7343567168767505091), 14834));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VICompression implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8343986514744112981), 1651443));
+		}
+		if (value == 6)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 150038602));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIColorSpace implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 139585907));
+		}
+		if (value == 65535)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7054197561895745365), 1651444));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIExposureProgram implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737137164493));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737120454606));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2363206383280158785), 68630756367956336));
+		}
+		if (value == 4)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8088969809776964691), 536177784124658));
+		}
+		if (value == 5)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 57380553899997507));
+		}
+		if (value == 6)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3809589670337));
+		}
+		if (value == 7)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 65767353221953488));
+		}
+		if (value == 8)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 7341297435821191372));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VISensitivityType implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 1370067));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 1204946));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 1305033));
+		}
+		if (value == 4)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 323450320512979));
+		}
+		if (value == 5)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 350317219997651));
+		}
+		if (value == 6)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 350317219832530));
+		}
+		if (value == 7)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 5284734663086368723), 10195));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIMeteringMode implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 447768029657921));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7345009898748097219), 8557546442776523753), 27329591653));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 245102675));
+		}
+		if (value == 4)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8061950682960968397), 116));
+		}
+		if (value == 5)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 487729483559120));
+		}
+		if (value == 6)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 478350348693712));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VILightSource implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 65763158901289156));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7334058319750624838), 14958));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 62372714391517908));
+		}
+		if (value == 4)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 28160063046));
+		}
+		if (value == 9)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8413735354191557830), 1880808));
+		}
+		if (value == 10)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7344952964395300419), 30815173217));
+		}
+		if (value == 11)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 27323298899));
+		}
+		if (value == 12)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2371606168114983108), 7334058319750624870), 14958));
+		}
+		if (value == 13)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7343584592736972996), 7198889205747626784), 1914725));
+		}
+		if (value == 14)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8418252147973158851), 8343986687073423461), 245084899));
+		}
+		if (value == 15)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8059641260792247383), 65789476864620917));
+		}
+		if (value == 16)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8418252147975303383), 8343986687073423461), 245084899));
+		}
+		if (value == 17)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2362642741828549203), 287003893167340));
+		}
+		if (value == 18)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2362642741828549203), 291401939678444));
+		}
+		if (value == 19)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2362642741828549203), 295799986189548));
+		}
+		if (value == 20)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 875204));
+		}
+		if (value == 21)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 875332));
+		}
+		if (value == 22)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 875460));
+		}
+		if (value == 23)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 793284));
+		}
+		if (value == 24)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7622860957434505673), 7343628536604594287), 110));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VISensingMethod implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7985897187271587790), 12901));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2369358798937225039), 7342421033380165603), 97));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2369358798937390036), 7342421033380165603), 97));
+		}
+		if (value == 4)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7625030702580151380), 7008106240647155824), 1602290));
+		}
+		if (value == 5)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8199872977278023619), 8269316340429075189), 12517));
+		}
+		if (value == 6)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 8269619876488444244));
+		}
+		if (value == 7)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8199872977278023619), 7626990443575358197), 240677614));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIFileSource implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7342423782425393492), 7340228637534730862), 114));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7198585942395433682), 30815270753));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 1108420));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VICustomRendered implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737120454606));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3775252986563));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIExposureMode implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 234699457));
+		}
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737137164493));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7188812708617992897), 1913579));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIWhiteBalance implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 234699457));
+		}
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737137164493));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIScreenCaptureType implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 56799732614855251));
+		}
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 7341297435821191372));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 65767353221953488));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 31358317774));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIGainControl implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 213628878));
+		}
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2368232659586250700), 14453));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7985875247655679176), 1850016));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 2368232659586250700), 232650724));
+		}
+		if (value == 4)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7985875247655679176), 29779292704));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIContrast implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737120454606));
+		}
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 244955091));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 211595464));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VISaturation implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737120454606));
+		}
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 1963980));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 219804872));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VISharpness implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 3737120454606));
+		}
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 244955091));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 211595464));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VISubjectDistanceRange implements IValueInterpreter
+{
+	public constructor()
+	{
+	}
+	public fun this(Int value) : IInterp
+	{
+		if (value == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 30037045453));
+		}
+		if (value == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 27354986051));
+		}
+		if (value == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 513979249915076));
+		}
+		return Interps.Nat(value);
+	}
+}
+
+class VIFlash implements IValueInterpreter
+{
+	private readonly ISymbols syms;
+	public constructor(ISymbols s)
+	{
+		syms = s;
+	}
+	public fun this(Int value) : IInterp
+	{
+		Bool fired = Bits.BitSet(value, 0);
+		Int ret = Bits.And(3, Bits.Shift(value, 0 - 1));
+		Int mode = Bits.And(3, Bits.Shift(value, 0 - 3));
+		Bool present = Bits.BitSet(value, 5);
+		Bool redEye = Bits.BitSet(value, 6);
+		IPTList l = new PTCons(new PTS(true, syms.Intern(Txt.PushWord(Txt.Empty(), 35914234499511026)), Interps.Boolean(redEye)), new PTNil());
+		l = new PTCons(new PTS(true, syms.Intern(Txt.PushWord(Txt.Empty(), 35979827386874224)), Interps.Boolean(present)), l);
+		l = new PTCons(new PTS(true, syms.Intern(Txt.PushWord(Txt.Empty(), 213465069)), Exif.FlashMode(mode)), l);
+		l = new PTCons(new PTS(true, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7627047691465077490), 1913959)), Exif.FlashReturn(ret)), l);
+		l = new PTCons(new PTS(true, syms.Intern(Txt.PushWord(Txt.Empty(), 2191720756454)), Interps.Boolean(fired)), l);
+		return Interps.Alist(l);
+	}
+}
+
+# exif.rkt's module-level tables
+class ExifStateS implements IExifState
+{
+	private readonly ArrayList<Int> tagKeys;
+	private readonly ArrayList<Int> tagSyms;
+	private readonly ArrayList<Int> viSyms;
+	private readonly ArrayList<IValueInterpreter> vis;
+	private readonly ArrayList<ITypeParser> parsers;
+	public constructor()
+	{
+		tagKeys = new ArrayList<Int>();
+		tagSyms = new ArrayList<Int>();
+		viSyms = new ArrayList<Int>();
+		vis = new ArrayList<IValueInterpreter>();
+		parsers = new ArrayList<ITypeParser>();
+	}
+	# hash-set! on *exif-tag-names*
+	public fun SetTagName(Int tag, Int sym) : Int
+	{
+		tagKeys.Add(tag);
+		tagSyms.Add(sym);
+		return 0;
+	}
+	# hash-set! on *value-interpreters*
+	public fun SetInterpreter(Int sym, IValueInterpreter vi) : Int
+	{
+		viSyms.Add(sym);
+		vis.Add(vi);
+		return 0;
+	}
+	public fun AddParser(ITypeParser p) : Int
+	{
+		parsers.Add(p);
+		return 0;
+	}
+	# -1 for #f
+	public fun TagName(Int tag) : Int
+	{
+		Int i = 0;
+		while (i < tagKeys.Length())
+		{
+			if (tagKeys.Get(i) == tag)
+			{
+				return tagSyms.Get(i);
+			}
+			i = i + 1;
+		}
+		return 0 - 1;
+	}
+	public fun HasInterpreter(Int sym) : Bool
+	{
+		Int i = 0;
+		while (i < viSyms.Length())
+		{
+			if (viSyms.Get(i) == sym)
+			{
+				return true;
+			}
+			i = i + 1;
+		}
+		return false;
+	}
+	public fun Interpreter(Int sym) : IValueInterpreter
+	{
+		Int i = 0;
+		while (i < viSyms.Length())
+		{
+			if (viSyms.Get(i) == sym)
+			{
+				return vis.Get(i);
+			}
+			i = i + 1;
+		}
+		ERROR("hash-ref: no value found for key");
+	}
+	# *type-widths*: #(#f 1 1 2 4 8 1 1 2 4 8 4 8)
+	public fun TypeWidthCount() : Int
+	{
+		return 13;
+	}
+	public fun TypeWidth(Int type) : Int
+	{
+		if (type == 0)
+		{
+			return 0 - 1;
+		}
+		if (type == 1)
+		{
+			return 1;
+		}
+		if (type == 2)
+		{
+			return 1;
+		}
+		if (type == 3)
+		{
+			return 2;
+		}
+		if (type == 4)
+		{
+			return 4;
+		}
+		if (type == 5)
+		{
+			return 8;
+		}
+		if (type == 6)
+		{
+			return 1;
+		}
+		if (type == 7)
+		{
+			return 1;
+		}
+		if (type == 8)
+		{
+			return 2;
+		}
+		if (type == 9)
+		{
+			return 4;
+		}
+		if (type == 10)
+		{
+			return 8;
+		}
+		if (type == 11)
+		{
+			return 4;
+		}
+		if (type == 12)
+		{
+			return 8;
+		}
+		ERROR("vector-ref: index is out of range");
+	}
+	public fun TypeParserCount() : Int
+	{
+		return 13;
+	}
+	public fun HasTypeParser(Int type) : Bool
+	{
+		return type != 0;
+	}
+	public fun TypeParser(Int type) : ITypeParser
+	{
+		return parsers.Get(type - 1);
+	}
+}
+
+class Exif
+{
+	public static fun MakeState(ISymbols syms) : IExifState
+	{
+		ExifStateS st = new ExifStateS();
+		st.SetTagName(256, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7265394089954670313), 13428)));
+		st.SetTagName(257, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7983669852008642281), 1718887)));
+		st.SetTagName(258, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3307216089707787490), 3499561283827)));
+		st.SetTagName(259, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7631295895146559459), 14191)));
+		st.SetTagName(262, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8280315892871197808), 8135075045114081769), 62416317155455730)));
+		st.SetTagName(274, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7631780194561980783), 14191)));
+		st.SetTagName(277, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8096292555061948659), 61246949257083237)));
+		st.SetTagName(284, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8054326838972413552), 7631780127725745006), 14191)));
+		st.SetTagName(530, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8312460853468780281), 7627342321652822389), 13294)));
+		st.SetTagName(531, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8096288071354996473), 7985932716759218671), 103)));
+		st.SetTagName(282, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8425024886987855608), 1816553)));
+		st.SetTagName(283, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8425024886987855609), 1816553)));
+		st.SetTagName(296, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8058016906029626098), 4014147983086)));
+		st.SetTagName(273, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7407785246755437171), 243086067)));
+		st.SetTagName(278, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3307216089707837426), 30286854771)));
+		st.SetTagName(279, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8427230437796788851), 65253229251319525)));
+		st.SetTagName(513, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7343606597613615210), 7375655111256322546), 31343737199)));
+		st.SetTagName(514, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7343606597613615210), 7375655111256322546), 7983669856022788463), 1718887)));
+		st.SetTagName(301, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3307215764890089844), 62416317159553766)));
+		st.SetTagName(318, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7629028973566653559), 14958)));
+		st.SetTagName(319, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7159570664565406064), 7622245226253121896), 242840820)));
+		st.SetTagName(529, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7159539348861933305), 7983658514366706415), 14836)));
+		st.SetTagName(532, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7334036329484366578), 7561182439766962477), 1669737)));
+		st.SetTagName(306, syms.Intern(Txt.PushWord(Txt.Empty(), 7339644335660282084)));
+		st.SetTagName(270, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8343922637826193129), 62416317186734435)));
+		st.SetTagName(271, syms.Intern(Txt.PushWord(Txt.Empty(), 213577965)));
+		st.SetTagName(272, syms.Intern(Txt.PushWord(Txt.Empty(), 29204494317)));
+		st.SetTagName(305, syms.Intern(Txt.PushWord(Txt.Empty(), 57362687681214451)));
+		st.SetTagName(315, syms.Intern(Txt.PushWord(Txt.Empty(), 4016821844321)));
+		st.SetTagName(33432, syms.Intern(Txt.PushWord(Txt.Empty(), 8417684340975876067)));
+		st.SetTagName(36864, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8351247878493731941), 1816553)));
+		st.SetTagName(40960, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3310611397451740774), 487627475956470)));
+		st.SetTagName(40961, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7053144368835409891), 13027)));
+		st.SetTagName(42240, syms.Intern(Txt.PushWord(Txt.Empty(), 26268627175)));
+		st.SetTagName(37121, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8421053415577843683), 8489187676979255027), 3809589670130)));
+		st.SetTagName(37122, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7343065518994847715), 7341069287437145828), 478491791070962)));
+		st.SetTagName(40962, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7231621492671132912), 62416316914038505)));
+		st.SetTagName(40963, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7231625890717644016), 62416316914038505)));
+		st.SetTagName(37500, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8421653715349074157), 101)));
+		st.SetTagName(37510, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7916130892154239477), 1914725)));
+		st.SetTagName(40964, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8312399368594076402), 7339080904668330735)));
+		st.SetTagName(36867, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7339644335660282084), 7837313722337769389)));
+		st.SetTagName(36868, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7339644335660282084), 7346962701164900909), 100)));
+		st.SetTagName(37520, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8384452564207844083), 1668841)));
+		st.SetTagName(37521, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8384452564207844083), 7624496960971044585), 1781998)));
+		st.SetTagName(37522, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8384452564207844083), 8418247287011636969), 211385705)));
+		st.SetTagName(42016, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7628488013818394345), 3464255601393)));
+		st.SetTagName(42032, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8637542411146064099), 57340694884037358)));
+		st.SetTagName(42033, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7630671835075000290), 8271858451027293793)));
+		st.SetTagName(42034, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7191056299952157420), 7989288595862745961)));
+		st.SetTagName(42035, syms.Intern(Txt.PushWord(Txt.Empty(), 7338483010892444396)));
+		st.SetTagName(42036, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7334603933869650668), 108)));
+		st.SetTagName(42037, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7630671835062579948), 8271858451027293793)));
+		st.SetTagName(33434, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105498676325), 213611764)));
+		st.SetTagName(33437, syms.Intern(Txt.PushWord(Txt.Empty(), 64623894148650726)));
+		st.SetTagName(34850, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105498676325), 482750783814000)));
+		st.SetTagName(34852, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3303820885545810035), 7632941277528175347), 15604)));
+		st.SetTagName(34855, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8125561624126551152), 7631273905041765608), 4188889003252)));
+		st.SetTagName(34856, syms.Intern(Txt.PushWord(Txt.Empty(), 215544559)));
+		st.SetTagName(34864, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7632941277528175347), 448083713031412)));
+		st.SetTagName(34865, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299391464321612403), 7342758171940567791), 8784736950949673454)));
+		st.SetTagName(34866, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7268131876072125170), 8495969810959266405), 531262990873330)));
+		st.SetTagName(34867, syms.Intern(Txt.PushWord(Txt.Empty(), 7263065431042947561)));
+		st.SetTagName(34868, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7263065431042947561), 7334630578774898221), 255753389)));
+		st.SetTagName(34869, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7263065431042947561), 7334630578774898221), 257867053)));
+		st.SetTagName(37377, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8312460941285225587), 8491967774658753264), 101)));
+		st.SetTagName(37378, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105773221985), 27359129846)));
+		st.SetTagName(37379, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8343969058638166370), 448251983402739)));
+		st.SetTagName(37380, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105498676325), 8491967774690145506), 101)));
+		st.SetTagName(37381, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8423305280212578541), 7344160496070261109)));
+		st.SetTagName(37382, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7231605754042039027), 447634044959209)));
+		st.SetTagName(37383, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3301063000613270253), 213465069)));
+		st.SetTagName(37384, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8493733300162655468), 1667570)));
+		st.SetTagName(37385, syms.Intern(Txt.PushWord(Txt.Empty(), 28160063078)));
+		st.SetTagName(37386, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7983669853875140582), 1718887)));
+		st.SetTagName(37396, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7015432971928255219), 1602290)));
+		st.SetTagName(41483, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7340187269752976998), 1995762)));
+		st.SetTagName(41484, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7375685690121025651), 3311147889605767922), 57367530248663794)));
+		st.SetTagName(41486, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7050879373242071014), 8063580314893251310), 3809589672684)));
+		st.SetTagName(41487, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7050879373242071014), 8063580314895348462), 3809589672684)));
+		st.SetTagName(41488, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7050879373242071014), 8492029259291521774), 8418278471026603252)));
+		st.SetTagName(41492, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7808066506345462515), 487627477774831)));
+		st.SetTagName(41493, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105498676325), 32425719657)));
+		st.SetTagName(41495, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7880067304828678899), 27078048357)));
+		st.SetTagName(41728, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8280923011699913958), 13027)));
+		st.SetTagName(41729, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8139079223539757555), 101)));
+		st.SetTagName(41730, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7343632728878248803), 14194)));
+		st.SetTagName(41985, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7342194979866737379), 3463326560878)));
+		st.SetTagName(41986, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105498676325), 213465069)));
+		st.SetTagName(41987, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7837258883681383543), 213448545)));
+		st.SetTagName(41988, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8816837573809403108), 8058016220306962415)));
+		st.SetTagName(41989, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7983669853875140582), 3847964651580701287), 483126321837805)));
+		st.SetTagName(41990, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8125493657866957299), 7341403554264693492)));
+		st.SetTagName(41991, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8421097000364830951), 1783794)));
+		st.SetTagName(41992, syms.Intern(Txt.PushWord(Txt.Empty(), 65811333686999011)));
+		st.SetTagName(41993, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8058016220458070259), 110)));
+		st.SetTagName(41994, syms.Intern(Txt.PushWord(Txt.Empty(), 8351810571579454579)));
+		st.SetTagName(41995, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7342757651698004708), 7334313884517038708), 7989288599902007795)));
+		st.SetTagName(41996, syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7231605754042039027), 8240346102272702953), 213514081)));
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7631780194561980783), 14191)), new VIOrientation());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8280315892871197808), 8135075045114081769), 62416317155455730)), new VIPhotometricInterpretation());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8054326838972413552), 7631780127725745006), 14318)), new VIPlanarConfiguratino());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8096288071354996473), 7985932716759218671), 103)), new VIYCbCrPositioning());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8058016906029626098), 4014147983086)), new VIResolutionUnit());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7050879373242071014), 8492029259291521774), 8418278471026603252)), new VIFocalPlaneResolutionUnit());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7631295895146559459), 14191)), new VICompression());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7053144368835409891), 13027)), new VIColorSpace());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105498676325), 482750783814000)), new VIExposureProgram());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7632941277528175347), 448083713031412)), new VISensitivityType());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3301063000613270253), 213465069)), new VIMeteringMode());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8493733300162655468), 1667570)), new VILightSource());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.Empty(), 28160063078)), new VIFlash(syms));
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7880067304828678899), 27078048357)), new VISensingMethod());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8280923011699913958), 13027)), new VIFileSource());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7342194979866737379), 3463326560878)), new VICustomRendered());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3299955105498676325), 213465069)), new VIExposureMode());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7837258883681383543), 213448545)), new VIWhiteBalance());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7045520386057613811), 8139079223548410480), 101)), new VIScreenCaptureType());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8421097000364830951), 1783794)), new VIGainControl());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.Empty(), 65811333686999011)), new VIContrast());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8058016220458070259), 110)), new VISaturation());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.Empty(), 8351810571579454579)), new VISharpness());
+		st.SetInterpreter(syms.Intern(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7231605754042039027), 8240346102272702953), 213514081)), new VISubjectDistanceRange());
+		st.AddParser(new TPByte());
+		st.AddParser(new TPUnreachable());
+		st.AddParser(new TPShort());
+		st.AddParser(new TPLong());
+		st.AddParser(new TPRational());
+		st.AddParser(new TPSByte());
+		st.AddParser(new TPUnreachable());
+		st.AddParser(new TPSShort());
+		st.AddParser(new TPSLong());
+		st.AddParser(new TPRational());
+		st.AddParser(new TPFloat());
+		st.AddParser(new TPDouble());
+		return st;
+	}
+
+	public static fun FlashReturn(Int v) : IInterp
+	{
+		if (v == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7841760592273422286), 213594465));
+		}
+		if (v == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 487903953876821));
+		}
+		if (v == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7191073425691850702), 1651444));
+		}
+		if (v == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 56743210558239428));
+		}
+		return Interps.VoidValue();
+	}
+
+	public static fun FlashMode(Int v) : IInterp
+	{
+		if (v == 0)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 487903953876821));
+		}
+		if (v == 1)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8277562682997700547), 58471268914663545));
+		}
+		if (v == 2)
+		{
+			return Interps.Str(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8280940382718228419), 8343986515562254457), 232518899));
+		}
+		if (v == 3)
+		{
+			return Interps.Str(Txt.PushWord(Txt.Empty(), 234699457));
+		}
+		return Interps.VoidValue();
+	}
+
+	public static fun TypeWidth(IExifState st, Int type) : Int
+	{
+		if (type < st.TypeWidthCount())
+		{
+			return st.TypeWidth(type);
+		}
+		return 0 - 1;
+	}
+
+	public static fun AssertNat(IInterp v) : Int
+	{
+		if (v.Kind() != 0)
+		{
+			ERROR("assert: natural?");
+		}
+		return v.Nat();
+	}
+
+	public static fun ReadValue(IBytes bv, Int pos, Int order, Int type, Int count, IExifState st) : IInterp
+	{
+		if (type == 2)
+		{
+			# ASCII
+			if (count > 0)
+			{
+				IBytes res = Bytevectors.MakeBytevector(count - 1);
+				Bytevectors.BytevectorCopyBang(bv, pos, res, 0, count - 1);
+				return Interps.Str(Bytevectors.Utf8ToString(res));
+			}
+			return Interps.Str(Txt.Empty());
+		}
+		if (type == 7)
+		{
+			# UNDEFINED
+			IBytes res2 = Bytevectors.MakeBytevector(count);
+			Bytevectors.BytevectorCopyBang(bv, pos, res2, 0, count);
+			return Interps.Bs(res2);
+		}
+		if (type >= st.TypeParserCount())
+		{
+			return Interps.Boolean(false);
+		}
+		if (!st.HasTypeParser(type))
+		{
+			return Interps.Boolean(false);
+		}
+		ITypeParser parser = st.TypeParser(type);
+		if (count == 1)
+		{
+			return parser(new ParseArgs(bv, pos, order));
+		}
+		IVec res3 = Builtins.MakeVector(count, 0);
+		Int width = BitPorts.AssertNatural(Exif.TypeWidth(st, type));
+		Int n = 0;
+		Int p = pos;
+		while (n < count)
+		{
+			res3.Set(n, Exif.AssertNat(parser(new ParseArgs(bv, p, order))));
+			n = n + 1;
+			p = p + width;
+		}
+		return Interps.Vec(res3);
+	}
+
+	public static fun InterpretValue(Bool isSymbol, Int name, IInterp value, IExifState st) : IInterp
+	{
+		if (isSymbol)
+		{
+			if (st.HasInterpreter(name))
+			{
+				IValueInterpreter interpret = st.Interpreter(name);
+				return interpret(Exif.AssertNat(value));
+			}
+		}
+		return value;
+	}
+
+	public static fun InlineValue(Int type, Int count, IExifState st) : Bool
+	{
+		Int byteWidth = Exif.TypeWidth(st, type);
+		if (byteWidth < 0)
+		{
+			return false;
+		}
+		return byteWidth * count <= 4;
+	}
+
+	public static fun ParseTags(IBytes bv, Int pos0, Int order, Int maxDepth, Int tagCount, Int n, IExifState st) : IPTList
+	{
+		if (n >= tagCount)
+		{
+			return new PTNil();
+		}
+		Int pos = pos0 + 2 + n * 12;
+		Int tag = Bytevectors.U16Ref(bv, pos, order);
+		Int sym = st.TagName(tag);
+		Int type = Bytevectors.U16Ref(bv, pos + 2, order);
+		Int count = Bytevectors.U32Ref(bv, pos + 4, order);
+		Int offset = Exif.Offset(bv, pos, order, type, count, st);
+		IInterp value = Exif.ReadValue(bv, offset, order, type, count, st);
+		if (tag == 34665)
+		{
+			# Nested EXIF information.
+			if (value.Kind() == 0)
+			{
+				if (maxDepth > 0)
+				{
+					IPTsList nested = Exif.ParseIfdChain(bv, value.Nat(), order, maxDepth - 1, st);
+					if (nested.IsEmpty())
+					{
+						ERROR("match: no matching clause");
+					}
+					if (!nested.Rest().IsEmpty())
+					{
+						ERROR("match: no matching clause");
+					}
+					return Builtins.AppendPTs(nested.First(), Exif.ParseTags(bv, pos0, order, maxDepth, tagCount, n + 1, st));
+				}
+			}
+		}
+		IInterp valueStar = Exif.InterpretValue(Exif.IsSym(sym), Exif.NameOf(sym, tag), value, st);
+		return new PTCons(new PTS(Exif.IsSym(sym), Exif.NameOf(sym, tag), valueStar), Exif.ParseTags(bv, pos0, order, maxDepth, tagCount, n + 1, st));
+	}
+
+	public static fun IsSym(Int sym) : Bool
+	{
+		if (sym >= 0)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	# (or (hash-ref *exif-tag-names* tag #f) tag)
+	public static fun NameOf(Int sym, Int tag) : Int
+	{
+		if (sym >= 0)
+		{
+			return sym;
+		}
+		return tag;
+	}
+
+	public static fun Offset(IBytes bv, Int pos, Int order, Int type, Int count, IExifState st) : Int
+	{
+		if (Exif.InlineValue(type, count, st))
+		{
+			return pos + 8;
+		}
+		return Bytevectors.U32Ref(bv, pos + 8, order);
+	}
+
+	public static fun ParseIfdChain(IBytes bv, Int pos, Int order, Int maxDepth, IExifState st) : IPTsList
+	{
+		Int tagCount = Bytevectors.U16Ref(bv, pos, order);
+		Int nextPosOffset = pos + 2 + tagCount * 12;
+		Int nextPos = Bytevectors.U32Ref(bv, nextPosOffset, order);
+		IPTList tags = Exif.ParseTags(bv, pos, order, maxDepth, tagCount, 0, st);
+		if (nextPos == 0)
+		{
+			return new PTsCons(tags, new PTsNil());
+		}
+		if (maxDepth <= 0)
+		{
+			return new PTsCons(tags, new PTsNil());
+		}
+		return new PTsCons(tags, Exif.ParseIfdChain(bv, nextPos, order, maxDepth - 1, st));
+	}
+
+	public static fun ParseByteOrder(Int b0, Int b1) : Int
+	{
+		if (b0 != b1)
+		{
+			ERROR("Bad TIFF header prefix");
+		}
+		if (b0 == 73)
+		{
+			return 0;
+		}
+		if (b0 == 77)
+		{
+			return 1;
+		}
+		ERROR("Bad TIFF header byte order");
+	}
+
+	public static fun ParseExif(IBytes bv, IExifState st) : IPTsList
+	{
+		Int order = Exif.ParseByteOrder(Bytevectors.U8Ref(bv, 0), Bytevectors.U8Ref(bv, 1));
+		if (Bytevectors.U16Ref(bv, 2, order) != 42)
+		{
+			ERROR("Bad TIFF header magic value");
+		}
+		Int ifd0 = Bytevectors.U32Ref(bv, 4, order);
+		# Root IFD -> embedded EXIF -> one more
+		return Exif.ParseIfdChain(bv, ifd0, order, 3, st);
+	}
+}

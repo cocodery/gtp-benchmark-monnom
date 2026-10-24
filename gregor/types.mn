@@ -1,0 +1,150 @@
+# The adapter modules core-adapter.rkt (YMD, HMSN), gregor-adapter.rkt (Date, Time, DateTime,
+# Moment), tzinfo-adapter.rkt (tzoffset, tzgap, tzoverlap, tz) and base/types.rkt (Month), plus
+# the types of the Racket builtins the benchmark uses (strings, exact rationals, parameters).
+#   Month (U 1 .. 12) is an Int.
+
+# a string: a sequence of character codes (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# an exact rational number Whole + Num / Den with 0 <= Num < Den and (gcd Num Den) = 1
+interface IRat
+{
+	fun Whole() : Int;
+	fun Num() : Int;
+	fun Den() : Int;
+}
+
+# an exact integer Days * NS/DAY + Ns that may not fit in 64 bits (a Racket bignum); the result
+# of datetime-nanoseconds-between
+interface IBig
+{
+	fun Days() : Int;
+	fun Ns() : Int;
+}
+
+# tz = (U String Integer), also (U String #f) and (U tz #f): Kind 0 = #f, 1 = string, 2 = integer
+interface ITz
+{
+	fun Kind() : Int;
+	fun Name() : IText;
+	fun Offset() : Int;
+}
+
+# (struct YMD (y m d))
+interface IYMD
+{
+	fun Y() : Int;
+	fun M() : Int;
+	fun D() : Int;
+}
+
+# (struct HMSN (h m s n))
+interface IHMSN
+{
+	fun H() : Int;
+	fun M() : Int;
+	fun S() : Int;
+	fun N() : Int;
+}
+
+# (struct Date (ymd jdn))
+interface IDate
+{
+	fun Ymd() : IYMD;
+	fun Jdn() : Int;
+}
+
+# (struct Time (hmsn ns))
+interface ITime
+{
+	fun Hmsn() : IHMSN;
+	fun Ns() : Int;
+}
+
+# (struct DateTime (date time jd))
+interface IDateTime
+{
+	fun DateOf() : IDate;
+	fun TimeOf() : ITime;
+	fun Jd() : IRat;
+}
+
+# (struct Moment (datetime/local utc-offset zone)); also (U #f Moment): IsFalse
+interface IMoment
+{
+	fun IsFalse() : Bool;
+	fun DatetimeLocal() : IDateTime;
+	fun UtcOffset() : Int;
+	fun Zone() : ITz;
+}
+
+# (struct tzoffset (utc-seconds dst? abbreviation))
+interface ITzOffset
+{
+	fun UtcSeconds() : Int;
+	fun IsDst() : Bool;
+	fun Abbreviation() : IText;
+}
+
+# (U tzoffset tzgap tzoverlap): Kind 0 = tzoffset (AsOffset), 1 = tzgap (StartsAt, OffsetBefore,
+# OffsetAfter), 2 = tzoverlap (OffsetBefore, OffsetAfter)
+interface ITzResult
+{
+	fun Kind() : Int;
+	fun AsOffset() : ITzOffset;
+	fun StartsAt() : Int;
+	fun OffsetBefore() : ITzOffset;
+	fun OffsetAfter() : ITzOffset;
+}
+
+# the arguments (g/o target-dt target-tzid orig) of an offset resolver
+interface IResolveArgs
+{
+	fun GapOrOverlap() : ITzResult;
+	fun TargetDt() : IDateTime;
+	fun TargetTzid() : ITz;
+	fun Orig() : IMoment;
+}
+
+# (-> (U tzgap tzoverlap) DateTime (U String #f) (U #f Moment) Moment)
+interface IResolver
+{
+	fun this(IResolveArgs a) : IMoment;
+}
+
+# (-> Exact-Rational): the value of current-clock
+interface IClock
+{
+	fun this() : IRat;
+}
+
+# the tzinfo source (base/tzinfo): utc-seconds->tzoffset and local-seconds->tzoffset
+interface ITzSource
+{
+	fun UtcSecondsToTzOffset(IText tzid, IRat seconds) : ITzOffset;
+	fun LocalSecondsToTzOffset(IText tzid, Int seconds) : ITzResult;
+}
+
+# the parameters current-clock, current-timezone (moment.rkt) and current-tzinfo-source (tzinfo)
+interface IParams
+{
+	fun CurrentClock() : IClock;
+	fun SetCurrentClock(IClock c) : Int;
+	fun CurrentTimezone() : ITz;
+	fun SetCurrentTimezone(ITz z) : Int;
+	fun TzinfoSource() : ITzSource;
+}
+
+# (Listof IDateTime)
+interface IDateTimeList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IDateTime;
+	fun Rest() : IDateTimeList;
+}
+

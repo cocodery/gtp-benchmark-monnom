@@ -1,0 +1,596 @@
+# data.rkt: the label, node and suffix-tree structs
+# (also contains label.rkt, merged here to keep the configuration count down).
+
+class Label implements ILabel
+{
+	private readonly IVec datum;
+	private Int i;
+	private Int j;
+	public constructor(IVec d, Int i0, Int j0)
+	{
+		datum = d;
+		i = i0;
+		j = j0;
+	}
+	public fun Datum() : IVec
+	{
+		return datum;
+	}
+	public fun I() : Int
+	{
+		return i;
+	}
+	public fun J() : Int
+	{
+		return j;
+	}
+	public fun SetI(Int v) : Int
+	{
+		i = v;
+		return v;
+	}
+	public fun SetJ(Int v) : Int
+	{
+		j = v;
+		return v;
+	}
+}
+
+class Node implements INode
+{
+	private ILabel upLabel;
+	private INode parent;
+	private INodeList children;
+	private INode suffixLink;
+	private Int hashId;
+	public constructor(ILabel l, INode p, INodeList c, INode s)
+	{
+		upLabel = l;
+		parent = p;
+		children = c;
+		suffixLink = s;
+		hashId = 0;
+	}
+	public fun IsFalse() : Bool
+	{
+		return false;
+	}
+	public fun UpLabel() : ILabel
+	{
+		return upLabel;
+	}
+	public fun Parent() : INode
+	{
+		return parent;
+	}
+	public fun Children() : INodeList
+	{
+		return children;
+	}
+	public fun SuffixLink() : INode
+	{
+		return suffixLink;
+	}
+	public fun SetUpLabel(ILabel l) : Int
+	{
+		upLabel = l;
+		return 0;
+	}
+	public fun SetParent(INode p) : Int
+	{
+		parent = p;
+		return 0;
+	}
+	public fun SetChildren(INodeList c) : Int
+	{
+		children = c;
+		return 0;
+	}
+	public fun SetSuffixLink(INode n) : Int
+	{
+		suffixLink = n;
+		return 0;
+	}
+	public fun HashId() : Int
+	{
+		return hashId;
+	}
+	public fun SetHashId(Int i) : Int
+	{
+		hashId = i;
+		return i;
+	}
+}
+
+# #f where a node is expected
+class NoNode implements INode
+{
+	public constructor()
+	{
+	}
+	public fun IsFalse() : Bool
+	{
+		return true;
+	}
+	public fun UpLabel() : ILabel
+	{
+		ERROR("node-up-label: contract violation");
+	}
+	public fun Parent() : INode
+	{
+		ERROR("node-parent: contract violation");
+	}
+	public fun Children() : INodeList
+	{
+		ERROR("node-children: contract violation");
+	}
+	public fun SuffixLink() : INode
+	{
+		ERROR("node-suffix-link: contract violation");
+	}
+	public fun SetUpLabel(ILabel l) : Int
+	{
+		ERROR("contract violation");
+	}
+	public fun SetParent(INode p) : Int
+	{
+		ERROR("contract violation");
+	}
+	public fun SetChildren(INodeList c) : Int
+	{
+		ERROR("contract violation");
+	}
+	public fun SetSuffixLink(INode n) : Int
+	{
+		ERROR("contract violation");
+	}
+	public fun HashId() : Int
+	{
+		ERROR("contract violation");
+	}
+	public fun SetHashId(Int i) : Int
+	{
+		ERROR("contract violation");
+	}
+}
+
+class SuffixTree implements ITree
+{
+	private readonly INode root;
+	public constructor(INode r)
+	{
+		root = r;
+	}
+	public fun Root() : INode
+	{
+		return root;
+	}
+}
+
+class Data
+{
+	public static fun MakeLabel(IVec datum, Int i, Int j) : ILabel
+	{
+		return new Label(datum, i, j);
+	}
+	public static fun MakeNode(ILabel l, INode parent, INodeList children, INode suffixLink) : INode
+	{
+		return new Node(l, parent, children, suffixLink);
+	}
+	public static fun MakeSuffixTree(INode root) : ITree
+	{
+		return new SuffixTree(root);
+	}
+	public static fun False() : INode
+	{
+		return new NoNode();
+	}
+}
+
+# ---------------------------------------------------------------- label.rkt
+class Labels
+{
+	# label-element-equal? = equal?
+	public static fun ElementEqual(Int a, Int b) : Bool
+	{
+		return a == b;
+	}
+
+	# ext:make-label on a string
+	public static fun MakeLabelFromString(IText s) : ILabel
+	{
+		return Labels.StringToLabel(s);
+	}
+
+	# ext:make-label on a vector
+	public static fun MakeLabelFromVector(IVec v) : ILabel
+	{
+		return Labels.VectorToLabel(v);
+	}
+
+	public static fun MakeSentinel(IGensym g) : Int
+	{
+		return 0 - g.Next();
+	}
+
+	public static fun IsSentinel(Int datum) : Bool
+	{
+		return datum < 0;
+	}
+
+	public static fun VectorToLabel(IVec v) : ILabel
+	{
+		return Data.MakeLabel(Builtins.CopyVector(v), 0, v.Length());
+	}
+
+	public static fun VectorToLabelWithSentinel(IVec v, IGensym g) : ILabel
+	{
+		Int n = v.Length();
+		IVec w = Builtins.MakeVector(n + 1, Labels.MakeSentinel(g));
+		Int i = 0;
+		while (i < n)
+		{
+			w.Set(i, v.Ref(i));
+			i = i + 1;
+		}
+		return Labels.VectorToLabel(w);
+	}
+
+	public static fun StringToLabel(IText s) : ILabel
+	{
+		return Labels.VectorToLabel(Builtins.StringToVector(s));
+	}
+
+	public static fun StringToLabelWithSentinel(IText s, IGensym g) : ILabel
+	{
+		return Labels.VectorToLabelWithSentinel(Builtins.StringToVector(s), g);
+	}
+
+	public static fun LabelLength(ILabel l) : Int
+	{
+		Int len = l.J() - l.I();
+		if (len < 0)
+		{
+			ERROR("label-length");
+		}
+		return len;
+	}
+
+	public static fun LabelRef(ILabel l, Int k) : Int
+	{
+		if (k < 0)
+		{
+			ERROR("label ref INDEX");
+		}
+		return l.Datum().Ref(k + l.I());
+	}
+
+	public static fun Sublabel(ILabel l, Int i) : ILabel
+	{
+		return Labels.Sublabel2(l, i, Labels.LabelLength(l));
+	}
+
+	public static fun Sublabel2(ILabel l, Int i, Int j) : ILabel
+	{
+		if (i > j)
+		{
+			ERROR("sublabel: illegal sublabel");
+		}
+		return Data.MakeLabel(l.Datum(), i + l.I(), j + l.I());
+	}
+
+	public static fun SublabelBang(ILabel l, Int i) : Int
+	{
+		return Labels.SublabelBang2(l, i, Labels.LabelLength(l));
+	}
+
+	public static fun SublabelBang2(ILabel l, Int i, Int j) : Int
+	{
+		l.SetJ(j + l.I());
+		l.SetI(i + l.I());
+		return 0;
+	}
+
+	public static fun LabelPrefix(ILabel prefix, ILabel other) : Bool
+	{
+		Int m = Labels.LabelLength(prefix);
+		Int n = Labels.LabelLength(other);
+		if (m > n)
+		{
+			return false;
+		}
+		Int k = 0;
+		while (k < m)
+		{
+			if (Labels.LabelRef(prefix, k) != Labels.LabelRef(other, k))
+			{
+				return false;
+			}
+			k = k + 1;
+		}
+		return true;
+	}
+
+	public static fun LabelEqual(ILabel l1, ILabel l2) : Bool
+	{
+		if (Labels.LabelLength(l1) == Labels.LabelLength(l2))
+		{
+			return Labels.LabelPrefix(l1, l2);
+		}
+		return false;
+	}
+
+	public static fun LabelEmpty(ILabel l) : Bool
+	{
+		return l.I() >= l.J();
+	}
+
+	public static fun LabelToString(ILabel l) : IText
+	{
+		IVec v = Labels.LabelToVector(l);
+		IText s = Builtins.EmptyText();
+		Int i = 0;
+		while (i < v.Length())
+		{
+			Int c = v.Ref(i);
+			if (c < 0)
+			{
+				ERROR("label->string invariant broken");
+			}
+			s.Push(c);
+			i = i + 1;
+		}
+		return s;
+	}
+
+	public static fun LabelToVector(ILabel l) : IVec
+	{
+		Int n = Labels.LabelLength(l);
+		IVec buffer = Builtins.MakeVector(n, 0);
+		Int i = 0;
+		while (i < n)
+		{
+			buffer.Set(i, Labels.LabelRef(l, i));
+			i = i + 1;
+		}
+		return Builtins.CopyVector(buffer);
+	}
+
+	public static fun LabelCopy(ILabel l) : ILabel
+	{
+		return Data.MakeLabel(l.Datum(), l.I(), l.J());
+	}
+
+	public static fun LabelRefAtEnd(ILabel l, Int offset) : Bool
+	{
+		return offset == Labels.LabelLength(l);
+	}
+
+	public static fun LabelSameSource(ILabel l1, ILabel l2) : Bool
+	{
+		return l1.Datum() == l2.Datum();
+	}
+
+	public static fun LabelSourceEq(ILabel l1, ILabel l2) : Bool
+	{
+		return Labels.LabelSameSource(l1, l2);
+	}
+}
+
+# ---- structs.rkt ----
+# structs.rkt: suffix-tree operations (tree-contains?, unused by the benchmark, is not ported).
+
+class NodePair implements INodePair
+{
+	private readonly INode fst;
+	private readonly INode snd;
+	public constructor(INode a, INode b)
+	{
+		fst = a;
+		snd = b;
+	}
+	public fun Fst() : INode
+	{
+		return fst;
+	}
+	public fun Snd() : INode
+	{
+		return snd;
+	}
+}
+
+class Structs
+{
+	public static fun NewSuffixTree() : ITree
+	{
+		INode root = Data.MakeNode(Labels.MakeLabelFromVector(Builtins.MakeVector(0, 0)), Data.False(), new NodeNil(), Data.False());
+		return Data.MakeSuffixTree(root);
+	}
+
+	public static fun MakeTree() : ITree
+	{
+		return Structs.NewSuffixTree();
+	}
+
+	public static fun TreeRoot(ITree t) : INode
+	{
+		return t.Root();
+	}
+
+	public static fun NodeIsRoot(INode n) : Bool
+	{
+		return n.Parent().IsFalse();
+	}
+
+	public static fun NodeAddLeaf(INode n, ILabel l) : INode
+	{
+		INode leaf = Data.MakeNode(l, n, new NodeNil(), Data.False());
+		Structs.NodeAddChild(n, leaf);
+		return leaf;
+	}
+
+	public static fun NodeAddChild(INode n, INode child) : Int
+	{
+		return n.SetChildren(new NodeCons(child, n.Children()));
+	}
+
+	public static fun NodeRemoveChild(INode n, INode child) : Int
+	{
+		return n.SetChildren(Builtins.Remq(child, n.Children()));
+	}
+
+	public static fun NodeIsLeaf(INode n) : Bool
+	{
+		return n.Children().IsEmpty();
+	}
+
+	# (U Node #f)
+	public static fun NodeFindChild(INode n, Int labelElement) : INode
+	{
+		INodeList children = n.Children();
+		while (!children.IsEmpty())
+		{
+			if (Labels.ElementEqual(labelElement, Labels.LabelRef(children.First().UpLabel(), 0)))
+			{
+				return children.First();
+			}
+			children = children.Rest();
+		}
+		return Data.False();
+	}
+
+	public static fun NodeUpSplit(INode n, Int offset) : INode
+	{
+		ILabel l = n.UpLabel();
+		ILabel preLabel = Labels.Sublabel2(l, 0, offset);
+		ILabel postLabel = Labels.Sublabel(l, offset);
+		INode parent = n.Parent();
+		# (children-list node) = (list node)
+		INode newNode = Data.MakeNode(preLabel, parent, new NodeCons(n, new NodeNil()), Data.False());
+		n.SetUpLabel(postLabel);
+		if (parent.IsFalse())
+		{
+			ERROR("node-up-split!");
+		}
+		Structs.NodeRemoveChild(parent, n);
+		n.SetParent(newNode);
+		Structs.NodeAddChild(parent, newNode);
+		return newNode;
+	}
+
+	public static fun NodeUpSpliceLeaf(INode n, Int offset, ILabel leafLabel) : INodePair
+	{
+		INode splitNode = Structs.NodeUpSplit(n, offset);
+		INode leaf = Structs.NodeAddLeaf(splitNode, leafLabel);
+		return new NodePair(splitNode, leaf);
+	}
+
+	public static fun NodeFollowK(INode n, ILabel originalLabel, IMatchedAtNodeK matchedAtNode, IMatchedInEdgeK matchedInEdge, IMismatchedAtNodeK mismatchedAtNode, IMismatchedInEdgeK mismatchedInEdge) : INodeIndex
+	{
+		return Structs.NodeK(n, Labels.LabelCopy(originalLabel), 0, matchedAtNode, matchedInEdge, mismatchedAtNode, mismatchedInEdge);
+	}
+
+	# EDGE/k
+	public static fun EdgeK(INode n, ILabel label, Int labelOffset, IMatchedAtNodeK matchedAtNode, IMatchedInEdgeK matchedInEdge, IMismatchedAtNodeK mismatchedAtNode, IMismatchedInEdgeK mismatchedInEdge) : INodeIndex
+	{
+		ILabel upLabel = n.UpLabel();
+		Int k = 0;
+		while (true)
+		{
+			Int kLabelOffset = k + labelOffset;
+			if (k == Labels.LabelLength(upLabel))
+			{
+				return Structs.NodeK(n, label, kLabelOffset, matchedAtNode, matchedInEdge, mismatchedAtNode, mismatchedInEdge);
+			}
+			if (kLabelOffset == Labels.LabelLength(label))
+			{
+				return matchedInEdge(n, k);
+			}
+			if (Labels.ElementEqual(Labels.LabelRef(upLabel, k), Labels.LabelRef(label, kLabelOffset)))
+			{
+				k = k + 1;
+				continue;
+			}
+			IMismatchIn args = new MismatchIn(n, k, label, kLabelOffset);
+			return mismatchedInEdge(args);
+		}
+		ERROR("unreachable");
+	}
+
+	# NODE/k
+	public static fun NodeK(INode n, ILabel label, Int labelOffset, IMatchedAtNodeK matchedAtNode, IMatchedInEdgeK matchedInEdge, IMismatchedAtNodeK mismatchedAtNode, IMismatchedInEdgeK mismatchedInEdge) : INodeIndex
+	{
+		if (Labels.LabelLength(label) == labelOffset)
+		{
+			return matchedAtNode(n);
+		}
+		INode child = Structs.NodeFindChild(n, Labels.LabelRef(label, labelOffset));
+		if (!child.IsFalse())
+		{
+			return Structs.EdgeK(child, label, labelOffset, matchedAtNode, matchedInEdge, mismatchedAtNode, mismatchedInEdge);
+		}
+		IMismatchAt args = new MismatchAt(n, label, labelOffset);
+		return mismatchedAtNode(args);
+	}
+
+	public static fun NodePositionAtEnd(INode n, Int offset) : Bool
+	{
+		return Labels.LabelRefAtEnd(n.UpLabel(), offset);
+	}
+}
+
+class MismatchAt implements IMismatchAt
+{
+	private readonly INode node;
+	private readonly ILabel label;
+	private readonly Int labelOffset;
+	public constructor(INode n, ILabel l, Int o)
+	{
+		node = n;
+		label = l;
+		labelOffset = o;
+	}
+	public fun Node() : INode
+	{
+		return node;
+	}
+	public fun Label() : ILabel
+	{
+		return label;
+	}
+	public fun LabelOffset() : Int
+	{
+		return labelOffset;
+	}
+}
+
+class MismatchIn implements IMismatchIn
+{
+	private readonly INode node;
+	private readonly Int k;
+	private readonly ILabel label;
+	private readonly Int labelOffset;
+	public constructor(INode n, Int k0, ILabel l, Int o)
+	{
+		node = n;
+		k = k0;
+		label = l;
+		labelOffset = o;
+	}
+	public fun Node() : INode
+	{
+		return node;
+	}
+	public fun K() : Int
+	{
+		return k;
+	}
+	public fun Label() : ILabel
+	{
+		return label;
+	}
+	public fun LabelOffset() : Int
+	{
+		return labelOffset;
+	}
+}

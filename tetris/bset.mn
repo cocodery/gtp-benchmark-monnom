@@ -1,0 +1,243 @@
+# bset.rkt: sets of blocks (BSet = (Listof Block))
+# (also contains block.rkt, merged here to keep the configuration count down).
+# The ormap / andmap / filter / map / foldr calls with lambdas are written as recursive
+# functions over the list.
+
+# block.rkt
+class BlockOps
+{
+	# Determines if two blocks are the same (ignoring color).
+	public static fun BlockEq(IBlock b1, IBlock b2) : Bool
+	{
+		if (BlockOps.NumEq(b1.X(), b2.X()))
+		{
+			return BlockOps.NumEq(b1.Y(), b2.Y());
+		}
+		return false;
+	}
+
+	# (= x y) on Reals; comparing a Float with a value of an untyped interface method directly
+	# makes the runtime emit invalid LLVM code ("Instruction does not dominate all uses")
+	public static fun NumEq(Float x, Float y) : Bool
+	{
+		return x == y;
+	}
+
+	public static fun BlockMove(Float dx, Float dy, IBlock b) : IBlock
+	{
+		return new Block(dx + b.X(), dy + b.Y(), b.Color());
+	}
+
+	# Rotate the block 90 counterclockwise around the posn.
+	public static fun BlockRotateCcw(IPosn c, IBlock b) : IBlock
+	{
+		return new Block(c.X() + (c.Y() - b.Y()), c.Y() + (b.X() - c.X()), b.Color());
+	}
+
+	# Rotate the block 90 clockwise around the posn.
+	public static fun BlockRotateCw(IPosn c, IBlock b) : IBlock
+	{
+		return BlockOps.BlockRotateCcw(c, BlockOps.BlockRotateCcw(c, BlockOps.BlockRotateCcw(c, b)));
+	}
+}
+
+class BSet
+{
+	# Determine if the block is in the set of blocks.
+	public static fun BlocksContains(IBlockList bs, IBlock b) : Bool
+	{
+		while (!bs.IsEmpty())
+		{
+			if (BlockOps.BlockEq(b, bs.First()))
+			{
+				return true;
+			}
+			bs = bs.Rest();
+		}
+		return false;
+	}
+
+	# is every element in bs1 also in bs2?
+	public static fun BlocksSubset(IBlockList bs1, IBlockList bs2) : Bool
+	{
+		while (!bs1.IsEmpty())
+		{
+			if (!BSet.BlocksContains(bs2, bs1.First()))
+			{
+				return false;
+			}
+			bs1 = bs1.Rest();
+		}
+		return true;
+	}
+
+	# Determine if given sets of blocks are equal.
+	public static fun BlocksEq(IBlockList bs1, IBlockList bs2) : Bool
+	{
+		if (BSet.BlocksSubset(bs1, bs2))
+		{
+			return BSet.BlocksSubset(bs2, bs1);
+		}
+		return false;
+	}
+
+	# Return the set of blocks that appear in both sets.
+	public static fun BlocksIntersect(IBlockList bs1, IBlockList bs2) : IBlockList
+	{
+		if (bs1.IsEmpty())
+		{
+			return new BlockNil();
+		}
+		IBlock b = bs1.First();
+		if (BSet.BlocksContains(bs2, b))
+		{
+			return new BlockCons(b, BSet.BlocksIntersect(bs1.Rest(), bs2));
+		}
+		return BSet.BlocksIntersect(bs1.Rest(), bs2);
+	}
+
+	# Return the number of blocks in the set.
+	public static fun BlocksCount(IBlockList bs) : Int
+	{
+		return Lists.BlocksLength(bs);
+	}
+
+	# Move each block by the given X & Y displacement.
+	public static fun BlocksMove(Float dx, Float dy, IBlockList bs) : IBlockList
+	{
+		if (bs.IsEmpty())
+		{
+			return new BlockNil();
+		}
+		return new BlockCons(BlockOps.BlockMove(dx, dy, bs.First()), BSet.BlocksMove(dx, dy, bs.Rest()));
+	}
+
+	# Rotate the blocks 90 counterclockwise around the posn.
+	public static fun BlocksRotateCcw(IPosn c, IBlockList bs) : IBlockList
+	{
+		if (bs.IsEmpty())
+		{
+			return new BlockNil();
+		}
+		return new BlockCons(BlockOps.BlockRotateCcw(c, bs.First()), BSet.BlocksRotateCcw(c, bs.Rest()));
+	}
+
+	# Rotate the blocks 90 clockwise around the posn.
+	public static fun BlocksRotateCw(IPosn c, IBlockList bs) : IBlockList
+	{
+		if (bs.IsEmpty())
+		{
+			return new BlockNil();
+		}
+		return new BlockCons(BlockOps.BlockRotateCw(c, bs.First()), BSet.BlocksRotateCw(c, bs.Rest()));
+	}
+
+	public static fun BlocksChangeColor(IBlockList bs, String c) : IBlockList
+	{
+		if (bs.IsEmpty())
+		{
+			return new BlockNil();
+		}
+		IBlock b = bs.First();
+		return new BlockCons(new Block(b.X(), b.Y(), c), BSet.BlocksChangeColor(bs.Rest(), c));
+	}
+
+	# Return the set of blocks in the given row.
+	public static fun BlocksRow(IBlockList bs, Float i) : IBlockList
+	{
+		if (bs.IsEmpty())
+		{
+			return new BlockNil();
+		}
+		IBlock b = bs.First();
+		if (BlockOps.NumEq(i, b.Y()))
+		{
+			return new BlockCons(b, BSet.BlocksRow(bs.Rest(), i));
+		}
+		return BSet.BlocksRow(bs.Rest(), i);
+	}
+
+	# Are there a full row of blocks at the given row in the set.
+	public static fun FullRow(IBlockList bs, Int i) : Bool
+	{
+		return Consts.BoardWidth() == BSet.BlocksCount(BSet.BlocksRow(bs, i + 0.0));
+	}
+
+	# Have any of the blocks reach over the top of the board?
+	public static fun BlocksOverflow(IBlockList bs) : Bool
+	{
+		while (!bs.IsEmpty())
+		{
+			if (bs.First().Y() <= 0.0)
+			{
+				return true;
+			}
+			bs = bs.Rest();
+		}
+		return false;
+	}
+
+	# Union the two sets of blocks (foldr over bs1, starting from bs2).
+	public static fun BlocksUnion(IBlockList bs1, IBlockList bs2) : IBlockList
+	{
+		if (bs1.IsEmpty())
+		{
+			return bs2;
+		}
+		IBlockList bs = BSet.BlocksUnion(bs1.Rest(), bs2);
+		IBlock b = bs1.First();
+		if (BSet.BlocksContains(bs, b))
+		{
+			return bs;
+		}
+		return new BlockCons(b, bs);
+	}
+
+	# Compute the maximum y coordinate; if set is empty, return 0, the coord of the board's top edge.
+	public static fun BlocksMaxY(IBlockList bs) : Float
+	{
+		if (bs.IsEmpty())
+		{
+			return 0.0;
+		}
+		return BSet.Max(bs.First().Y(), BSet.BlocksMaxY(bs.Rest()));
+	}
+
+	# Compute the minimum x coordinate; if set is empty, return the coord of the board's right edge.
+	public static fun BlocksMinX(IBlockList bs) : Float
+	{
+		if (bs.IsEmpty())
+		{
+			return Consts.BoardWidth() + 0.0;
+		}
+		return BSet.Min(bs.First().X(), BSet.BlocksMinX(bs.Rest()));
+	}
+
+	# Compute the maximum x coordinate; if set is empty, return 0, the coord of the board's left edge.
+	public static fun BlocksMaxX(IBlockList bs) : Float
+	{
+		if (bs.IsEmpty())
+		{
+			return 0.0;
+		}
+		return BSet.Max(bs.First().X(), BSet.BlocksMaxX(bs.Rest()));
+	}
+
+	public static fun Max(Float a, Float b) : Float
+	{
+		if (a >= b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun Min(Float a, Float b) : Float
+	{
+		if (a <= b)
+		{
+			return a;
+		}
+		return b;
+	}
+}

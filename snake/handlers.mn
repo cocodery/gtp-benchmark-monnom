@@ -1,0 +1,35 @@
+# handlers.rkt: key and game-over handlers.
+# Key strings are encoded as their character code ("w" = 119, "s" = 115, "a" = 97, "d" = 100).
+
+class Handlers
+{
+	public static fun HandleKey(IWorld w, Int ke) : IWorld
+	{
+		if (ke == 119)
+		{
+			return Motion.WorldChangeDir(w, 0);
+		}
+		if (ke == 115)
+		{
+			return Motion.WorldChangeDir(w, 1);
+		}
+		if (ke == 97)
+		{
+			return Motion.WorldChangeDir(w, 2);
+		}
+		if (ke == 100)
+		{
+			return Motion.WorldChangeDir(w, 3);
+		}
+		return w;
+	}
+
+	public static fun GameOver(IWorld w) : Bool
+	{
+		if (Collide.SnakeWallCollide(w.GetSnake()))
+		{
+			return true;
+		}
+		return Collide.SnakeSelfCollide(w.GetSnake());
+	}
+}

@@ -1,0 +1,1486 @@
+# wrap.rkt, ocm.rkt, ocm-struct.rkt and penalty-struct.rkt of quadU, derived from the quadT
+# port (differences marked "quadU:"; merged to keep the configuration
+# count down; see NOTES.md). The measurement state is passed as an IEnv.
+
+# ---- penalty-struct.rkt / ocm-struct.rkt ----
+
+class PenaltyS implements IPenalty
+{
+	private readonly Int hyphens;
+	private readonly Float width;
+	public constructor(Int h, Float w)
+	{
+		hyphens = h;
+		width = w;
+	}
+	public fun Hyphens() : Int
+	{
+		return hyphens;
+	}
+	public fun Width() : Float
+	{
+		return width;
+	}
+}
+
+class OcmS implements IOcm
+{
+	private IPenaltyVec minEntrys;
+	private IIntVec minRowIndices;
+	private Int finished;
+	private readonly IMatrixProc matrixProc;
+	private readonly IEntryToValue entryToValue;
+	private Int base;
+	private Int tentative;
+	public constructor(IPenaltyVec me, IIntVec mr, Int f, IMatrixProc mp, IEntryToValue ev, Int b, Int t)
+	{
+		minEntrys = me;
+		minRowIndices = mr;
+		finished = f;
+		matrixProc = mp;
+		entryToValue = ev;
+		base = b;
+		tentative = t;
+	}
+	public fun MinEntrys() : IPenaltyVec
+	{
+		return minEntrys;
+	}
+	public fun SetMinEntrys(IPenaltyVec v) : Int
+	{
+		minEntrys = v;
+		return 0;
+	}
+	public fun MinRowIndices() : IIntVec
+	{
+		return minRowIndices;
+	}
+	public fun SetMinRowIndices(IIntVec v) : Int
+	{
+		minRowIndices = v;
+		return 0;
+	}
+	public fun Finished() : Int
+	{
+		return finished;
+	}
+	public fun SetFinished(Int f) : Int
+	{
+		finished = f;
+		return 0;
+	}
+	public fun MatrixProc() : IMatrixProc
+	{
+		return matrixProc;
+	}
+	public fun EntryToValue() : IEntryToValue
+	{
+		return entryToValue;
+	}
+	public fun Base() : Int
+	{
+		return base;
+	}
+	public fun SetBase(Int b) : Int
+	{
+		base = b;
+		return 0;
+	}
+	public fun Tentative() : Int
+	{
+		return tentative;
+	}
+	public fun SetTentative(Int t) : Int
+	{
+		tentative = t;
+		return 0;
+	}
+}
+
+# ---- ocm.rkt ----
+
+# the hash tables of minima: col -> (hash 'entry e 'row-idx r)
+class Minima
+{
+	private readonly ArrayList<Bool> has;
+	private readonly ArrayList<IPenalty> entries;
+	private readonly ArrayList<Int> rows;
+	public constructor()
+	{
+		has = new ArrayList<Bool>();
+		entries = new ArrayList<IPenalty>();
+		rows = new ArrayList<Int>();
+	}
+	public fun Set(Int col, EntryRow er) : Int
+	{
+		IPenalty e = er.E;
+		Int row = er.R;
+		while (has.Length() <= col)
+		{
+			has.Add(false);
+			entries.Add(e);
+			rows.Add(0);
+		}
+		has.Set(col, true);
+		entries.Set(col, e);
+		rows.Set(col, row);
+		return 0;
+	}
+	public fun Entry(Int col) : IPenalty
+	{
+		if (col >= has.Length())
+		{
+			ERROR("hash-ref: no value found for key");
+		}
+		if (!has.Get(col))
+		{
+			ERROR("hash-ref: no value found for key");
+		}
+		return entries.Get(col);
+	}
+	public fun Row(Int col) : Int
+	{
+		this.Entry(col);
+		return rows.Get(col);
+	}
+}
+
+# (values entry row-idx): the result of smallest-value-entry
+class EntryRow
+{
+	public readonly IPenalty E;
+	public readonly Int R;
+	public constructor(IPenalty e, Int r)
+	{
+		E = e;
+		R = r;
+	}
+}
+
+class Ocm
+{
+	public static fun MakeOcm(IMatrixProc matrixProc, IEntryToValue entryToValue, IPenalty initialEntry) : IOcm
+	{
+		return new OcmS(Vecs.MakePenalty(1, initialEntry), Vecs.MakeInt(1, 0 - 1), 0, matrixProc, entryToValue, 0, 0);
+	}
+
+	public static fun Value(IOcm ocm, IPenalty e) : Float
+	{
+		IEntryToValue ev = ocm.EntryToValue();
+		return ev(e);
+	}
+
+	public static fun Matrix(IOcm ocm, Int i, Int j) : IPenalty
+	{
+		IMatrixProc mp = ocm.MatrixProc();
+		return mp(i, j);
+	}
+
+	public static fun MinEntry(IOcm ocm, Int j) : IPenalty
+	{
+		while (ocm.Finished() < j)
+		{
+			Ocm.Advance(ocm);
+		}
+		return ocm.MinEntrys().Ref(j);
+	}
+
+	public static fun MinIndex(IOcm ocm, Int j) : Int
+	{
+		while (ocm.Finished() < j)
+		{
+			Ocm.Advance(ocm);
+		}
+		return ocm.MinRowIndices().Ref(j);
+	}
+
+	public static fun VectorOddElements(IIntVec xs) : IIntVec
+	{
+		IIntList l = new IntNil();
+		Int i = xs.Length() - 1;
+		while (i >= 0)
+		{
+			if (i % 2 == 1)
+			{
+				l = new IntCons(xs.Ref(i), l);
+				i = i - 1;
+				continue;
+			}
+			i = i - 1;
+		}
+		return Vecs.IntsToVector(l);
+	}
+
+	public static fun Reduce2(IIntVec rowIndices, IIntVec colIndices, IOcm ocm) : IIntVec
+	{
+		IIntVec rows = rowIndices;
+		IIntList survivors = new IntNil();
+		Int nSurvivors = 0;
+		while (true)
+		{
+			if (rows.Length() == 0)
+			{
+				return Vecs.IntsToVector(Ocm.ReverseInts(survivors));
+			}
+			Int challengerRow = rows.Ref(0);
+			if (survivors.IsEmpty())
+			{
+				rows = Vecs.IntCdr(rows);
+				survivors = new IntCons(challengerRow, survivors);
+				nSurvivors = nSurvivors + 1;
+				continue;
+			}
+			Int colHead = colIndices.Ref(nSurvivors - 1);
+			Float tc = Ocm.Value(ocm, Ocm.Matrix(ocm, challengerRow, colHead));
+			Float ts = Ocm.Value(ocm, Ocm.Matrix(ocm, survivors.First(), colHead));
+			if (tc < ts)
+			{
+				survivors = survivors.Rest();
+				nSurvivors = nSurvivors - 1;
+				continue;
+			}
+			if (colHead == colIndices.Ref(colIndices.Length() - 1))
+			{
+				rows = Vecs.IntCdr(rows);
+				continue;
+			}
+			rows = Vecs.IntCdr(rows);
+			survivors = new IntCons(challengerRow, survivors);
+			nSurvivors = nSurvivors + 1;
+		}
+		return rows;
+	}
+
+	public static fun ReverseInts(IIntList l) : IIntList
+	{
+		IIntList r = new IntNil();
+		while (!l.IsEmpty())
+		{
+			r = new IntCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	# smallest-value-entry: argmin over the rows up to (and including) idx-of-last-row
+	public static fun SmallestValueEntry(IIntVec rowIndices, Int col, Int idxOfLastRow, IOcm ocm) : EntryRow
+	{
+		Bool found = false;
+		IPenalty best = new PenaltyS(0, 0.0);
+		Float bestValue = 0.0;
+		Int bestRow = 0;
+		Int k = 0;
+		while (k < rowIndices.Length())
+		{
+			Int rowIdx = rowIndices.Ref(k);
+			IPenalty e = Ocm.Matrix(ocm, rowIdx, col);
+			Float v = Ocm.Value(ocm, e);
+			k = k + 1;
+			if (!found)
+			{
+				found = true;
+				best = e;
+				bestValue = v;
+				bestRow = rowIdx;
+				if (rowIdx == idxOfLastRow)
+				{
+					break;
+				}
+				continue;
+			}
+			if (v < bestValue)
+			{
+				best = e;
+				bestValue = v;
+				bestRow = rowIdx;
+				if (rowIdx == idxOfLastRow)
+				{
+					break;
+				}
+				continue;
+			}
+			if (rowIdx == idxOfLastRow)
+			{
+				break;
+			}
+		}
+		if (!found)
+		{
+			ERROR("argmin: empty list");
+		}
+		return new EntryRow(best, bestRow);
+	}
+
+	public static fun Interpolate2(Minima minima, IIntVec rowIndices, IIntVec colIndices, IOcm ocm) : Minima
+	{
+		Int idxOfLastCol = colIndices.Length() - 1;
+		Int colIdx = 0;
+		while (colIdx < colIndices.Length())
+		{
+			Int col = colIndices.Ref(colIdx);
+			if (colIdx % 2 == 0)
+			{
+				Int idxOfLastRow = Ocm.LastRowFor(minima, rowIndices, colIndices, colIdx, idxOfLastCol);
+				EntryRow er = Ocm.SmallestValueEntry(rowIndices, col, idxOfLastRow, ocm);
+				minima.Set(col, er);
+			}
+			colIdx = colIdx + 1;
+		}
+		return minima;
+	}
+
+	public static fun LastRowFor(Minima minima, IIntVec rowIndices, IIntVec colIndices, Int colIdx, Int idxOfLastCol) : Int
+	{
+		if (colIdx == idxOfLastCol)
+		{
+			return rowIndices.Ref(rowIndices.Length() - 1);
+		}
+		return minima.Row(colIndices.Ref(colIdx + 1));
+	}
+
+	public static fun ConcaveMinima(IIntVec rowIndices, IIntVec colIndices, IOcm ocm) : Minima
+	{
+		if (colIndices.Length() == 0)
+		{
+			return new Minima();
+		}
+		IIntVec rows = Ocm.Reduce2(rowIndices, colIndices, ocm);
+		Minima oddColumnMinima = Ocm.ConcaveMinima(rows, Ocm.VectorOddElements(colIndices), ocm);
+		return Ocm.Interpolate2(oddColumnMinima, rows, colIndices, ocm);
+	}
+
+	public static fun Advance(IOcm ocm) : Int
+	{
+		Int next = ocm.Finished() + 1;
+		if (next > ocm.Tentative())
+		{
+			IIntVec rows = Vecs.IntRange(ocm.Base(), next);
+			ocm.SetTentative(ocm.Finished() + rows.Length());
+			IIntVec cols = Vecs.IntRange(next, ocm.Tentative() + 1);
+			Minima minima = Ocm.ConcaveMinima(rows, cols, ocm);
+			Int k = 0;
+			while (k < cols.Length())
+			{
+				Int col = cols.Ref(k);
+				k = k + 1;
+				if (col >= ocm.MinEntrys().Length())
+				{
+					ocm.SetMinEntrys(Vecs.PenaltyAppend1(ocm.MinEntrys(), minima.Entry(col)));
+					ocm.SetMinRowIndices(Vecs.IntAppend1(ocm.MinRowIndices(), Ocm.AssertIndex(minima.Row(col))));
+					continue;
+				}
+				if (Ocm.Value(ocm, minima.Entry(col)) < Ocm.Value(ocm, ocm.MinEntrys().Ref(col)))
+				{
+					ocm.MinEntrys().Set(col, minima.Entry(col));
+					ocm.MinRowIndices().Set(col, Ocm.AssertIndex(minima.Row(col)));
+				}
+			}
+			ocm.SetFinished(next);
+			return 0;
+		}
+		IPenalty diag = Ocm.Matrix(ocm, next - 1, next);
+		if (Ocm.Value(ocm, diag) < Ocm.Value(ocm, ocm.MinEntrys().Ref(next)))
+		{
+			ocm.MinEntrys().Set(next, diag);
+			ocm.MinRowIndices().Set(next, next - 1);
+			ocm.SetBase(next - 1);
+			ocm.SetTentative(next);
+			ocm.SetFinished(next);
+			return 0;
+		}
+		if (Ocm.Value(ocm, Ocm.Matrix(ocm, next - 1, ocm.Tentative())) >= Ocm.Value(ocm, ocm.MinEntrys().Ref(ocm.Tentative())))
+		{
+			ocm.SetFinished(next);
+			return 0;
+		}
+		ocm.SetBase(next - 1);
+		ocm.SetTentative(next);
+		ocm.SetFinished(next);
+		return 0;
+	}
+
+	public static fun AssertIndex(Int i) : Int
+	{
+		if (i < 0)
+		{
+			ERROR("assert: index-type?");
+		}
+		return i;
+	}
+}
+
+# ---- wrap.rkt ----
+
+# a cell for the ocm that the penalty procedure refers to (it is defined after the procedure)
+class OcmCell
+{
+	public IOcm Value;
+	public Bool IsSet;
+	public constructor(IOcm o)
+	{
+		Value = o;
+		IsSet = false;
+	}
+}
+
+# ($penalty->value x)
+class PenaltyToValue implements IEntryToValue
+{
+	public constructor()
+	{
+	}
+	public fun this(IPenalty x) : Float
+	{
+		return x.Width();
+	}
+}
+
+# the penalty procedure of adaptive-fit-proc (a closure over the pieces, the vectors and the ocm)
+class PenaltyProc implements IMatrixProc
+{
+	private readonly IQuadVec pieces;
+	private readonly IFloatVec widths;
+	private readonly IFloatVec bbWidths;
+	private readonly IBoolVec withWordSpace;
+	private readonly Float measure;
+	private readonly OcmCell ocm;
+	public constructor(IQuadVec p, IFloatVec w, IFloatVec b, IBoolVec s, Float m, OcmCell o)
+	{
+		pieces = p;
+		widths = w;
+		bbWidths = b;
+		withWordSpace = s;
+		measure = m;
+		ocm = o;
+	}
+	public fun this(Int i, Int j) : IPenalty
+	{
+		if (i >= j)
+		{
+			return new PenaltyS(0, 0.0 - 1.0 * (i + 0.0));
+		}
+		if (j > pieces.Length())
+		{
+			return new PenaltyS(0, 0.0 - 1.0 * (i + 0.0));
+		}
+		IPenalty penaltyUpToI = Ocm.MinEntry(ocm.Value, i);
+		IQuad lastPieceToTest = pieces.Ref(j - 1);
+		Int cumulativeHyphens = 0;
+		if (Wrap.IsNewHyphen(lastPieceToTest))
+		{
+			return Wrap.MakePenalty(penaltyUpToI.Hyphens() + 1, penaltyUpToI, this.LineValue(i, j));
+		}
+		return Wrap.MakePenalty(cumulativeHyphens, penaltyUpToI, this.LineValue(i, j));
+	}
+	public fun LineValue(Int i, Int j) : Float
+	{
+		Float lineWidth = Wrap.GetLineWidth(Wrap.MakeTrialLine(widths, bbWidths, i, j));
+		if (lineWidth > World.AllowedOverfullRatio() * measure)
+		{
+			return (lineWidth - measure) * 10000000.0;
+		}
+		if (Wrap.ShortLastLineTest(j, pieces.Length()))
+		{
+			Float words = Wrap.CountTrue(Vecs.BoolCopy(withWordSpace, i, j - 1)) + 0.0;
+			Float d = measure - lineWidth;
+			return d * d / Fl.Max(1.0, words);
+		}
+		return 0.0;
+	}
+}
+
+# the find-breakpoints procedures of wrap-first, wrap-best and wrap-adaptive
+class FindBreakpoints
+{
+	public readonly Bool UseFirst;
+	public readonly Bool UseBest;
+	public constructor(Bool f, Bool b)
+	{
+		UseFirst = f;
+		UseBest = b;
+	}
+}
+
+# the two vectors of make-piece-vectors
+class PieceVectors
+{
+	public readonly IFloatVec Widths;
+	public readonly IFloatVec BbWidths;
+	public constructor(IFloatVec w, IFloatVec b)
+	{
+		Widths = w;
+		BbWidths = b;
+	}
+}
+
+class Wrap
+{
+	public static fun MakePenalty(Int cumulativeHyphens, IPenalty penaltyUpToI, Float lineValue) : IPenalty
+	{
+		Float h = 0.0;
+		if (cumulativeHyphens > World.HyphenLimit())
+		{
+			return new PenaltyS(cumulativeHyphens, Utils.RoundFloat(World.HyphenPenalty() + 0.0 + (World.NewLinePenalty() + 0.0) + penaltyUpToI.Width() + lineValue));
+		}
+		return new PenaltyS(cumulativeHyphens, Utils.RoundFloat(h + (World.NewLinePenalty() + 0.0) + penaltyUpToI.Width() + lineValue));
+	}
+
+	public static fun IsNewHyphen(IQuad lastPieceToTest) : Bool
+	{
+		if (!Quads.HasAttr(lastPieceToTest, Sym.WordBreak()))
+		{
+			return false;
+		}
+		IQuad wb = Quads.AttrRefMissing(lastPieceToTest, Sym.WordBreak()).Q();
+		return Txt.Equal(Quads.AttrRefMissing(wb, Sym.Bb()).S(), Txt.Char(45));
+	}
+
+	# ((if world:last-line-can-be-short < <=) j (vector-length pieces))
+	public static fun ShortLastLineTest(Int j, Int n) : Bool
+	{
+		if (World.LastLineCanBeShort())
+		{
+			return j < n;
+		}
+		return j <= n;
+	}
+
+	public static fun CountTrue(IBoolVec v) : Int
+	{
+		Int n = 0;
+		Int i = 0;
+		while (i < v.Length())
+		{
+			if (v.Ref(i))
+			{
+				n = n + 1;
+				i = i + 1;
+				continue;
+			}
+			i = i + 1;
+		}
+		return n;
+	}
+
+	public static fun IsSoftHyphen(IText x) : Bool
+	{
+		return Txt.Equal(Txt.Char(World.SoftHyphen()), x);
+	}
+
+	public static fun IsVisibleBreakable(IText x) : Bool
+	{
+		return Txt.Member(x, World.HyphensAndDashes());
+	}
+
+	public static fun IsInvisibleBreakable(IText x) : Bool
+	{
+		return Txt.Member(x, new TextCons(World.EmptyString(), World.Spaces()));
+	}
+
+	public static fun IsBreakableText(IText x) : Bool
+	{
+		if (Wrap.IsVisibleBreakable(x))
+		{
+			return true;
+		}
+		return Wrap.IsInvisibleBreakable(x);
+	}
+
+	public static fun IsBreakable(IQuad x) : Bool
+	{
+		if (Quads.IsWord(x))
+		{
+			return Wrap.IsBreakableText(Quads.WordString(x));
+		}
+		return false;
+	}
+
+	public static fun IsPossibleWordBreakQuad(IQuad q) : Bool
+	{
+		if (Quads.IsWordBreak(q))
+		{
+			return true;
+		}
+		return Wrap.IsBreakable(q);
+	}
+
+	public static fun BreakAttrs(IText nb, IText bb) : IValList
+	{
+		return new ValCons(Vals.Sym(Sym.Nb()), new ValCons(Vals.S(nb), new ValCons(Vals.Sym(Sym.Bb()), new ValCons(Vals.S(bb), new ValNil()))));
+	}
+
+	public static fun ConvertToWordBreak(IQuad q) : IQuad
+	{
+		if (!Wrap.IsPossibleWordBreakQuad(q))
+		{
+			ERROR("convert-to-word-break: input is not a possible word break");
+		}
+		if (Quads.IsWordBreak(q))
+		{
+			return q;
+		}
+		if (Quads.IsWord(q))
+		{
+			IText str = Quads.WordString(q);
+			IValList kvs = Wrap.WordBreakAttrs(str);
+			return Quads.WordBreak(Utils.MergeAttrs(q.Attrs(), Quads.MakeQuadattrs(kvs)), q.Items());
+		}
+		ERROR("convert-to-word-break: result was a not word break for input");
+	}
+
+	public static fun WordBreakAttrs(IText str) : IValList
+	{
+		if (Txt.Equal(str, Txt.Char(32)))
+		{
+			return Wrap.BreakAttrs(Txt.Char(32), Txt.Empty());
+		}
+		if (Wrap.IsSoftHyphen(str))
+		{
+			return Wrap.BreakAttrs(Txt.Empty(), Txt.Char(45));
+		}
+		if (Wrap.IsVisibleBreakable(str))
+		{
+			return Wrap.BreakAttrs(str, str);
+		}
+		return World.DefaultWordBreakList();
+	}
+
+	public static fun MakeUnbreakable(IQuad q) : IQuad
+	{
+		return Utils.QuadAttrSet(q, Sym.NoBreak(), Vals.B(true));
+	}
+
+	public static fun IsSliceEnd(IQuad q) : Bool
+	{
+		if (!Wrap.IsPossibleWordBreakQuad(q))
+		{
+			return false;
+		}
+		return Vals.IsFalse(Quads.AttrRef(q, Sym.NoBreak(), Vals.B(false)));
+	}
+
+	# (slicef-after unbreak-qs pred)
+	public static fun SlicefAfter(IQuadList xs) : IQuadListList
+	{
+		IQuadList current = new QuadNil();
+		IQuadListList lists = new QuadListNil();
+		IQuadList l = xs;
+		while (!l.IsEmpty())
+		{
+			IQuad x = l.First();
+			l = l.Rest();
+			if (Wrap.IsSliceEnd(x))
+			{
+				lists = new QuadListCons(SugarList.Reverse(new QuadCons(x, current)), lists);
+				current = new QuadNil();
+				continue;
+			}
+			current = new QuadCons(x, current);
+		}
+		if (current.IsEmpty())
+		{
+			return SugarList.ReverseLists(lists);
+		}
+		return SugarList.ReverseLists(new QuadListCons(SugarList.Reverse(current), lists));
+	}
+
+	public static fun MakeFirstPieces(IQuadList qs) : IQuad
+	{
+		IQuadList firstQs = Utils.QuadsButLast(qs);
+		IQuad lastQ = Utils.QuadsLast(qs);
+		IValList kvs = new ValCons(Vals.Sym(Sym.WordBreak()), new ValCons(Vals.Q(Wrap.ConvertToWordBreak(lastQ)), new ValNil()));
+		return Quads.Piece(Quads.MakeQuadattrs(kvs), Quads.QuadsToItems(firstQs));
+	}
+
+	public static fun MakePieces(IQuadList qs) : IQuadList
+	{
+		Int n = SugarList.Length(qs);
+		Int k = World.MinimumLastLineChars();
+		if (n < k)
+		{
+			return Wrap.MakePiecesSplit(qs, n);
+		}
+		return Wrap.MakePiecesSplit(qs, k);
+	}
+
+	public static fun MakePiecesSplit(IQuadList qs, Int k) : IQuadList
+	{
+		Int n = SugarList.Length(qs);
+		IQuadList breakableItems = SugarList.Take(qs, n - k);
+		IQuadList toMakeUnbreakable = SugarList.Drop(qs, n - k);
+		IQuadList unbreakQs = SugarList.Append(breakableItems, Wrap.MapUnbreakable(toMakeUnbreakable));
+		IQuadListList listsOfQuads = Wrap.SlicefAfter(unbreakQs);
+		IQuadListList firstLists = Wrap.ListsButLast(listsOfQuads);
+		IQuadList lastList = Wrap.ListsLast(listsOfQuads);
+		IQuadList firsts = Wrap.MapFirstPieces(firstLists);
+		return SugarList.Append(firsts, new QuadCons(Quads.Piece(new AttrNil(), Quads.QuadsToItems(lastList)), new QuadNil()));
+	}
+
+	public static fun MapUnbreakable(IQuadList qs) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return qs;
+		}
+		return new QuadCons(Wrap.MakeUnbreakable(qs.First()), Wrap.MapUnbreakable(qs.Rest()));
+	}
+
+	public static fun MapFirstPieces(IQuadListList ls) : IQuadList
+	{
+		if (ls.IsEmpty())
+		{
+			return new QuadNil();
+		}
+		return new QuadCons(Wrap.MakeFirstPieces(ls.First()), Wrap.MapFirstPieces(ls.Rest()));
+	}
+
+	public static fun ListsButLast(IQuadListList l) : IQuadListList
+	{
+		if (l.Rest().IsEmpty())
+		{
+			return new QuadListNil();
+		}
+		return new QuadListCons(l.First(), Wrap.ListsButLast(l.Rest()));
+	}
+
+	public static fun ListsLast(IQuadListList l) : IQuadList
+	{
+		while (!l.Rest().IsEmpty())
+		{
+			l = l.Rest();
+		}
+		return l.First();
+	}
+
+	# font-attributes-with-defaults: size, then font / weight / style below
+	# quadU: (assert (quad-attr-ref q size) positive-flonum?)
+	public static fun FontSize(IQuad q) : Float
+	{
+		IVal size = Quads.AttrRefMissing(q, Sym.Size());
+		return Wrap.CheckFontSize(size.F());
+	}
+
+	public static fun CheckFontSize(Float x) : Float
+	{
+		if (x <= 0.0)
+		{
+			ERROR("assert: Font-Size?");
+		}
+		return x;
+	}
+
+	public static fun FontName(IQuad q) : IText
+	{
+		return Quads.AttrRef(q, Sym.Font(), Vals.S(World.FontNameDefault())).S();
+	}
+
+	public static fun FontWeight(IQuad q) : Int
+	{
+		return Quads.AttrRef(q, Sym.Weight(), Vals.Sym(World.FontWeightDefault())).Sym();
+	}
+
+	public static fun FontStyle(IQuad q) : Int
+	{
+		return Quads.AttrRef(q, Sym.Style(), Vals.Sym(World.FontStyleDefault())).Sym();
+	}
+
+	public static fun MeasureTextOf(IText text, IQuad q, IEnv env) : Float
+	{
+		Float size = Wrap.FontSize(q);
+		return Measure.MeasureText(text, size, Wrap.FontName(q), Wrap.FontWeight(q), Wrap.FontStyle(q), env);
+	}
+
+	# (ormap (λ (pred) (pred q)) (list char? run? word? word-break?)); char? is never true of a quad
+	public static fun IsWordLike(IQuad q) : Bool
+	{
+		if (Quads.IsRun(q))
+		{
+			return true;
+		}
+		if (Quads.IsWord(q))
+		{
+			return true;
+		}
+		return Quads.IsWordBreak(q);
+	}
+
+	public static fun QuadWidth(IQuad q, IEnv env) : Float
+	{
+		if (Quads.HasAttr(q, Sym.Width()))
+		{
+			return Quads.AttrRefMissing(q, Sym.Width()).F();
+		}
+		if (Wrap.IsWordLike(q))
+		{
+			return Wrap.MeasureTextOf(Quads.WordString(q), q, env);
+		}
+		if (Quads.IsLine(q))
+		{
+			Float acc = 0.0;
+			IItemList l = q.Items();
+			while (!l.IsEmpty())
+			{
+				acc = Wrap.QuadWidth(l.First().Q(), env) + acc;
+				l = l.Rest();
+			}
+			return acc;
+		}
+		return 0.0;
+	}
+
+	public static fun Ascent(IQuad q, IEnv env) : Float
+	{
+		IVal v = Quads.AttrRef(q, Sym.Ascent(), Vals.B(false));
+		if (v.Kind() == 0)
+		{
+			return v.F();
+		}
+		if (Wrap.IsWordLike(q))
+		{
+			Float size = Wrap.FontSize(q);
+			return Measure.MeasureAscent(Quads.WordString(q), size, Wrap.FontName(q), Wrap.FontWeight(q), Wrap.FontStyle(q), env);
+		}
+		return 0.0;
+	}
+
+	public static fun RenderPiece(IQuad p0, Bool beforeBreak) : IQuad
+	{
+		IVal theWordBreak = Quads.AttrRef(p0, Sym.WordBreak(), Vals.B(false));
+		if (!Vals.IsFalse(theWordBreak))
+		{
+			if (!Quads.IsWordBreak(theWordBreak.Q()))
+			{
+				ERROR("assert: word-break?");
+			}
+		}
+		IQuad p = Quads.Piece(Utils.AttrDelete(p0.Attrs(), new IntCons(Sym.WordBreak(), new IntNil())), p0.Items());
+		if (Vals.IsFalse(theWordBreak))
+		{
+			return p;
+		}
+		IQuad renderedWb = Wrap.RenderWordBreak(theWordBreak.Q(), Wrap.BreakKey(beforeBreak));
+		if (Quads.WordString(renderedWb).Length() > 0)
+		{
+			return Quads.Piece(p.Attrs(), Wrap.ItemsAppend(p.Items(), new ItemCons(Vals.QuadItem(renderedWb), new ItemNil())));
+		}
+		return Quads.Piece(p.Attrs(), p.Items());
+	}
+
+	public static fun BreakKey(Bool beforeBreak) : Int
+	{
+		if (beforeBreak)
+		{
+			return Sym.Bb();
+		}
+		return Sym.Nb();
+	}
+
+	public static fun ItemsAppend(IItemList a, IItemList b) : IItemList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new ItemCons(a.First(), Wrap.ItemsAppend(a.Rest(), b));
+	}
+
+	public static fun RenderWordBreak(IQuad wb, Int key) : IQuad
+	{
+		IVal breakChar = Quads.AttrRefMissing(wb, key);
+		IAttrList attrs = Utils.QuadAttrRemoveStar(wb, new IntCons(Sym.Nb(), new IntCons(Sym.Bb(), new IntNil()))).Attrs();
+		IItemList items = new ItemCons(Vals.StrItem(Quads.AttrRefMissing(wb, key).S()), new ItemNil());
+		if (Quads.ValWhitespace(breakChar))
+		{
+			return Quads.Make(Sym.WordBreak(), attrs, items);
+		}
+		return Quads.Make(Sym.Word(), attrs, items);
+	}
+
+	# quadU: (and (integer? line-idx) (integer? lines) (= (add1 line-idx) lines))
+	public static fun IsLastLine(IQuad line) : Bool
+	{
+		IVal lineIdx = Quads.AttrRef(line, Sym.LineIdx(), Vals.B(false));
+		IVal lines = Quads.AttrRef(line, Sym.Lines(), Vals.B(false));
+		if (lineIdx.Kind() != 1)
+		{
+			return false;
+		}
+		if (lines.Kind() != 1)
+		{
+			return false;
+		}
+		return lineIdx.I() + 1 == lines.I();
+	}
+
+	public static fun AssertIndex(IVal v) : Int
+	{
+		if (v.Kind() != 1)
+		{
+			ERROR("assert: index?");
+		}
+		if (v.I() < 0)
+		{
+			ERROR("assert: index?");
+		}
+		return v.I();
+	}
+
+	public static fun OverhangWidth(IQuad q, IEnv env) : Float
+	{
+		if (Quads.IsWord(q))
+		{
+			if (Txt.Member(Quads.WordString(q), World.HangingChars()))
+			{
+				return 0.0 - 1.0 * World.OpticalOverhang() * Wrap.MeasureTextOf(Quads.WordString(q), q, env);
+			}
+		}
+		return 0.0;
+	}
+
+	public static fun RenderOpticalKerns(IQuadList qs, IEnv env) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return qs;
+		}
+		IQuadList lefts = SugarList.ShiftRight(qs);
+		IQuadList rights = SugarList.ShiftLeft(qs);
+		return Wrap.Kerns(lefts, qs, rights, env);
+	}
+
+	public static fun Kerns(IQuadList lefts, IQuadList qs, IQuadList rights, IEnv env) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return qs;
+		}
+		IQuad q = qs.First();
+		if (Quads.IsOpticalKern(q))
+		{
+			Float w = Wrap.OverhangWidth(lefts.First(), env) + Wrap.OverhangWidth(rights.First(), env);
+			IQuad k = Utils.QuadAttrSet(q, Sym.Width(), Vals.F(w));
+			return new QuadCons(k, Wrap.Kerns(lefts.Rest(), qs.Rest(), rights.Rest(), env));
+		}
+		return new QuadCons(q, Wrap.Kerns(lefts.Rest(), qs.Rest(), rights.Rest(), env));
+	}
+
+	# copy-with-attrs of insert-spacers-in-line
+	public static fun CopyWithAttrs(IQuad q, IQuad attrSource) : IQuad
+	{
+		IAttrList filtered = Utils.QuadAttrRemoveStar(attrSource, new IntCons(Sym.Width(), new IntNil())).Attrs();
+		return Quads.Make(q.Name(), Utils.MergeAttrs(filtered, q.Attrs()), q.Items());
+	}
+
+	# 0 none, 1 before/after per alignment: (values before middle after) as flags
+	public static fun AlignmentFlags(Int horizAlignment) : Int
+	{
+		if (horizAlignment == Sym.Left())
+		{
+			return 4;
+		}
+		if (horizAlignment == Sym.Right())
+		{
+			return 1;
+		}
+		if (horizAlignment == Sym.Center())
+		{
+			return 5;
+		}
+		if (horizAlignment == Sym.Justified())
+		{
+			return 2;
+		}
+		if (horizAlignment == Sym.Justify())
+		{
+			return 2;
+		}
+		return 0;
+	}
+
+	# (insert-spacers-in-line line-in [alignment-override #f]); override -1 = #f
+	public static fun InsertSpacersInLine(IQuad lineIn, Int alignmentOverride) : IQuad
+	{
+		Int keyToUse = Wrap.KeyToUse(lineIn);
+		Int horizAlignment = alignmentOverride;
+		if (alignmentOverride < 0)
+		{
+			return Wrap.InsertSpacers(lineIn, Quads.AttrRef(lineIn, keyToUse, Vals.Sym(World.HorizAlignmentDefault())).Sym());
+		}
+		return Wrap.InsertSpacers(lineIn, horizAlignment);
+	}
+
+	public static fun KeyToUse(IQuad lineIn) : Int
+	{
+		if (Wrap.IsLastLine(lineIn))
+		{
+			if (Quads.HasAttr(lineIn, Sym.XAlignLastLine()))
+			{
+				return Sym.XAlignLastLine();
+			}
+		}
+		return Sym.XAlign();
+	}
+
+	public static fun Flag(Int flags, Int bit) : Bool
+	{
+		if ((flags / bit) % 2 == 1)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public static fun InsertSpacers(IQuad lineIn, Int horizAlignment) : IQuad
+	{
+		IQuad defaultSpacer = Quads.Spacer(new AttrNil(), new ItemNil());
+		Int flags = Wrap.AlignmentFlags(horizAlignment);
+		IQuadList qs = Quads.GroupQuadList(lineIn);
+		if (qs.IsEmpty())
+		{
+			return Quads.Line(lineIn.Attrs(), Quads.QuadsToItems(qs));
+		}
+		IQuadList afterList = Wrap.AfterList(Wrap.Flag(flags, 4), defaultSpacer, qs);
+		IQuadList middles = Wrap.Middles(qs, Wrap.Flag(flags, 2), defaultSpacer);
+		IQuadList withMiddle = SugarList.Append(middles, afterList);
+		if (Wrap.Flag(flags, 1))
+		{
+			return Quads.Line(lineIn.Attrs(), Quads.QuadsToItems(new QuadCons(Wrap.CopyWithAttrs(defaultSpacer, qs.First()), withMiddle)));
+		}
+		return Quads.Line(lineIn.Attrs(), Quads.QuadsToItems(withMiddle));
+	}
+
+	public static fun AfterList(Bool after, IQuad defaultSpacer, IQuadList qs) : IQuadList
+	{
+		if (after)
+		{
+			return new QuadCons(Wrap.CopyWithAttrs(defaultSpacer, Utils.QuadsLast(qs)), new QuadNil());
+		}
+		return new QuadNil();
+	}
+
+	public static fun Middles(IQuadList qs, Bool middle, IQuad defaultSpacer) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return qs;
+		}
+		IQuad q = qs.First();
+		IQuadList rest = Wrap.Middles(qs.Rest(), middle, defaultSpacer);
+		if (middle)
+		{
+			if (Quads.IsWhitespaceNbsp(q))
+			{
+				IQuad interleaver = Wrap.CopyWithAttrs(defaultSpacer, q);
+				return new QuadCons(interleaver, new QuadCons(q, new QuadCons(interleaver, rest)));
+			}
+		}
+		return new QuadCons(q, rest);
+	}
+
+	public static fun EmbedWidth(IQuad q, Float w) : IQuad
+	{
+		return Utils.QuadAttrSet(q, Sym.Width(), Vals.F(w));
+	}
+
+	public static fun RecordAscent(IQuad q, IEnv env) : IQuad
+	{
+		return Utils.QuadAttrSet(q, Sym.Ascent(), Vals.F(Wrap.Ascent(q, env)));
+	}
+
+	public static fun RenderPieces(IQuadList ps) : IQuadList
+	{
+		IQuadList initial = Utils.QuadsButLast(ps);
+		IQuad last = Utils.QuadsLast(ps);
+		return SugarList.Append(Wrap.MapRenderPiece(initial), new QuadCons(Wrap.RenderPiece(last, true), new QuadNil()));
+	}
+
+	public static fun MapRenderPiece(IQuadList ps) : IQuadList
+	{
+		if (ps.IsEmpty())
+		{
+			return ps;
+		}
+		return new QuadCons(Wrap.RenderPiece(ps.First(), false), Wrap.MapRenderPiece(ps.Rest()));
+	}
+
+	public static fun CalcLooseness(Float totalWidth, Float measure) : Float
+	{
+		return Utils.RoundFloat((measure - totalWidth) / measure);
+	}
+
+	public static fun AppendMapGroup(IQuadList ps) : IQuadList
+	{
+		if (ps.IsEmpty())
+		{
+			return ps;
+		}
+		return SugarList.Append(Quads.GroupQuadList(ps.First()), Wrap.AppendMapGroup(ps.Rest()));
+	}
+
+	public static fun PiecesToLine(IQuadList ps, IEnv env) : IQuad
+	{
+		IQuadList renderedPieces = Wrap.RenderPieces(ps);
+		if (renderedPieces.IsEmpty())
+		{
+			return Quads.Line(new AttrNil(), new ItemNil());
+		}
+		IQuadList lineQuads = Wrap.AppendMapGroup(renderedPieces);
+		if (lineQuads.IsEmpty())
+		{
+			ERROR("assert: non-empty line quads");
+		}
+		IQuadList withOpticals = Wrap.WithOpticals(lineQuads, env);
+		IQuadList mergedQuads = Utils.JoinQuads(withOpticals);
+		if (mergedQuads.IsEmpty())
+		{
+			ERROR("assert: non-empty merged quads");
+		}
+		IFloatList widths = Wrap.MapWidths(mergedQuads, env);
+		if (!Quads.HasAttr(mergedQuads.First(), Sym.Measure()))
+		{
+			ERROR("pieces->line: quad has no measure key");
+		}
+		IVal mv = Quads.AttrRefMissing(mergedQuads.First(), Sym.Measure());
+		if (mv.Kind() != 0)
+		{
+			ERROR("got bad value for measure");
+		}
+		Float total = 0.0;
+		IFloatList wl = widths;
+		while (!wl.IsEmpty())
+		{
+			total = wl.First() + total;
+			wl = wl.Rest();
+		}
+		Float looseness = Wrap.CalcLooseness(total, mv.F());
+		IQuadList newLineQuads = Wrap.MapEmbedAndAscent(mergedQuads, widths, env);
+		IQuad newLine = Quads.QuadsToLine(newLineQuads);
+		IValList kvs = new ValCons(Vals.Sym(Sym.Looseness()), new ValCons(Vals.F(looseness), new ValNil()));
+		return Quads.Line(Utils.AttrChange(newLine.Attrs(), kvs), newLine.Items());
+	}
+
+	public static fun WithOpticals(IQuadList lineQuads, IEnv env) : IQuadList
+	{
+		if (World.UseOpticalKerns())
+		{
+			IQuad myOk = Quads.OpticalKern(lineQuads.First().Attrs(), new ItemNil());
+			IQuadList withOks = new QuadCons(myOk, SugarList.Append(lineQuads, new QuadCons(myOk, new QuadNil())));
+			return Wrap.RenderOpticalKerns(withOks, env);
+		}
+		return lineQuads;
+	}
+
+	public static fun MapWidths(IQuadList qs, IEnv env) : IFloatList
+	{
+		if (qs.IsEmpty())
+		{
+			return new FloatNil();
+		}
+		Float w = Wrap.QuadWidth(qs.First(), env);
+		return new FloatCons(w, Wrap.MapWidths(qs.Rest(), env));
+	}
+
+	public static fun MapEmbedAndAscent(IQuadList qs, IFloatList ws, IEnv env) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return qs;
+		}
+		IQuad q = Wrap.RecordAscent(Wrap.EmbedWidth(qs.First(), ws.First()), env);
+		return new QuadCons(q, Wrap.MapEmbedAndAscent(qs.Rest(), ws.Rest(), env));
+	}
+
+	# the procedure made by make-wrap-proc: (wrap-proc qs [measure #f]); hasMeasure false = #f
+	public static fun WrapProc(FindBreakpoints fb, IQuadList qs0, Bool hasMeasure, Float measure0, IEnv env) : IQuadList
+	{
+		if (qs0.IsEmpty())
+		{
+			return new QuadCons(Quads.Line(new AttrNil(), new ItemNil()), new QuadNil());
+		}
+		Float measure = Wrap.MeasureOf(qs0.First(), hasMeasure, measure0);
+		IQuadList qs = Wrap.WithMeasure(qs0, measure);
+		IQuadList pieces = Wrap.MakePieces(qs);
+		IIntList bps = Wrap.AdaptiveFitProc(Vecs.QuadsToVector(pieces), measure, fb.UseFirst, fb.UseBest, env);
+		IQuadListList brokenPieces = SugarList.BreakAt(pieces, bps);
+		return Wrap.MapPiecesToLine(brokenPieces, env);
+	}
+
+	public static fun MeasureOf(IQuad q, Bool hasMeasure, Float measure) : Float
+	{
+		if (hasMeasure)
+		{
+			return measure;
+		}
+		return Quads.AttrRef(q, Sym.Measure(), World.MeasureDefault()).F();
+	}
+
+	public static fun WithMeasure(IQuadList qs, Float measure) : IQuadList
+	{
+		if (Quads.HasAttr(qs.First(), Sym.Measure()))
+		{
+			return qs;
+		}
+		return Wrap.SetMeasures(qs, measure);
+	}
+
+	public static fun SetMeasures(IQuadList qs, Float measure) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return qs;
+		}
+		return new QuadCons(Utils.QuadAttrSet(qs.First(), Sym.Measure(), Vals.F(measure)), Wrap.SetMeasures(qs.Rest(), measure));
+	}
+
+	public static fun MapPiecesToLine(IQuadListList ls, IEnv env) : IQuadList
+	{
+		if (ls.IsEmpty())
+		{
+			return new QuadNil();
+		}
+		IQuad l = Wrap.PiecesToLine(ls.First(), env);
+		return new QuadCons(l, Wrap.MapPiecesToLine(ls.Rest(), env));
+	}
+
+	# quadU: wrap-first and wrap-adaptive are commented out in the original
+	public static fun WrapBest(IQuadList qs, IEnv env) : IQuadList
+	{
+		return Wrap.WrapProc(new FindBreakpoints(false, true), qs, false, 0.0, env);
+	}
+
+	public static fun PieceWidth(IQuad p, IEnv env) : Float
+	{
+		Float acc = 0.0;
+		IItemList l = p.Items();
+		while (!l.IsEmpty())
+		{
+			IQuad q = l.First().Q();
+			IText str = Quads.QuadToString(q);
+			l = l.Rest();
+			if (str.Length() == 0)
+			{
+				acc = Quads.AttrRef(q, Sym.Width(), Vals.F(0.0)).F() + acc;
+				continue;
+			}
+			acc = Wrap.MeasureTextOf(str, q, env) + acc;
+		}
+		return acc;
+	}
+
+	public static fun MakePieceVectors(IQuadVec pieces, IEnv env) : PieceVectors
+	{
+		IFloatVec w = Vecs.MakeFloat(pieces.Length(), 0.0);
+		IFloatVec b = Vecs.MakeFloat(pieces.Length(), 0.0);
+		Int i = 0;
+		while (i < pieces.Length())
+		{
+			IQuad p = pieces.Ref(i);
+			IVal wb = Quads.AttrRef(p, Sym.WordBreak(), Vals.B(false));
+			Float p0 = Wrap.PieceWidth(p, env);
+			Float p1 = Wrap.BreakWidth(wb, Sym.Nb(), env);
+			Float p2 = Wrap.BreakWidth(wb, Sym.Bb(), env);
+			w.Set(i, p0 + p1);
+			b.Set(i, p0 + p2);
+			i = i + 1;
+		}
+		return new PieceVectors(w, b);
+	}
+
+	public static fun BreakWidth(IVal wb, Int key, IEnv env) : Float
+	{
+		if (Vals.IsFalse(wb))
+		{
+			return 0.0;
+		}
+		IQuad q = wb.Q();
+		return Wrap.MeasureTextOf(Quads.AttrRefMissing(q, key).S(), q, env);
+	}
+
+	public static fun MakeTrialLine(IFloatVec widths, IFloatVec bbWidths, Int i, Int j) : IFloatVec
+	{
+		IFloatVec vec = Vecs.FloatCopy(widths, i, j);
+		vec.Set(vec.Length() - 1, bbWidths.Ref(j - 1));
+		return vec;
+	}
+
+	public static fun GetLineWidth(IFloatVec line) : Float
+	{
+		Float acc = 0.0;
+		Int k = 0;
+		while (k < line.Length())
+		{
+			acc = line.Ref(k) + acc;
+			k = k + 1;
+		}
+		return Utils.RoundFloat(acc);
+	}
+
+	public static fun WordSpaceFlags(IQuadVec pieces) : IBoolVec
+	{
+		IBoolVec v = Vecs.MakeBool(pieces.Length(), false);
+		Int i = 0;
+		while (i < pieces.Length())
+		{
+			v.Set(i, Wrap.HasWordSpace(pieces.Ref(i)));
+			i = i + 1;
+		}
+		return v;
+	}
+
+	public static fun HasWordSpace(IQuad piece) : Bool
+	{
+		if (!Quads.HasAttr(piece, Sym.WordBreak()))
+		{
+			return false;
+		}
+		IQuad wb = Quads.AttrRefMissing(piece, Sym.WordBreak()).Q();
+		return Vals.Equal(Quads.AttrRefMissing(wb, Sym.Nb()), Vals.S(Txt.Char(32)));
+	}
+
+	# make-first-fit-bps-and-widths: the breakpoints
+	public static fun FirstFitBps(IQuadVec pieces, PieceVectors pv, Float measure) : IIntList
+	{
+		IIntList bps = new IntCons(0, new IntNil());
+		Int j1 = 0;
+		while (j1 < pieces.Length())
+		{
+			Int lineStartingBp = bps.First();
+			Float lineWidth = Wrap.GetLineWidth(Wrap.MakeTrialLine(pv.Widths, pv.BbWidths, lineStartingBp, j1 + 1));
+			if (lineWidth > World.AllowedOverfullRatio() * measure)
+			{
+				bps = new IntCons(j1, bps);
+				j1 = j1 + 1;
+				continue;
+			}
+			j1 = j1 + 1;
+		}
+		IIntList r = Ocm.ReverseInts(bps);
+		return r.Rest();
+	}
+
+	# fu-formula needs fllog and stddev (math/statistics), which MonNom lacks; it is only used by
+	# wrap-adaptive, which the benchmark does not call
+	public static fun FuFormula() : Float
+	{
+		ERROR("fu-formula is not ported (no fllog / stddev in MonNom)");
+	}
+
+	public static fun AdaptiveFitProc(IQuadVec pieces, Float measure, Bool useFirst, Bool useBest, IEnv env) : IIntList
+	{
+		PieceVectors pv = Wrap.MakePieceVectors(pieces, env);
+		IBoolVec piecesWithWordSpace = Wrap.WordSpaceFlags(pieces);
+		if (useFirst)
+		{
+			IIntList firstFitBps = Wrap.FirstFitBps(pieces, pv, measure);
+			if (!useBest)
+			{
+				return firstFitBps;
+			}
+			if (Wrap.FuFormula() > 0.0)
+			{
+				return firstFitBps;
+			}
+		}
+		OcmCell cell = Wrap.NoOcm();
+		IOcm ocm = Ocm.MakeOcm(new PenaltyProc(pieces, pv.Widths, pv.BbWidths, piecesWithWordSpace, measure, cell), new PenaltyToValue(), new PenaltyS(0, 0.0));
+		cell.Value = ocm;
+		cell.IsSet = true;
+		Int firstPosition = 0;
+		Int pos = pieces.Length();
+		IIntList acc = new IntNil();
+		while (true)
+		{
+			Int nextPos = Ocm.AssertIndex(Ocm.MinIndex(ocm, pos));
+			if (nextPos == firstPosition)
+			{
+				return acc;
+			}
+			acc = new IntCons(nextPos, acc);
+			pos = nextPos;
+		}
+		return acc;
+	}
+
+	public static fun NoOcm() : OcmCell
+	{
+		return new OcmCell(new OcmS(Vecs.MakePenalty(0, new PenaltyS(0, 0.0)), Vecs.MakeInt(0, 0), 0, new NullMatrix(), new PenaltyToValue(), 0, 0));
+	}
+
+	# (fill starting-quad [target-width #f])
+	public static fun Fill(IQuad startingQuad, Bool hasTarget, Float target0, IEnv env) : IQuad
+	{
+		Float targetWidth = Wrap.TargetOf(startingQuad, hasTarget, target0);
+		IQuadList subquads = Quads.GroupQuadList(startingQuad);
+		Int flexible = 0;
+		Float widthUsed = 0.0;
+		IQuadList l = subquads;
+		while (!l.IsEmpty())
+		{
+			IQuad q = l.First();
+			l = l.Rest();
+			if (Quads.IsSpacer(q))
+			{
+				flexible = flexible + 1;
+				continue;
+			}
+			widthUsed = Wrap.QuadWidth(q, env) + widthUsed;
+		}
+		Float widthRemaining = Utils.RoundFloat(targetWidth - widthUsed);
+		if (flexible == 0)
+		{
+			return Wrap.Fill(Wrap.InsertSpacersInLine(startingQuad, World.HorizAlignmentDefault()), true, targetWidth, env);
+		}
+		Float widthPerFlexibleQuad = Utils.RoundFloat(widthRemaining / (flexible + 0.0));
+		IQuadList newQuadList = Wrap.SetSpacerWidths(subquads, widthPerFlexibleQuad);
+		return Quads.Line(Utils.QuadAttrSet(startingQuad, Sym.Width(), Vals.F(targetWidth)).Attrs(), Quads.QuadsToItems(newQuadList));
+	}
+
+	public static fun TargetOf(IQuad q, Bool hasTarget, Float target) : Float
+	{
+		if (hasTarget)
+		{
+			return target;
+		}
+		return Quads.AttrRefMissing(q, Sym.Measure()).F();
+	}
+
+	public static fun SetSpacerWidths(IQuadList qs, Float w) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return qs;
+		}
+		if (Quads.IsSpacer(qs.First()))
+		{
+			return new QuadCons(Utils.QuadAttrSet(qs.First(), Sym.Width(), Vals.F(w)), Wrap.SetSpacerWidths(qs.Rest(), w));
+		}
+		return new QuadCons(qs.First(), Wrap.SetSpacerWidths(qs.Rest(), w));
+	}
+
+	public static fun AddHorizPositions(IQuad startingQuad, IEnv env) : IQuad
+	{
+		IQuadList newQuads = new QuadNil();
+		Float widthSoFar = 0.0;
+		IItemList l = startingQuad.Items();
+		while (!l.IsEmpty())
+		{
+			IQuad q = l.First().Q();
+			newQuads = new QuadCons(Utils.QuadAttrSet(q, Sym.X(), Vals.F(widthSoFar)), newQuads);
+			widthSoFar = Utils.RoundFloat(Wrap.QuadWidth(q, env) + widthSoFar);
+			l = l.Rest();
+		}
+		return Quads.Make(startingQuad.Name(), startingQuad.Attrs(), Quads.QuadsToItems(SugarList.Reverse(newQuads)));
+	}
+}
+
+# a matrix procedure that is never called (placeholder before the ocm exists)
+class NullMatrix implements IMatrixProc
+{
+	public constructor()
+	{
+	}
+	public fun this(Int i, Int j) : IPenalty
+	{
+		ERROR("ocm not initialized");
+	}
+}

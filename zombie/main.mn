@@ -1,0 +1,115 @@
+# main.rkt: replay a recorded history of mouse and tick events (2000 times; 100 in Racket).
+
+# the argument list (x y me) of an on-mouse call
+class MouseArgs implements IMouseArgs
+{
+	private readonly Float x;
+	private readonly Float y;
+	private readonly Int me;
+	public constructor(Float x0, Float y0, Int me0)
+	{
+		x = x0;
+		y = y0;
+		me = me0;
+	}
+	public fun X() : Float
+	{
+		return x;
+	}
+	public fun Y() : Float
+	{
+		return y;
+	}
+	public fun Me() : Int
+	{
+		return me;
+	}
+}
+
+class Main
+{
+	# one step of replay's `case`
+	public static fun Step(IWorld w, ArrayList<Int> hist, Int i) : IWorld
+	{
+		if (hist.Get(i) == 1)
+		{
+			Float x = hist.Get(i + 1) + 0.0;
+			Float y = hist.Get(i + 2) + 0.0;
+			Int me = hist.Get(i + 3);
+			IMouseArgs args = new MouseArgs(x, y, me);
+			return Getters.WorldOnMouse(w)(args);
+		}
+		return Getters.WorldOnTick(w)();
+	}
+
+	# Racket's replay returns (void); here it returns the final world so main can report it.
+	public static fun Replay(IWorld w0, ArrayList<Int> hist) : IWorld
+	{
+		IWorld w = w0;
+		Int i = 0;
+		Int n = hist.Length();
+		while (i < n)
+		{
+			w = Main.Step(w, hist, i);
+			i = i + 4;
+		}
+		return w;
+	}
+
+	# checksum of a drawn image (the impl is Any in Racket)
+	public static fun ImgSum(IImage i) : Float
+	{
+		dyn v = i.Impl();
+		Int k = v.Kind();
+		if (k == 0)
+		{
+			return v.W + v.H;
+		}
+		if (k == 1)
+		{
+			return Main.ImgSum(v.I1) + 3.0 * v.W + 7.0 * v.H + Main.ImgSum(v.I2);
+		}
+		return v.Radius;
+	}
+
+	public static fun ImgCount(IImage i) : Int
+	{
+		dyn v = i.Impl();
+		Int k = v.Kind();
+		if (k == 1)
+		{
+			return 1 + Main.ImgCount(v.I1) + Main.ImgCount(v.I2);
+		}
+		return 1;
+	}
+
+	public static fun Main() : Void
+	{
+		ArrayList<Int> hist = ZombieHist.Load();
+		IWorld w0 = Zombie.W0();
+		IWorld last = w0;
+		Timer t = new Timer();
+		Int k = 0;
+		while (k < 2000)
+		{
+			last = Main.Replay(w0, hist);
+			k = k + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		IImage img = Getters.WorldToDraw(last)();
+		if (Getters.WorldStopWhen(last)())
+		{
+			"#t".Print();
+		}
+		else
+		{
+			"#f".Print();
+		}
+		"\n".Print();
+		Main.ImgCount(img).ToString().Print();
+		"\n".Print();
+		Main.ImgSum(img).ToString().Print();
+		"\n".Print();
+	}
+}

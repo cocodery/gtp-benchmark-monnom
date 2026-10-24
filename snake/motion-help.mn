@@ -1,0 +1,54 @@
+# motion-help.rkt (also contains cut-tail.rkt, merged here to keep the configuration count down)
+
+class CutTail
+{
+	# cut-tail : NeSegs -> Segs
+	# Cut off the tail.
+	public static fun CutTail(IPosnList segs) : IPosnList
+	{
+		IPosnList r = segs.Rest();
+		if (r.IsEmpty())
+		{
+			return new PosnEmpty();
+		}
+		return new PosnCons(segs.First(), CutTail.CutTail(r));
+	}
+}
+
+class MotionHelp
+{
+	# next-head : Posn Direction -> Posn
+	# Compute next position for head.
+	public static fun NextHead(IPosn seg, Int dir) : IPosn
+	{
+		if (3 == dir)
+		{
+			return new Posn(seg.X() + 1, seg.Y());
+		}
+		if (2 == dir)
+		{
+			return new Posn(seg.X() - 1, seg.Y());
+		}
+		if (1 == dir)
+		{
+			return new Posn(seg.X(), seg.Y() - 1);
+		}
+		return new Posn(seg.X(), seg.Y() + 1);
+	}
+
+	# snake-slither : Snake -> Snake
+	# move the snake one step
+	public static fun SnakeSlither(ISnake snk) : ISnake
+	{
+		Int d = snk.Dir();
+		return new Snake(d, new PosnCons(MotionHelp.NextHead(snk.Segs().First(), d), CutTail.CutTail(snk.Segs())));
+	}
+
+	# snake-grow : Snake -> Snake
+	# Grow the snake one segment.
+	public static fun SnakeGrow(ISnake snk) : ISnake
+	{
+		Int d = snk.Dir();
+		return new Snake(d, new PosnCons(MotionHelp.NextHead(snk.Segs().First(), d), snk.Segs()));
+	}
+}

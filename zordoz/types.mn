@@ -1,0 +1,116 @@
+# base/typed-zo-structs.rkt (zo, Spec) and the types of the Racket values the benchmark uses.
+# The zo struct hierarchy (58 prefab structs, see lib.mn) is one node interface IZo with a kind
+# id and its fields; any Racket value in a field is an IDatum.
+
+# a string (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# a Racket value: Kind 0 zo (Zo), 1 (), 2 pair (Car, Cdr), 3 vector (VecLength, VecRef), 4 #f,
+# 5 #t, 6 any other value
+interface IDatum
+{
+	fun Kind() : Int;
+	fun Zo() : IZo;
+	fun Car() : IDatum;
+	fun Cdr() : IDatum;
+	fun VecLength() : Int;
+	fun VecRef(Int i) : IDatum;
+}
+
+# a zo struct; Id is its identity (eq?)
+interface IZo
+{
+	fun Id() : Int;
+	fun Kind() : Int;
+	fun FieldCount() : Int;
+	fun Field(Int i) : IDatum;
+}
+
+# the thunk of a Spec field: (-> (U String Spec))
+interface ISpecThunk
+{
+	fun this() : IText;
+}
+
+# (Pairof String (-> (U String Spec)))
+interface ISpecField
+{
+	fun Name() : IText;
+	fun Thunk() : ISpecThunk;
+}
+
+# Spec = (Pairof String (Listof (Pairof String (-> (U String Spec)))))
+interface ISpec
+{
+	fun Title() : IText;
+	fun Fields() : ISpecFieldList;
+}
+
+# (values (U zo (Listof zo)) Boolean) of zo-transition
+interface ITransResult
+{
+	fun IsList() : Bool;
+	fun One() : IZo;
+	fun Many() : IZoList;
+	fun Success() : Bool;
+}
+
+# (struct result (zo path)) of zo-find.rkt
+interface IResult
+{
+	fun Zo() : IZo;
+	fun Path() : IZoList;
+}
+
+# (Vector zo String), the argument of init
+interface IInitArgs
+{
+	fun Ctx() : IZo;
+	fun Arg() : IText;
+}
+
+# (Listof IZo)
+interface IZoList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IZo;
+	fun Rest() : IZoList;
+}
+
+# (Listof ISpecField)
+interface ISpecFieldList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ISpecField;
+	fun Rest() : ISpecFieldList;
+}
+
+# (Listof IResult)
+interface IResultList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IResult;
+	fun Rest() : IResultList;
+}
+
+# (Listof IResultList)
+interface IResultListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IResultList;
+	fun Rest() : IResultListList;
+}
+
+# (Listof IText)
+interface ITextList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IText;
+	fun Rest() : ITextList;
+}
+

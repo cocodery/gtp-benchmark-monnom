@@ -1,0 +1,1232 @@
+# Stand-ins for the Racket builtins and the base library: strings, Racket values (IDatum), the
+# zo structs (compiler-zo-structs.rkt: one node class with a kind id, since MonNom has no struct
+# subtyping or type tests), zo-parse (replaced by decoding the embedded graph of zodata.mn),
+# Specs, lists.
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Txt
+{
+	public static fun Empty() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+
+	# string=?
+	public static fun Equal(IText a, IText b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (a.CharAt(i) != b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	public static fun Member(IText s, ITextList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (Txt.Equal(s, l.First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+}
+
+class DatumS implements IDatum
+{
+	private readonly Int kind;
+	private readonly IZo zo;
+	private readonly IDatum car;
+	private readonly IDatum cdr;
+	private readonly ArrayList<IDatum> vec;
+	public constructor(Int k, IZo z, IDatum a, IDatum d, ArrayList<IDatum> v)
+	{
+		kind = k;
+		zo = z;
+		car = a;
+		cdr = d;
+		vec = v;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun Zo() : IZo
+	{
+		if (kind != 0)
+		{
+			ERROR("not a zo");
+		}
+		return zo;
+	}
+	public fun Car() : IDatum
+	{
+		if (kind != 2)
+		{
+			ERROR("car: contract violation, expected pair?");
+		}
+		return car;
+	}
+	public fun Cdr() : IDatum
+	{
+		if (kind != 2)
+		{
+			ERROR("cdr: contract violation, expected pair?");
+		}
+		return cdr;
+	}
+	public fun VecLength() : Int
+	{
+		return vec.Length();
+	}
+	public fun VecRef(Int i) : IDatum
+	{
+		return vec.Get(i);
+	}
+}
+
+# a zo struct; the fields are filled in after creation (the graph has cycles)
+# (), #f, #t and opaque values
+class LeafS implements IDatum
+{
+	private readonly Int kind;
+	public constructor(Int k)
+	{
+		kind = k;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun Zo() : IZo
+	{
+		ERROR("not a zo");
+	}
+	public fun Car() : IDatum
+	{
+		ERROR("car: contract violation, expected pair?");
+	}
+	public fun Cdr() : IDatum
+	{
+		ERROR("cdr: contract violation, expected pair?");
+	}
+	public fun VecLength() : Int
+	{
+		ERROR("vector-length: contract violation");
+	}
+	public fun VecRef(Int i) : IDatum
+	{
+		ERROR("vector-ref: contract violation");
+	}
+}
+
+class ZoS implements IZo
+{
+	private readonly Int id;
+	private Int kind;
+	private readonly ArrayList<IDatum> fields;
+	public constructor(Int i)
+	{
+		id = i;
+		kind = 0 - 1;
+		fields = new ArrayList<IDatum>();
+	}
+	public fun Id() : Int
+	{
+		return id;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun FieldCount() : Int
+	{
+		return fields.Length();
+	}
+	public fun Field(Int i) : IDatum
+	{
+		return fields.Get(i);
+	}
+	public fun SetKind(Int k) : Int
+	{
+		kind = k;
+		return k;
+	}
+	public fun AddField(IDatum d) : Int
+	{
+		fields.Add(d);
+		return 0;
+	}
+}
+
+class Datums
+{
+	public static fun Make(Int k, IZo z, IDatum a, IDatum d) : IDatum
+	{
+		return new DatumS(k, z, a, d, new ArrayList<IDatum>());
+	}
+
+	public static fun Simple(Int k) : IDatum
+	{
+		return new LeafS(k);
+	}
+
+	# a datum whose car and cdr are never read
+	public static fun Leaf() : IDatum
+	{
+		return new LeafS(6);
+	}
+
+	public static fun False() : IDatum
+	{
+		return Datums.Simple(4);
+	}
+
+	public static fun Null() : IDatum
+	{
+		return Datums.Simple(1);
+	}
+
+	public static fun OfZo(IZo z) : IDatum
+	{
+		return Datums.Make(0, z, Datums.Leaf(), Datums.Leaf());
+	}
+
+	public static fun Cons(IDatum a, IDatum d) : IDatum
+	{
+		return Datums.Make(2, new ZoS(0 - 1), a, d);
+	}
+
+	public static fun OfZoList(IZoList l) : IDatum
+	{
+		if (l.IsEmpty())
+		{
+			return Datums.Null();
+		}
+		return Datums.Cons(Datums.OfZo(l.First()), Datums.OfZoList(l.Rest()));
+	}
+
+	# list?
+	public static fun IsList(IDatum d) : Bool
+	{
+		while (d.Kind() == 2)
+		{
+			d = d.Cdr();
+		}
+		return d.Kind() == 1;
+	}
+
+	public static fun CheckList(IDatum d) : IDatum
+	{
+		if (!Datums.IsList(d))
+		{
+			ERROR("contract violation: expected list?");
+		}
+		return d;
+	}
+
+	# (filter zo? l) as a list of zos
+	public static fun FilterZo(IDatum l) : IZoList
+	{
+		if (l.Kind() == 1)
+		{
+			return new ZoNil();
+		}
+		IDatum x = l.Car();
+		if (x.Kind() == 0)
+		{
+			return new ZoCons(x.Zo(), Datums.FilterZo(l.Cdr()));
+		}
+		return Datums.FilterZo(l.Cdr());
+	}
+
+	public static fun FilterBy(IDatum l, Int which) : IDatum
+	{
+		if (Datums.CheckList(l).Kind() == 1)
+		{
+			return l;
+		}
+		IDatum x = l.Car();
+		if (Datums.Keep(x, which))
+		{
+			return Datums.Cons(x, Datums.FilterBy(l.Cdr(), which));
+		}
+		return Datums.FilterBy(l.Cdr(), which);
+	}
+
+	# 0 form?, 1 toplevel?, 2 expr-or-seq?, 3 global-bucket-or-module-variable?, 4 true (not #f)
+	public static fun Keep(IDatum x, Int which) : Bool
+	{
+		if (which == 0)
+		{
+			return Zo.IsForm(x);
+		}
+		if (which == 1)
+		{
+			return Zo.IsKind(x, Zo.Toplevel());
+		}
+		if (which == 2)
+		{
+			return Zo.IsExprOrSeq(x);
+		}
+		if (which == 3)
+		{
+			return Zo.IsGbOrMv(x);
+		}
+		return x.Kind() != 4;
+	}
+
+	public static fun FilterForm(IDatum l) : IDatum
+	{
+		return Datums.FilterBy(l, 0);
+	}
+
+	public static fun FilterToplevel(IDatum l) : IDatum
+	{
+		return Datums.FilterBy(l, 1);
+	}
+
+	public static fun FilterEs(IDatum l) : IDatum
+	{
+		return Datums.FilterBy(l, 2);
+	}
+
+	public static fun FilterGbmv(IDatum l) : IDatum
+	{
+		return Datums.FilterBy(l, 3);
+	}
+
+	public static fun FilterTrue(IDatum l) : IDatum
+	{
+		return Datums.FilterBy(l, 4);
+	}
+
+	public static fun Append(IDatum a, IDatum b) : IDatum
+	{
+		if (Datums.CheckList(a).Kind() == 1)
+		{
+			return b;
+		}
+		return Datums.Cons(a.Car(), Datums.Append(a.Cdr(), b));
+	}
+
+	public static fun VectorToList(IDatum v) : IDatum
+	{
+		IDatum l = Datums.Null();
+		Int i = v.VecLength() - 1;
+		while (i >= 0)
+		{
+			l = Datums.Cons(v.VecRef(i), l);
+			i = i - 1;
+		}
+		return l;
+	}
+}
+
+# predicates on Racket values
+class Zo
+{
+	public static fun Toplevel() : Int
+	{
+		return Kinds.Toplevel();
+	}
+
+	public static fun IsKind(IDatum d, Int k) : Bool
+	{
+		if (d.Kind() != 0)
+		{
+			return false;
+		}
+		return d.Zo().Kind() == k;
+	}
+
+	public static fun IsForm(IDatum d) : Bool
+	{
+		if (d.Kind() != 0)
+		{
+			return false;
+		}
+		return Kinds.IsForm(d.Zo().Kind());
+	}
+
+	public static fun IsExpr(IDatum d) : Bool
+	{
+		if (d.Kind() != 0)
+		{
+			return false;
+		}
+		return Kinds.IsExpr(d.Zo().Kind());
+	}
+
+	public static fun IsStx(IDatum d) : Bool
+	{
+		return Zo.IsKind(d, Kinds.Stx());
+	}
+
+	# (or (expr? x) (seq? x))
+	public static fun IsExprOrSeq(IDatum d) : Bool
+	{
+		if (Zo.IsExpr(d))
+		{
+			return true;
+		}
+		return Zo.IsKind(d, Kinds.Seq());
+	}
+
+	public static fun IsExprSeqOrInlineVariant(IDatum d) : Bool
+	{
+		if (Zo.IsExprOrSeq(d))
+		{
+			return true;
+		}
+		return Zo.IsKind(d, Kinds.InlineVariant());
+	}
+
+	public static fun IsGbOrMv(IDatum d) : Bool
+	{
+		if (Zo.IsKind(d, Kinds.GlobalBucket()))
+		{
+			return true;
+		}
+		return Zo.IsKind(d, Kinds.ModuleVariable());
+	}
+
+	public static fun IsTrue(IDatum d) : Bool
+	{
+		return d.Kind() != 4;
+	}
+}
+
+# ---- Specs ----
+
+# a field thunk; the benchmark never forces it (zo->string is not ported)
+class UnforcedThunk implements ISpecThunk
+{
+	private readonly IZo z;
+	private readonly IText name;
+	public constructor(IZo zz, IText n)
+	{
+		z = zz;
+		name = n;
+	}
+	public fun this() : IText
+	{
+		ERROR("zo->string is not ported: field thunks cannot be forced");
+	}
+}
+
+class SpecFieldS implements ISpecField
+{
+	private readonly IText name;
+	private readonly ISpecThunk thunk;
+	public constructor(IText n, ISpecThunk t)
+	{
+		name = n;
+		thunk = t;
+	}
+	public fun Name() : IText
+	{
+		return name;
+	}
+	public fun Thunk() : ISpecThunk
+	{
+		return thunk;
+	}
+}
+
+class SpecS implements ISpec
+{
+	private readonly IText title;
+	private readonly ISpecFieldList fields;
+	public constructor(IText t, ISpecFieldList f)
+	{
+		title = t;
+		fields = f;
+	}
+	public fun Title() : IText
+	{
+		return title;
+	}
+	public fun Fields() : ISpecFieldList
+	{
+		return fields;
+	}
+}
+
+class Specs
+{
+	public static fun Make(IText title, ISpecFieldList fields) : ISpec
+	{
+		return new SpecS(title, fields);
+	}
+
+	# (lcons name <formatting expression>)
+	public static fun Field(IText name, IZo z) : ISpecField
+	{
+		return new SpecFieldS(name, new UnforcedThunk(z, name));
+	}
+}
+
+# ---- zo-transition results, init arguments ----
+
+class TransS implements ITransResult
+{
+	private readonly Bool isList;
+	private readonly IZo one;
+	private readonly IZoList many;
+	private readonly Bool success;
+	public constructor(Bool l, IZo o, IZoList m, Bool s)
+	{
+		isList = l;
+		one = o;
+		many = m;
+		success = s;
+	}
+	public fun IsList() : Bool
+	{
+		return isList;
+	}
+	public fun One() : IZo
+	{
+		return one;
+	}
+	public fun Many() : IZoList
+	{
+		return many;
+	}
+	public fun Success() : Bool
+	{
+		return success;
+	}
+}
+
+class Trans
+{
+	public static fun One(IZo z) : ITransResult
+	{
+		return new TransS(false, z, new ZoNil(), true);
+	}
+	public static fun Many(IZoList zs) : ITransResult
+	{
+		return new TransS(true, new ZoS(0 - 1), zs, true);
+	}
+	public static fun Fail(IZo z) : ITransResult
+	{
+		return new TransS(false, z, new ZoNil(), false);
+	}
+}
+
+class InitArgs implements IInitArgs
+{
+	private readonly IZo ctx;
+	private readonly IText arg;
+	public constructor(IZo c, IText a)
+	{
+		ctx = c;
+		arg = a;
+	}
+	public fun Ctx() : IZo
+	{
+		return ctx;
+	}
+	public fun Arg() : IText
+	{
+		return arg;
+	}
+}
+
+class Builtins
+{
+	# (vector ctx arg)
+	public static fun MakeInitArgs(IZo c, IText a) : IInitArgs
+	{
+		return new InitArgs(c, a);
+	}
+}
+
+# ---- zo-parse: decodes the embedded graph ----
+
+class Cursor
+{
+	public readonly ArrayList<Int> Ints;
+	public Int Pos;
+	public readonly ArrayList<ZoS> Nodes;
+	public constructor(ArrayList<Int> ints)
+	{
+		Ints = ints;
+		Pos = 0;
+		Nodes = new ArrayList<ZoS>();
+	}
+	public fun Next() : Int
+	{
+		Int v = Ints.Get(Pos);
+		Pos = Pos + 1;
+		return v;
+	}
+	# the node with this id, created on first reference
+	public fun Node(Int id) : ZoS
+	{
+		while (Nodes.Length() <= id)
+		{
+			Nodes.Add(new ZoS(Nodes.Length()));
+		}
+		return Nodes.Get(id);
+	}
+	public fun AtEnd() : Bool
+	{
+		return Pos >= Ints.Length();
+	}
+}
+
+class ZoParse
+{
+	# (zo-parse port): the root of the graph
+	public static fun ZoParse() : IZo
+	{
+		ArrayList<Int> words = ZoData.Words();
+		ArrayList<Int> ints = new ArrayList<Int>();
+		foreach (Int w in words)
+		{
+			Int k = 0;
+			while (k < 4)
+			{
+				if (ints.Length() < ZoData.Count())
+				{
+					ints.Add(w % 8192);
+				}
+				w = w / 8192;
+				k = k + 1;
+			}
+		}
+		Cursor c = new Cursor(ints);
+		Int id = 0;
+		while (!c.AtEnd())
+		{
+			ZoS node = c.Node(id);
+			node.SetKind(c.Next());
+			Int n = c.Next();
+			Int f = 0;
+			while (f < n)
+			{
+				node.AddField(ZoParse.Datum(c));
+				f = f + 1;
+			}
+			id = id + 1;
+		}
+		return c.Node(0);
+	}
+
+	public static fun Datum(Cursor c) : IDatum
+	{
+		Int tag = c.Next();
+		if (tag == 0)
+		{
+			return Datums.OfZo(c.Node(c.Next()));
+		}
+		if (tag == 2)
+		{
+			# a chain of pairs: the cars, then the tail
+			ArrayList<IDatum> cars = new ArrayList<IDatum>();
+			cars.Add(ZoParse.Datum(c));
+			while (c.Ints.Get(c.Pos) == 2)
+			{
+				c.Next();
+				cars.Add(ZoParse.Datum(c));
+			}
+			IDatum l = ZoParse.Datum(c);
+			Int i = cars.Length() - 1;
+			while (i >= 0)
+			{
+				l = Datums.Cons(cars.Get(i), l);
+				i = i - 1;
+			}
+			return l;
+		}
+		if (tag == 3)
+		{
+			Int n = c.Next();
+			ArrayList<IDatum> v = new ArrayList<IDatum>();
+			Int j = 0;
+			while (j < n)
+			{
+				v.Add(ZoParse.Datum(c));
+				j = j + 1;
+			}
+			return new DatumS(3, new ZoS(0 - 1), Datums.Leaf(), Datums.Leaf(), v);
+		}
+		return Datums.Simple(tag);
+	}
+}
+
+# ---- zo struct kinds (compiler-zo-structs.rkt, generated by tools/zordoz_gen.py) ----
+
+# kind ids: 0 function-shape, 1 struct-shape, 2 constructor-shape, 3 predicate-shape, 4 accessor-shape, 5 mutator-shape, 6 struct-type-shape, 7 struct-type-property-shape, 8 property-predicate-shape, 9 property-accessor-shape, 10 struct-other-shape, 11 global-bucket, 12 module-variable, 13 prefix, 14 form, 15 expr, 16 compilation-top, 17 provided, 18 toplevel, 19 seq, 20 seq-for-syntax, 21 inline-variant, 22 def-values, 23 def-syntaxes, 24 mod, 25 lam, 26 closure, 27 case-lam, 28 let-one, 29 let-void, 30 install-value, 31 let-rec, 32 boxenv, 33 localref, 34 topsyntax, 35 application, 36 branch, 37 with-cont-mark, 38 beg0, 39 splice, 40 varref, 41 assign, 42 apply-values, 43 with-immed-mark, 44 primval, 45 req, 46 stx, 47 stx-obj, 48 wrap, 49 module-shift, 50 scope, 51 multi-scope, 52 binding, 53 free-id=?-binding, 54 local-binding, 55 module-binding, 56 decoded-module-binding, 57 all-from-module
+class Kinds
+{
+	public static fun Toplevel() : Int
+	{
+		return 18;
+	}
+	public static fun Stx() : Int
+	{
+		return 46;
+	}
+	public static fun Seq() : Int
+	{
+		return 19;
+	}
+	public static fun InlineVariant() : Int
+	{
+		return 21;
+	}
+	public static fun GlobalBucket() : Int
+	{
+		return 11;
+	}
+	public static fun ModuleVariable() : Int
+	{
+		return 12;
+	}
+	# (form? z)
+	public static fun IsForm(Int k) : Bool
+	{
+		if (k == 14)
+		{
+			return true;
+		}
+		if (k == 15)
+		{
+			return true;
+		}
+		if (k == 18)
+		{
+			return true;
+		}
+		if (k == 19)
+		{
+			return true;
+		}
+		if (k == 20)
+		{
+			return true;
+		}
+		if (k == 21)
+		{
+			return true;
+		}
+		if (k == 22)
+		{
+			return true;
+		}
+		if (k == 23)
+		{
+			return true;
+		}
+		if (k == 24)
+		{
+			return true;
+		}
+		if (k == 25)
+		{
+			return true;
+		}
+		if (k == 26)
+		{
+			return true;
+		}
+		if (k == 27)
+		{
+			return true;
+		}
+		if (k == 28)
+		{
+			return true;
+		}
+		if (k == 29)
+		{
+			return true;
+		}
+		if (k == 30)
+		{
+			return true;
+		}
+		if (k == 31)
+		{
+			return true;
+		}
+		if (k == 32)
+		{
+			return true;
+		}
+		if (k == 33)
+		{
+			return true;
+		}
+		if (k == 34)
+		{
+			return true;
+		}
+		if (k == 35)
+		{
+			return true;
+		}
+		if (k == 36)
+		{
+			return true;
+		}
+		if (k == 37)
+		{
+			return true;
+		}
+		if (k == 38)
+		{
+			return true;
+		}
+		if (k == 39)
+		{
+			return true;
+		}
+		if (k == 40)
+		{
+			return true;
+		}
+		if (k == 41)
+		{
+			return true;
+		}
+		if (k == 42)
+		{
+			return true;
+		}
+		if (k == 43)
+		{
+			return true;
+		}
+		if (k == 44)
+		{
+			return true;
+		}
+		if (k == 45)
+		{
+			return true;
+		}
+		return false;
+	}
+	# (expr? z)
+	public static fun IsExpr(Int k) : Bool
+	{
+		if (k == 15)
+		{
+			return true;
+		}
+		if (k == 18)
+		{
+			return true;
+		}
+		if (k == 25)
+		{
+			return true;
+		}
+		if (k == 26)
+		{
+			return true;
+		}
+		if (k == 27)
+		{
+			return true;
+		}
+		if (k == 28)
+		{
+			return true;
+		}
+		if (k == 29)
+		{
+			return true;
+		}
+		if (k == 30)
+		{
+			return true;
+		}
+		if (k == 31)
+		{
+			return true;
+		}
+		if (k == 32)
+		{
+			return true;
+		}
+		if (k == 33)
+		{
+			return true;
+		}
+		if (k == 34)
+		{
+			return true;
+		}
+		if (k == 35)
+		{
+			return true;
+		}
+		if (k == 36)
+		{
+			return true;
+		}
+		if (k == 37)
+		{
+			return true;
+		}
+		if (k == 38)
+		{
+			return true;
+		}
+		if (k == 40)
+		{
+			return true;
+		}
+		if (k == 41)
+		{
+			return true;
+		}
+		if (k == 42)
+		{
+			return true;
+		}
+		if (k == 43)
+		{
+			return true;
+		}
+		if (k == 44)
+		{
+			return true;
+		}
+		return false;
+	}
+	# (binding? z)
+	public static fun IsBinding(Int k) : Bool
+	{
+		if (k == 52)
+		{
+			return true;
+		}
+		if (k == 53)
+		{
+			return true;
+		}
+		if (k == 54)
+		{
+			return true;
+		}
+		if (k == 55)
+		{
+			return true;
+		}
+		if (k == 56)
+		{
+			return true;
+		}
+		return false;
+	}
+	# (struct-shape? z)
+	public static fun IsStructShape(Int k) : Bool
+	{
+		if (k == 1)
+		{
+			return true;
+		}
+		if (k == 2)
+		{
+			return true;
+		}
+		if (k == 3)
+		{
+			return true;
+		}
+		if (k == 4)
+		{
+			return true;
+		}
+		if (k == 5)
+		{
+			return true;
+		}
+		if (k == 6)
+		{
+			return true;
+		}
+		if (k == 7)
+		{
+			return true;
+		}
+		if (k == 8)
+		{
+			return true;
+		}
+		if (k == 9)
+		{
+			return true;
+		}
+		if (k == 10)
+		{
+			return true;
+		}
+		return false;
+	}
+	public static fun Count() : Int
+	{
+		return 58;
+	}
+}
+class ZoNil implements IZoList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IZo
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IZoList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ZoCons implements IZoList
+{
+	private readonly IZo first;
+	private readonly IZoList rest;
+	public constructor(IZo f, IZoList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IZo
+	{
+		return first;
+	}
+	public fun Rest() : IZoList
+	{
+		return rest;
+	}
+}
+
+class SpecFieldNil implements ISpecFieldList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ISpecField
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ISpecFieldList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class SpecFieldCons implements ISpecFieldList
+{
+	private readonly ISpecField first;
+	private readonly ISpecFieldList rest;
+	public constructor(ISpecField f, ISpecFieldList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ISpecField
+	{
+		return first;
+	}
+	public fun Rest() : ISpecFieldList
+	{
+		return rest;
+	}
+}
+
+class ResultNil implements IResultList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IResult
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IResultList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ResultCons implements IResultList
+{
+	private readonly IResult first;
+	private readonly IResultList rest;
+	public constructor(IResult f, IResultList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IResult
+	{
+		return first;
+	}
+	public fun Rest() : IResultList
+	{
+		return rest;
+	}
+}
+
+class ResultListNil implements IResultListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IResultList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IResultListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ResultListCons implements IResultListList
+{
+	private readonly IResultList first;
+	private readonly IResultListList rest;
+	public constructor(IResultList f, IResultListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IResultList
+	{
+		return first;
+	}
+	public fun Rest() : IResultListList
+	{
+		return rest;
+	}
+}
+
+class TextNil implements ITextList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IText
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextCons implements ITextList
+{
+	private readonly IText first;
+	private readonly ITextList rest;
+	public constructor(IText f, ITextList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IText
+	{
+		return first;
+	}
+	public fun Rest() : ITextList
+	{
+		return rest;
+	}
+}
+

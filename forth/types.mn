@@ -1,0 +1,115 @@
+# base/command-types.rkt: Stack, Env, Val, State, Result, Command%
+# plus the types of the Racket builtins the program uses (symbols, lists, multiple values).
+# Racket strings are IText objects holding character codes: MonNom strings are opaque.
+
+# a string: a growable sequence of character codes
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# interned symbol
+interface ISymbol
+{
+	fun Chars() : IText;
+}
+
+# symbol table standing in for Racket's symbol interning
+interface ISymTable
+{
+	fun Intern(IText chars) : ISymbol;
+}
+
+# Val = (U Symbol Integer): a token produced by the reader
+interface IVal
+{
+	fun IsSymbol() : Bool;
+	fun IsInteger() : Bool;
+	fun IsList() : Bool;
+	fun Sym() : ISymbol;
+	fun Num() : Int;
+	# equal?
+	fun Equal(IVal other) : Bool;
+	# (format "~a" v), appended to a string
+	fun Show(IText acc) : IText;
+}
+
+# (Listof Any): token lists
+interface IValList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IVal;
+	fun Rest() : IValList;
+}
+
+# Stack = State = (Listof Integer)
+interface IStack
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IStack;
+}
+
+# (Values Integer Stack) returned by stack-pop
+interface IPop
+{
+	fun Value() : Int;
+	fun Stack() : IStack;
+}
+
+# (-> Integer Integer Integer)
+interface IBinop
+{
+	fun this(Int a, Int b) : Int;
+}
+
+# exec field type: (-> Env State Any Result)
+# (instance methods and lambdas cannot take more than two arguments in MonNom, so the three
+# arguments are passed in one IExecArgs object)
+interface IExec
+{
+	fun this(IExecArgs a) : IResult;
+}
+
+# the arguments E S v of an exec call
+interface IExecArgs
+{
+	fun Env() : IEnv;
+	fun State() : IStack;
+	fun Tokens() : IValList;
+}
+
+# (Instance Command%)
+interface ICommand
+{
+	fun Id() : ISymbol;
+	fun Descr() : IText;
+	fun Exec() : IExec;
+}
+
+# Env = (Listof (Instance Command%))
+interface IEnv
+{
+	fun IsEmpty() : Bool;
+	fun First() : ICommand;
+	fun Rest() : IEnv;
+}
+
+# Result = (U 'EXIT #f (Pairof Env State))
+interface IResult
+{
+	fun IsExit() : Bool;
+	fun IsFalse() : Bool;
+	fun Env() : IEnv;
+	fun State() : IStack;
+}
+
+# (Values (Option Env) Stack) returned by forth-eval and forth-eval*
+interface IEvalResult
+{
+	fun HasEnv() : Bool;
+	fun Env() : IEnv;
+	fun Stack() : IStack;
+}

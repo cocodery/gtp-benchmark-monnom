@@ -1,0 +1,508 @@
+# data.rkt (the Array structs), array-struct.rkt and array-utils.rkt
+
+# (struct Array (shp size strict? strict! unsafe-proc))
+class ArrayS implements IArray
+{
+	private readonly IIdx shp;
+	private readonly Int size;
+	private readonly IBoolBox strict;
+	private readonly IThunk strictBang;
+	private readonly IIndexProc unsafeProc;
+	public constructor(IIdx ds, Int n, IBoolBox s, IThunk sb, IIndexProc p)
+	{
+		shp = ds;
+		size = n;
+		strict = s;
+		strictBang = sb;
+		unsafeProc = p;
+	}
+	public fun Shape() : IIdx
+	{
+		return shp;
+	}
+	public fun Size() : Int
+	{
+		return size;
+	}
+	public fun IsStrict() : IBoolBox
+	{
+		return strict;
+	}
+	public fun StrictBang() : IThunk
+	{
+		return strictBang;
+	}
+	public fun UnsafeProc() : IIndexProc
+	{
+		return unsafeProc;
+	}
+}
+
+# (struct Mutable-Array Settable-Array (data)), Settable-Array adds set-proc
+class MutableArray implements IArray
+{
+	private readonly IIdx shp;
+	private readonly Int size;
+	private readonly IBoolBox strict;
+	private readonly IThunk strictBang;
+	private readonly IIndexProc unsafeProc;
+	private readonly ISetProc setProc;
+	private readonly IFloatVec data;
+	public constructor(IIdx ds, Int n, IBoolBox s, IThunk sb, IIndexProc p, ISetProc sp, IFloatVec d)
+	{
+		shp = ds;
+		size = n;
+		strict = s;
+		strictBang = sb;
+		unsafeProc = p;
+		setProc = sp;
+		data = d;
+	}
+	public fun Shape() : IIdx
+	{
+		return shp;
+	}
+	public fun Size() : Int
+	{
+		return size;
+	}
+	public fun IsStrict() : IBoolBox
+	{
+		return strict;
+	}
+	public fun StrictBang() : IThunk
+	{
+		return strictBang;
+	}
+	public fun UnsafeProc() : IIndexProc
+	{
+		return unsafeProc;
+	}
+	public fun SetProc() : ISetProc
+	{
+		return setProc;
+	}
+	public fun Data() : IFloatVec
+	{
+		return data;
+	}
+}
+
+# racket's void
+class VoidThunk implements IThunk
+{
+	public constructor()
+	{
+	}
+	public fun this() : Int
+	{
+		return 0;
+	}
+}
+
+# the fail thunks passed to check-array-shp (raise-argument-error)
+class FailThunk implements IThunk
+{
+	public constructor()
+	{
+	}
+	public fun this() : Int
+	{
+		ERROR("expected: (Vectorof Index)");
+	}
+}
+
+# strict! of unsafe-build-array
+class StrictBangThunk implements IThunk
+{
+	private readonly IProcBox f;
+	private readonly IIdx ds;
+	public constructor(IProcBox fb, IIdx d)
+	{
+		f = fb;
+		ds = d;
+	}
+	public fun this() : Int
+	{
+		IIndexProc oldF = f.Get();
+		IFloatVec vs = ArrayStruct.InlineBuildArrayData(ds, oldF);
+		f.Put(new VectorRefProc(ds, vs));
+		return 0;
+	}
+}
+
+# (lambda (js) (vector-ref vs (unsafe-array-index->value-index ds js))), i.e. make-unsafe-array-proc
+class VectorRefProc implements IIndexProc
+{
+	private readonly IIdx ds;
+	private readonly IFloatVec vs;
+	public constructor(IIdx d, IFloatVec v)
+	{
+		ds = d;
+		vs = v;
+	}
+	public fun this(IIdx js) : Float
+	{
+		return vs.Ref(ArrayUtils.UnsafeArrayIndexToValueIndex(ds, js));
+	}
+}
+
+# make-unsafe-array-set-proc over a vector
+class VectorSetProc implements ISetProc
+{
+	private readonly IIdx ds;
+	private readonly IFloatVec vs;
+	public constructor(IIdx d, IFloatVec v)
+	{
+		ds = d;
+		vs = v;
+	}
+	public fun this(IIdx js, Float v) : Int
+	{
+		vs.Set(ArrayUtils.UnsafeArrayIndexToValueIndex(ds, js), v);
+		return 0;
+	}
+}
+
+# unsafe-proc of unsafe-build-array: (lambda (js) ((unbox f) js))
+class BoxedProc implements IIndexProc
+{
+	private readonly IProcBox f;
+	public constructor(IProcBox fb)
+	{
+		f = fb;
+	}
+	public fun this(IIdx js) : Float
+	{
+		IIndexProc p = f.Get();
+		return p(js);
+	}
+}
+
+# build-array's (lambda (js) (proc (vector->immutable-vector js)))
+class CopyIndexesProc implements IIndexProc
+{
+	private readonly IIndexProc proc;
+	public constructor(IIndexProc p)
+	{
+		proc = p;
+	}
+	public fun this(IIdx js) : Float
+	{
+		IIndexProc p = proc;
+		return p(Builtins.IdxCopy(js));
+	}
+}
+
+# make-array's (λ (js) v)
+class ConstProc implements IIndexProc
+{
+	private readonly Float v;
+	public constructor(Float x)
+	{
+		v = x;
+	}
+	public fun this(IIdx js) : Float
+	{
+		return v;
+	}
+}
+
+class ArrayStruct
+{
+	# array-strictness: a parameter that synth.rkt sets to #f when it is instantiated, which
+	# happens before any array is built; it is never changed again
+	public static fun ArrayStrictness() : Bool
+	{
+		return false;
+	}
+
+	public static fun IsArray(IArray arr) : Bool
+	{
+		return true;
+	}
+
+	public static fun ArrayShape(IArray arr) : IIdx
+	{
+		return arr.Shape();
+	}
+
+	public static fun ArraySize(IArray arr) : Int
+	{
+		return arr.Size();
+	}
+
+	public static fun UnsafeArrayProc(IArray arr) : IIndexProc
+	{
+		return arr.UnsafeProc();
+	}
+
+	# inline-build-array-data with (lambda (js j) (old-f js)), traversing the indexes in row-major
+	# order (for-each-array+data-index)
+	public static fun InlineBuildArrayData(IIdx ds, IIndexProc g) : IFloatVec
+	{
+		Int dims = ds.Length();
+		Int size = 1;
+		Int k = 0;
+		while (k < dims)
+		{
+			size = size * ds.Ref(k);
+			k = k + 1;
+		}
+		if (size == 0)
+		{
+			return Builtins.MakeFloatVec(0, 0.0);
+		}
+		IIdx js0 = Builtins.MakeIdx(dims, 0);
+		IFloatVec vs = Builtins.MakeFloatVec(size, g(js0));
+		IIdx js = Builtins.MakeIdx(dims, 0);
+		Int j = 0;
+		while (j < size)
+		{
+			vs.Set(j, g(js));
+			ArrayUtils.NextIndexesBang(ds, dims, js);
+			j = j + 1;
+		}
+		return vs;
+	}
+
+	public static fun ArrayStrictP(IArray arr) : Bool
+	{
+		return arr.IsStrict().Get();
+	}
+
+	public static fun ArrayStrictBang(IArray arr) : Int
+	{
+		IBoolBox strict = arr.IsStrict();
+		if (!strict.Get())
+		{
+			IThunk sb = arr.StrictBang();
+			sb();
+			strict.Put(true);
+		}
+		return 0;
+	}
+
+	public static fun ArrayDefaultStrictBang(IArray arr) : Int
+	{
+		IBoolBox strict = arr.IsStrict();
+		if (!strict.Get())
+		{
+			if (ArrayStruct.ArrayStrictness())
+			{
+				IThunk sb = arr.StrictBang();
+				sb();
+				strict.Put(true);
+			}
+		}
+		return 0;
+	}
+
+	public static fun UnsafeBuildArray(IIdx ds, IIndexProc f) : IArray
+	{
+		IProcBox fb = new ProcBox(f);
+		Int size = ArrayUtils.CheckArrayShapeSize(ds);
+		IThunk strictBang = new StrictBangThunk(fb, ds);
+		IIndexProc unsafeProc = new BoxedProc(fb);
+		return new ArrayS(ds, size, new BoolBox(false), strictBang, unsafeProc);
+	}
+
+	public static fun UnsafeBuildSimpleArray(IIdx ds, IIndexProc f) : IArray
+	{
+		Int size = ArrayUtils.CheckArrayShapeSize(ds);
+		return new ArrayS(ds, size, new BoolBox(true), new VoidThunk(), f);
+	}
+
+	public static fun BuildArray(IIdx ds0, IIndexProc proc) : IArray
+	{
+		IIdx ds = ArrayUtils.CheckArrayShape(ds0, new FailThunk());
+		IArray arr = ArrayStruct.UnsafeBuildArray(ds, new CopyIndexesProc(proc));
+		ArrayStruct.ArrayDefaultStrictBang(arr);
+		return arr;
+	}
+
+	public static fun BuildSimpleArray(IIdx ds0, IIndexProc proc) : IArray
+	{
+		IIdx ds = ArrayUtils.CheckArrayShape(ds0, new FailThunk());
+		return ArrayStruct.UnsafeBuildSimpleArray(ds, new CopyIndexesProc(proc));
+	}
+
+	public static fun MakeArray(IIdx ds0, Float v) : IArray
+	{
+		IIdx ds = ArrayUtils.CheckArrayShape(ds0, new FailThunk());
+		return ArrayStruct.UnsafeBuildSimpleArray(ds, new ConstProc(v));
+	}
+
+	# returns a Mutable-Array (which is an Array)
+	public static fun UnsafeVectorToArray(IIdx ds, IFloatVec vs) : IArray
+	{
+		IIndexProc proc = new VectorRefProc(ds, vs);
+		ISetProc setProc = new VectorSetProc(ds, vs);
+		return new MutableArray(ds, vs.Length(), new BoolBox(true), new VoidThunk(), proc, setProc, vs);
+	}
+}
+
+# (make-thread-local-indexes dims)
+class ThreadLocalIndexes implements IIndexesThunk
+{
+	private readonly Int dims;
+	private readonly IIdxCell val;
+	public constructor(Int d, IIdxCell c)
+	{
+		dims = d;
+		val = c;
+	}
+	public fun this() : IIdx
+	{
+		if (val.IsSet())
+		{
+			return val.Get();
+		}
+		IIdx v = Builtins.MakeIdx(dims, 0);
+		val.Put(v);
+		return v;
+	}
+}
+
+class ArrayUtils
+{
+	public static fun VectorCopyAll(IIdx js) : IIdx
+	{
+		Int dims = js.Length();
+		if (dims == 0)
+		{
+			return Builtins.MakeIdx(0, 0);
+		}
+		IIdx newJs = Builtins.MakeIdx(dims, js.Ref(0));
+		Int i = 1;
+		while (i < dims)
+		{
+			newJs.Set(i, js.Ref(i));
+			i = i + 1;
+		}
+		return newJs;
+	}
+
+	public static fun ArrayShapeSize(IIdx ds) : Int
+	{
+		Int dims = ds.Length();
+		Int i = 0;
+		Int n = 1;
+		while (i < dims)
+		{
+			n = n * ds.Ref(i);
+			i = i + 1;
+		}
+		return n;
+	}
+
+	public static fun CheckArrayShapeSize(IIdx ds) : Int
+	{
+		Int size = ArrayUtils.ArrayShapeSize(ds);
+		if (size < 0)
+		{
+			ERROR("array size is too large (is not an Index)");
+		}
+		return size;
+	}
+
+	public static fun CheckArrayShape(IIdx ds, IThunk fail) : IIdx
+	{
+		Int dims = ds.Length();
+		IIdx newDs = Builtins.MakeIdx(dims, 0);
+		Int i = 0;
+		while (i < dims)
+		{
+			Int di = ds.Ref(i);
+			if (di < 0)
+			{
+				fail();
+			}
+			newDs.Set(i, di);
+			i = i + 1;
+		}
+		return newDs;
+	}
+
+	public static fun UnsafeArrayIndexToValueIndex(IIdx ds, IIdx js) : Int
+	{
+		Int dims = ds.Length();
+		Int i = 0;
+		Int j = 0;
+		while (i < dims)
+		{
+			Int di = ds.Ref(i);
+			Int ji = js.Ref(i);
+			j = ji + di * j;
+			i = i + 1;
+		}
+		return j;
+	}
+
+	public static fun UnsafeVectorRemove(IIdx vec, Int k) : IIdx
+	{
+		Int n = vec.Length();
+		Int n1 = n - 1;
+		if (n1 < 0)
+		{
+			ERROR("unsafe-vector-remove: internal error");
+		}
+		IIdx newVec = Builtins.MakeIdx(n1, 0);
+		Int i = 0;
+		while (i < k)
+		{
+			newVec.Set(i, vec.Ref(i));
+			i = i + 1;
+		}
+		Int i2 = k;
+		while (i2 < n1)
+		{
+			newVec.Set(i2, vec.Ref(i2 + 1));
+			i2 = i2 + 1;
+		}
+		return newVec;
+	}
+
+	public static fun UnsafeVectorInsert(IIdx vec, Int k, Int v) : IIdx
+	{
+		Int n = vec.Length();
+		IIdx dstVec = Builtins.MakeIdx(n + 1, v);
+		Int i = 0;
+		while (i < k)
+		{
+			dstVec.Set(i, vec.Ref(i));
+			i = i + 1;
+		}
+		Int i2 = k;
+		while (i2 < n)
+		{
+			dstVec.Set(i2 + 1, vec.Ref(i2));
+			i2 = i2 + 1;
+		}
+		return dstVec;
+	}
+
+	public static fun MakeThreadLocalIndexes(Int dims) : IIndexesThunk
+	{
+		return new ThreadLocalIndexes(dims, Builtins.MakeIdxCell());
+	}
+
+	# sets js to the next vector of indexes, in row-major order
+	public static fun NextIndexesBang(IIdx ds, Int dims, IIdx js) : Int
+	{
+		Int k = dims;
+		while (k != 0)
+		{
+			k = k - 1;
+			Int jk = js.Ref(k) + 1;
+			if (jk >= ds.Ref(k))
+			{
+				js.Set(k, 0);
+				continue;
+			}
+			js.Set(k, jk);
+			break;
+		}
+		return 0;
+	}
+}

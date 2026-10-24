@@ -1,0 +1,54 @@
+# Types of the Racket builtins used by morsecode: strings, characters (Int codes), vectors,
+# the (HashTable Char String) of morse-code-table.rkt, and the function types of levenshtein.rkt.
+
+# a string: a sequence of character codes (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# (Vectorof Char) / (Vectorof Index)
+interface IVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Int;
+	fun Set(Int i, Int v) : Int;
+}
+
+# (HashTable Char String); Ref returns the default when the key is missing
+interface ICharTable
+{
+	fun Ref(Int c, IText dflt) : IText;
+	fun Set(Int c, IText s) : Int;
+}
+
+# (-> Char Char Boolean)
+interface ICharPred
+{
+	fun this(Int a, Int b) : Bool;
+}
+
+# (-> Integer (Vectorof Index)), e.g. make-vector
+interface IGetScratch
+{
+	fun this(Int n) : IVec;
+}
+
+# (Listof Int)
+interface ICharList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : ICharList;
+}
+
+# (Listof IText)
+interface ITextList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IText;
+	fun Rest() : ITextList;
+}
+

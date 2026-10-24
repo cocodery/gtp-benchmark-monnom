@@ -1,0 +1,498 @@
+# core-structs.rkt (YMD, HMSN), gregor-structs.rkt (Date, Time, DateTime, Moment), hmsn.rkt and
+# ymd.rkt (merged to keep the configuration count down; see NOTES.md)
+
+# ---- core-structs.rkt ----
+
+class YMDS implements IYMD
+{
+	private readonly Int y;
+	private readonly Int m;
+	private readonly Int d;
+	public constructor(Int yy, Int mm, Int dd)
+	{
+		y = yy;
+		m = mm;
+		d = dd;
+	}
+	public fun Y() : Int
+	{
+		return y;
+	}
+	public fun M() : Int
+	{
+		return m;
+	}
+	public fun D() : Int
+	{
+		return d;
+	}
+}
+
+class HMSNS implements IHMSN
+{
+	private readonly Int h;
+	private readonly Int m;
+	private readonly Int s;
+	private readonly Int n;
+	public constructor(Int hh, Int mm, Int ss, Int nn)
+	{
+		h = hh;
+		m = mm;
+		s = ss;
+		n = nn;
+	}
+	public fun H() : Int
+	{
+		return h;
+	}
+	public fun M() : Int
+	{
+		return m;
+	}
+	public fun S() : Int
+	{
+		return s;
+	}
+	public fun N() : Int
+	{
+		return n;
+	}
+}
+
+# ---- gregor-structs.rkt ----
+
+class DateS implements IDate
+{
+	private readonly IYMD ymd;
+	private readonly Int jdn;
+	public constructor(IYMD y, Int j)
+	{
+		ymd = y;
+		jdn = j;
+	}
+	public fun Ymd() : IYMD
+	{
+		return ymd;
+	}
+	public fun Jdn() : Int
+	{
+		return jdn;
+	}
+}
+
+class TimeS implements ITime
+{
+	private readonly IHMSN hmsn;
+	private readonly Int ns;
+	public constructor(IHMSN h, Int n)
+	{
+		hmsn = h;
+		ns = n;
+	}
+	public fun Hmsn() : IHMSN
+	{
+		return hmsn;
+	}
+	public fun Ns() : Int
+	{
+		return ns;
+	}
+}
+
+class DateTimeS implements IDateTime
+{
+	private readonly IDate date;
+	private readonly ITime time;
+	private readonly IRat jd;
+	public constructor(IDate d, ITime t, IRat j)
+	{
+		date = d;
+		time = t;
+		jd = j;
+	}
+	public fun DateOf() : IDate
+	{
+		return date;
+	}
+	public fun TimeOf() : ITime
+	{
+		return time;
+	}
+	public fun Jd() : IRat
+	{
+		return jd;
+	}
+}
+
+class MomentS implements IMoment
+{
+	private readonly IDateTime datetimeLocal;
+	private readonly Int utcOffset;
+	private readonly ITz zone;
+	public constructor(IDateTime dt, Int o, ITz z)
+	{
+		datetimeLocal = dt;
+		utcOffset = o;
+		zone = z;
+	}
+	public fun IsFalse() : Bool
+	{
+		return false;
+	}
+	public fun DatetimeLocal() : IDateTime
+	{
+		return datetimeLocal;
+	}
+	public fun UtcOffset() : Int
+	{
+		return utcOffset;
+	}
+	public fun Zone() : ITz
+	{
+		return zone;
+	}
+}
+
+# #f where a (U #f Moment) is expected
+class NoMoment implements IMoment
+{
+	public constructor()
+	{
+	}
+	public fun IsFalse() : Bool
+	{
+		return true;
+	}
+	public fun DatetimeLocal() : IDateTime
+	{
+		ERROR("Moment-datetime/local: not a Moment");
+	}
+	public fun UtcOffset() : Int
+	{
+		ERROR("Moment-utc-offset: not a Moment");
+	}
+	public fun Zone() : ITz
+	{
+		ERROR("Moment-zone: not a Moment");
+	}
+}
+
+# ---- hmsn.rkt ----
+
+class Hmsn
+{
+	public static fun NsSecond() : Int
+	{
+		return 1000000000;
+	}
+	public static fun NsMilli() : Int
+	{
+		return 1000000;
+	}
+	public static fun NsMicro() : Int
+	{
+		return 1000;
+	}
+	public static fun NsMinute() : Int
+	{
+		return Hmsn.NsSecond() * 60;
+	}
+	public static fun NsHour() : Int
+	{
+		return Hmsn.NsMinute() * 60;
+	}
+	public static fun NsDay() : Int
+	{
+		return 86400 * Hmsn.NsSecond();
+	}
+	public static fun MilliDay() : Int
+	{
+		return 86400000;
+	}
+	# DAYS/NS
+	public static fun DaysNs() : IRat
+	{
+		return Q.Frac(1, Hmsn.NsDay());
+	}
+
+	public static fun HmsnToDayNs(IHMSN hmsn) : Int
+	{
+		Int r = Hmsn.NsHour() * hmsn.H() + Hmsn.NsMinute() * hmsn.M() + Hmsn.NsSecond() * hmsn.S() + hmsn.N();
+		if (r < 0)
+		{
+			ERROR("nope");
+		}
+		return r;
+	}
+
+	public static fun DayNsToHmsn(Int ns0) : IHMSN
+	{
+		Int h = ns0 / Hmsn.NsHour();
+		Int ns1 = ns0 - h * Hmsn.NsHour();
+		Int m = ns1 / Hmsn.NsMinute();
+		Int ns2 = ns1 - m * Hmsn.NsMinute();
+		Int s = ns2 / Hmsn.NsSecond();
+		Int ns3 = ns2 - s * Hmsn.NsSecond();
+		return new HMSNS(h, m, s, ns3);
+	}
+}
+
+# ---- ymd.rkt ----
+
+class Ymd
+{
+	# -- from math.rkt
+	public static fun Div(Int x, Int y) : Int
+	{
+		Int rem = x % y;
+		if (Ymd.SignsDiffer(rem, y))
+		{
+			return x / y - 1;
+		}
+		return x / y;
+	}
+
+	public static fun Mod(Int x, Int y) : Int
+	{
+		Int rem = x % y;
+		if (Ymd.SignsDiffer(rem, y))
+		{
+			return rem + y;
+		}
+		return rem;
+	}
+
+	# (< (bitwise-xor rem y) 0): the signs of rem and y differ (and rem is not 0... as in racket,
+	# a zero rem has the sign of a non-negative number)
+	public static fun SignsDiffer(Int rem, Int y) : Bool
+	{
+		if (rem < 0)
+		{
+			return y >= 0;
+		}
+		return y < 0;
+	}
+
+	public static fun Mod1(Int x, Int y) : Int
+	{
+		return y - Ymd.Mod(y - x, y);
+	}
+
+	# exact-floor of an exact quotient a / b (b > 0)
+	public static fun FloorQuot(Int a, Int b) : Int
+	{
+		return Q.FloorDiv(a, b);
+	}
+
+	public static fun YmdToJdn(IYMD ymd) : Int
+	{
+		if (ymd.M() < 3)
+		{
+			return Ymd.YmdToJdnParts(ymd.Y() - 1, ymd.M() + 12, ymd.D());
+		}
+		return Ymd.YmdToJdnParts(ymd.Y(), ymd.M(), ymd.D());
+	}
+
+	public static fun YmdToJdnParts(Int y, Int m, Int d) : Int
+	{
+		# exact-truncate of (/ (- (* 153 m) 457) 5): Int / truncates
+		return d + (153 * m - 457) / 5 + 365 * y + Ymd.FloorQuot(y, 4) - Ymd.FloorQuot(y, 100) + Ymd.FloorQuot(y, 400) + 1721119;
+	}
+
+	public static fun JdnToYmd(Int jdn) : IYMD
+	{
+		Int x = Q.ExactFloor(((jdn + 0.0) - 1867216.25) / 36524.25);
+		Int a = jdn + 1 + x - Q.FloorDiv(x, 4);
+		Int b = a + 1524;
+		Int c = Q.ExactFloor(((b + 0.0) - 122.1) / 365.25);
+		Int d = Q.ExactFloor(365.25 * (c + 0.0));
+		Int e = Q.ExactFloor(((b - d) + 0.0) / 30.6001);
+		Int dom = b - d - Q.ExactFloor(30.6001 * (e + 0.0));
+		if (e <= 13)
+		{
+			return Ymd.CheckedYmd(c - 4716, e - 1, dom);
+		}
+		return Ymd.CheckedYmd(c - 4715, e - 13, dom);
+	}
+
+	public static fun CheckedYmd(Int y, Int m, Int dom) : IYMD
+	{
+		if (y < 0)
+		{
+			ERROR("jdn->ymd");
+		}
+		if (m <= 0)
+		{
+			ERROR("jdn->ymd");
+		}
+		if (m >= 13)
+		{
+			ERROR("jdn->ymd");
+		}
+		if (dom < 0)
+		{
+			ERROR("jdn->ymd");
+		}
+		return new YMDS(y, m, dom);
+	}
+
+	public static fun JdnToWday(Int jdn) : Int
+	{
+		return Ymd.Mod(jdn + 1, 7);
+	}
+
+	public static fun JdnToIsoWday(Int jdn) : Int
+	{
+		return Ymd.Mod1(Ymd.JdnToWday(jdn), 7);
+	}
+
+	public static fun YmdToYday(IYMD ymd) : Int
+	{
+		if (Ymd.IsLeapYear(ymd.Y()))
+		{
+			return ymd.D() + Ymd.CumulativeMonthDaysLeap(ymd.M() - 1);
+		}
+		return ymd.D() + Ymd.CumulativeMonthDays(ymd.M() - 1);
+	}
+
+	public static fun YmdToQuarter(IYMD ymd) : Int
+	{
+		return 1 + (ymd.M() - 1) / 3;
+	}
+
+	public static fun YmdAddYears(IYMD ymd, Int n) : IYMD
+	{
+		Int ny = ymd.Y() + n;
+		Int maxDom = Ymd.DaysInMonth(ny, ymd.M());
+		if (ymd.D() <= maxDom)
+		{
+			return new YMDS(ny, ymd.M(), ymd.D());
+		}
+		return new YMDS(ny, ymd.M(), maxDom);
+	}
+
+	public static fun YmdAddMonths(IYMD ymd, Int n) : IYMD
+	{
+		Int ny = ymd.Y() + Ymd.Div(ymd.M() + n - 1, 12);
+		if (ny < 0)
+		{
+			ERROR("ymd-add-months");
+		}
+		Int v = Ymd.Mod1(ymd.M() + n, 12);
+		Int nm = Ymd.FixMonth(v);
+		Int maxDom = Ymd.DaysInMonth(ny, nm);
+		if (ymd.D() <= maxDom)
+		{
+			return new YMDS(ny, nm, ymd.D());
+		}
+		return new YMDS(ny, nm, maxDom);
+	}
+
+	public static fun FixMonth(Int v) : Int
+	{
+		if (v < 0)
+		{
+			return 12 + v;
+		}
+		return v;
+	}
+
+	public static fun IsLeapYear(Int y) : Bool
+	{
+		if (y % 4 != 0)
+		{
+			return false;
+		}
+		if (y % 100 != 0)
+		{
+			return true;
+		}
+		return y % 400 == 0;
+	}
+
+	public static fun DaysInMonth(Int y, Int m) : Int
+	{
+		if (m == 2)
+		{
+			if (Ymd.IsLeapYear(y))
+			{
+				return Ymd.DaysPerMonth(m) + 1;
+			}
+		}
+		return Ymd.DaysPerMonth(m);
+	}
+
+	public static fun IsoWeeksInYear(Int y) : Int
+	{
+		Int w = Ymd.JdnToWday(Ymd.YmdToJdn(new YMDS(y, 1, 1)));
+		if (w == 4)
+		{
+			return 53;
+		}
+		if (Ymd.IsLeapYear(y))
+		{
+			if (w == 3)
+			{
+				return 53;
+			}
+		}
+		return 52;
+	}
+
+	# DAYS-PER-MONTH: (vector 0 31 28 31 30 31 30 31 31 30 31 30 31)
+	public static fun DaysPerMonth(Int m) : Int
+	{
+		if (m == 0)
+		{
+			return 0;
+		}
+		if (m == 2)
+		{
+			return 28;
+		}
+		if (m == 4)
+		{
+			return 30;
+		}
+		if (m == 6)
+		{
+			return 30;
+		}
+		if (m == 9)
+		{
+			return 30;
+		}
+		if (m == 11)
+		{
+			return 30;
+		}
+		if (m > 12)
+		{
+			ERROR("vector-ref: index is out of range");
+		}
+		return 31;
+	}
+
+	# CUMULATIVE-MONTH-DAYS: (vector 0 31 59 90 120 151 181 212 243 273 304 334)
+	public static fun CumulativeMonthDays(Int i) : Int
+	{
+		Int k = 0;
+		Int sum = 0;
+		while (k < i)
+		{
+			sum = sum + Ymd.DaysPerMonth(k + 1);
+			k = k + 1;
+		}
+		return sum;
+	}
+
+	# CUMULATIVE-MONTH-DAYS/LEAP: (vector 0 31 60 91 121 152 182 213 244 274 305 335)
+	public static fun CumulativeMonthDaysLeap(Int i) : Int
+	{
+		if (i >= 2)
+		{
+			return Ymd.CumulativeMonthDays(i) + 1;
+		}
+		return Ymd.CumulativeMonthDays(i);
+	}
+}

@@ -1,0 +1,172 @@
+# grid.rkt: grids of cells.
+# parse-grid (not exported, never called) is not ported.
+
+# left / right / up / down; Kind identifies the function (they are compared with eq?)
+class DirLeft implements IDirection
+{
+	public constructor()
+	{
+	}
+	public fun this(IPos pos, Int n) : IPos
+	{
+		return new Pos(pos.X(), GridOps.MaxIndex(pos.Y() - n));
+	}
+	public fun Kind() : Int
+	{
+		return 0;
+	}
+}
+
+class DirRight implements IDirection
+{
+	public constructor()
+	{
+	}
+	public fun this(IPos pos, Int n) : IPos
+	{
+		return new Pos(pos.X(), GridOps.MaxIndex(pos.Y() + n));
+	}
+	public fun Kind() : Int
+	{
+		return 1;
+	}
+}
+
+class DirUp implements IDirection
+{
+	public constructor()
+	{
+	}
+	public fun this(IPos pos, Int n) : IPos
+	{
+		return new Pos(GridOps.MaxIndex(pos.X() - n), pos.Y());
+	}
+	public fun Kind() : Int
+	{
+		return 2;
+	}
+}
+
+class DirDown implements IDirection
+{
+	public constructor()
+	{
+	}
+	public fun this(IPos pos, Int n) : IPos
+	{
+		return new Pos(GridOps.MaxIndex(pos.X() + n), pos.Y());
+	}
+	public fun Kind() : Int
+	{
+		return 3;
+	}
+}
+
+class GridOps
+{
+	# (assert (max v 0) index?)
+	public static fun MaxIndex(Int v) : Int
+	{
+		if (v < 0)
+		{
+			return 0;
+		}
+		return v;
+	}
+
+	public static fun ArraySet(IGrid g, IPos p, ICell v) : Int
+	{
+		return g.Set(p, v);
+	}
+
+	public static fun BuildArray(IPos p, IPosToCell f) : IGrid
+	{
+		return Builtins.MakeGrid(p.X(), p.Y(), f);
+	}
+
+	# (with-output-to-string (lambda () (for ([r g]) (for ([c r]) (display (send c show))) (newline))))
+	public static fun ShowGrid(IGrid g) : IIntList
+	{
+		ArrayList<Int> out0 = new ArrayList<Int>();
+		Int x = 0;
+		while (x < g.Height())
+		{
+			Int y = 0;
+			while (y < g.Width())
+			{
+				out0.Add(g.Ref(x, y).Show());
+				y = y + 1;
+			}
+			out0.Add(10);
+			x = x + 1;
+		}
+		IIntList s = new IntNil();
+		Int k = out0.Length() - 1;
+		while (k >= 0)
+		{
+			s = new IntCons(out0.Get(k), s);
+			k = k - 1;
+		}
+		return s;
+	}
+
+	public static fun GridHeight(IGrid g) : Int
+	{
+		return g.Height();
+	}
+
+	public static fun GridWidth(IGrid g) : Int
+	{
+		return g.Width();
+	}
+
+	public static fun WithinGrid(IGrid g, IPos pos) : Bool
+	{
+		if (pos.X() < 0)
+		{
+			return false;
+		}
+		if (pos.X() > GridOps.GridHeight(g) - 1)
+		{
+			return false;
+		}
+		if (pos.Y() < 0)
+		{
+			return false;
+		}
+		return pos.Y() <= GridOps.GridWidth(g) - 1;
+	}
+
+	# (U #f Cell): `none` is the #f
+	public static fun GridRef(IGrid g, IPos pos, ICell none) : ICell
+	{
+		if (GridOps.WithinGrid(g, pos))
+		{
+			return g.Ref(pos.X(), pos.Y());
+		}
+		return none;
+	}
+
+	# (dir pos n)
+	public static fun Move(IDirection d, IPos p, Int n) : IPos
+	{
+		return d(p, n);
+	}
+
+	public static fun Left() : IDirection
+	{
+		return new DirLeft();
+	}
+	public static fun Right() : IDirection
+	{
+		return new DirRight();
+	}
+	public static fun Up() : IDirection
+	{
+		return new DirUp();
+	}
+	public static fun Down() : IDirection
+	{
+		return new DirDown();
+	}
+}

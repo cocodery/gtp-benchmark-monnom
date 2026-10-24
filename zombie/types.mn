@@ -1,0 +1,221 @@
+# Types shared by the modules:
+#  - image-adapted.rkt: Image
+#  - zombie.rkt / main.rkt: the "fake object" types made by make-fake-object-type*:
+#    an object is a function from a message symbol to a pair (message . closure).
+#    Message symbols are Int tags (see the comments below); the result union is an interface
+#    with one accessor per payload type.
+#  - function types of the closures; on-mouse's three arguments are one IMouseArgs object
+#    (lambdas and instance methods cannot take more than two arguments in MonNom).
+
+interface IImage
+{
+	fun Impl() : dyn;
+}
+
+# the arguments (x y me) of on-mouse; me (a mouse event string) is an Int code:
+# 0 "enter", 1 "move", 2 "leave"
+interface IMouseArgs
+{
+	fun X() : Float;
+	fun Y() : Float;
+	fun Me() : Int;
+}
+
+interface IRealThunk
+{
+	fun this() : Float;
+}
+
+interface IPosnThunk
+{
+	fun this() : IPosn;
+}
+
+interface IPosnRealToPosn
+{
+	fun this(IPosn p, Float speed) : IPosn;
+}
+
+interface IRealRealToPosn
+{
+	fun this(Float dx, Float dy) : IPosn;
+}
+
+interface IImageImageToImage
+{
+	fun this(IImage img, IImage scn) : IImage;
+}
+
+interface IPosnToReal
+{
+	fun this(IPosn p) : Float;
+}
+
+interface IPosnToPlayer
+{
+	fun this(IPosn p) : IPlayer;
+}
+
+interface IImageToImage
+{
+	fun this(IImage scn) : IImage;
+}
+
+interface IStringImageToImage
+{
+	fun this(String c, IImage s) : IImage;
+}
+
+interface IPosnToBool
+{
+	fun this(IPosn p) : Bool;
+}
+
+interface IPosnToZombie
+{
+	fun this(IPosn p) : IZombie;
+}
+
+interface IZombiesThunk
+{
+	fun this() : IZombies;
+}
+
+interface IPosnToHorde
+{
+	fun this(IPosn p) : IHorde;
+}
+
+interface IHordeThunk
+{
+	fun this() : IHorde;
+}
+
+interface IPosnToZombies
+{
+	fun this(IPosn p) : IZombies;
+}
+
+interface IZombiesToHorde
+{
+	fun this(IZombies dead) : IHorde;
+}
+
+interface IMouseToWorld
+{
+	fun this(IMouseArgs a) : IWorld;
+}
+
+interface IWorldThunk
+{
+	fun this() : IWorld;
+}
+
+interface IImageThunk
+{
+	fun this() : IImage;
+}
+
+interface IBoolThunk
+{
+	fun this() : Bool;
+}
+
+# Posn = (-> Symbol (U (Pairof 'msg payload) ...)); messages 'x = 1, 'y = 2, 'posn = 3, 'move-toward/speed = 4, 'move = 5, 'draw-on/image = 6, 'dist = 7
+interface IPosn
+{
+	fun this(Int msg) : IPosnMsg;
+}
+
+# the union of (Pairof 'msg payload) results of an IPosn
+interface IPosnMsg
+{
+	fun Tag() : Int;
+	fun AsRealThunk() : IRealThunk;
+	fun AsPosnThunk() : IPosnThunk;
+	fun AsPosnRealToPosn() : IPosnRealToPosn;
+	fun AsRealRealToPosn() : IRealRealToPosn;
+	fun AsImageImageToImage() : IImageImageToImage;
+	fun AsPosnToReal() : IPosnToReal;
+}
+
+# Player = (-> Symbol (U (Pairof 'msg payload) ...)); messages 'posn = 3, 'move-toward = 8, 'draw-on = 9
+interface IPlayer
+{
+	fun this(Int msg) : IPlayerMsg;
+}
+
+# the union of (Pairof 'msg payload) results of an IPlayer
+interface IPlayerMsg
+{
+	fun Tag() : Int;
+	fun AsPosnThunk() : IPosnThunk;
+	fun AsPosnToPlayer() : IPosnToPlayer;
+	fun AsImageToImage() : IImageToImage;
+}
+
+# Zombie = (-> Symbol (U (Pairof 'msg payload) ...)); messages 'posn = 3, 'draw-on/color = 10, 'touching? = 11, 'move-toward = 8
+interface IZombie
+{
+	fun this(Int msg) : IZombieMsg;
+}
+
+# the union of (Pairof 'msg payload) results of an IZombie
+interface IZombieMsg
+{
+	fun Tag() : Int;
+	fun AsPosnThunk() : IPosnThunk;
+	fun AsStringImageToImage() : IStringImageToImage;
+	fun AsPosnToBool() : IPosnToBool;
+	fun AsPosnToZombie() : IPosnToZombie;
+}
+
+# Horde = (-> Symbol (U (Pairof 'msg payload) ...)); messages 'dead = 12, 'undead = 13, 'draw-on = 9, 'touching? = 11, 'move-toward = 8, 'eat-brains = 14
+interface IHorde
+{
+	fun this(Int msg) : IHordeMsg;
+}
+
+# the union of (Pairof 'msg payload) results of an IHorde
+interface IHordeMsg
+{
+	fun Tag() : Int;
+	fun AsZombiesThunk() : IZombiesThunk;
+	fun AsImageToImage() : IImageToImage;
+	fun AsPosnToBool() : IPosnToBool;
+	fun AsPosnToHorde() : IPosnToHorde;
+	fun AsHordeThunk() : IHordeThunk;
+}
+
+# Zombies = (-> Symbol (U (Pairof 'msg payload) ...)); messages 'move-toward = 8, 'draw-on/color = 10, 'touching? = 11, 'kill-all = 15
+interface IZombies
+{
+	fun this(Int msg) : IZombiesMsg;
+}
+
+# the union of (Pairof 'msg payload) results of an IZombies
+interface IZombiesMsg
+{
+	fun Tag() : Int;
+	fun AsPosnToZombies() : IPosnToZombies;
+	fun AsStringImageToImage() : IStringImageToImage;
+	fun AsPosnToBool() : IPosnToBool;
+	fun AsZombiesToHorde() : IZombiesToHorde;
+}
+
+# World = (-> Symbol (U (Pairof 'msg payload) ...)); messages 'on-mouse = 16, 'on-tick = 17, 'to-draw = 18, 'stop-when = 19
+interface IWorld
+{
+	fun this(Int msg) : IWorldMsg;
+}
+
+# the union of (Pairof 'msg payload) results of an IWorld
+interface IWorldMsg
+{
+	fun Tag() : Int;
+	fun AsMouseToWorld() : IMouseToWorld;
+	fun AsWorldThunk() : IWorldThunk;
+	fun AsImageThunk() : IImageThunk;
+	fun AsBoolThunk() : IBoolThunk;
+}
+

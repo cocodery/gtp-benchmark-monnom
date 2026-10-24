@@ -1,0 +1,183 @@
+# ai.rkt: abstract interpretation (atom-eval, next, explore)
+# (also contains ui.rkt, merged here to keep the configuration count down).
+
+# ((atom-eval benv store) id)
+class AtomEval implements IAtomEval
+{
+	private readonly IBEnv benv;
+	private readonly IStore store;
+	public constructor(IBEnv b, IStore s)
+	{
+		benv = b;
+		store = s;
+	}
+	public fun this(IExp id) : IDenotable
+	{
+		if (id.IsRef())
+		{
+			return Denotable.StoreLookup(store, Benv.BenvLookup(benv, id.RefVar()));
+		}
+		if (id.IsLam())
+		{
+			return Denotable.DBot().Add(new Closure(id, benv));
+		}
+		ERROR("atom-eval got a plain Exp");
+	}
+}
+
+class Ai
+{
+	public static fun AtomEval(IBEnv benv, IStore store) : IAtomEval
+	{
+		return new AtomEval(benv, store);
+	}
+
+	# (map f args)
+	public static fun MapAtomEval(IAtomEval f, IExpList args) : IDenotableList
+	{
+		if (args.IsEmpty())
+		{
+			return new DenotableNil();
+		}
+		IDenotable d = f(args.First());
+		return new DenotableCons(d, Ai.MapAtomEval(f, args.Rest()));
+	}
+
+	# (map (alloc time*) formals)
+	public static fun MapAlloc(IAlloc f, ISymList formals) : IBindingList
+	{
+		if (formals.IsEmpty())
+		{
+			return new BindingNil();
+		}
+		IBinding b = f(formals.First());
+		return new BindingCons(b, Ai.MapAlloc(f, formals.Rest()));
+	}
+
+	# the ids stand in for eq-hash codes of new Binding structs
+	public static fun Next(IState st, IIdGen ids) : IStateSet
+	{
+		IExp c = st.Call();
+		IBEnv benv = st.Benv();
+		IStore store = st.Store();
+		ISymList time = st.Time();
+		if (c.IsCall())
+		{
+			ISymList timeStar = Time.Tick(c, time);
+			IExp f = c.CallFun();
+			IExpList args = c.CallArgs();
+			IDenotable procs = Ai.AtomEval(benv, store)(f);
+			IDenotableList params = Ai.MapAtomEval(Ai.AtomEval(benv, store), args);
+			ArrayList<IState> newStates = new ArrayList<IState>();
+			IClosureList ps = procs.Elems();
+			while (!ps.IsEmpty())
+			{
+				IClosure proc = ps.First();
+				IExp lam = proc.Lam();
+				IBEnv benvStar = proc.Benv();
+				ISymList formals = lam.LamFormals();
+				IExp callStar = lam.LamCall();
+				IBindingList bindings = Ai.MapAlloc(Time.Alloc(timeStar, ids), formals);
+				IBEnv benvStarStar = Benv.BenvExtendStar(benvStar, formals, bindings);
+				IStore storeStar = Denotable.StoreUpdateStar(store, bindings, params);
+				newStates.Add(new State(callStar, benvStarStar, storeStar, timeStar));
+				ps = ps.Rest();
+			}
+			IStateList l = new StateNil();
+			Int i = newStates.Length() - 1;
+			while (i >= 0)
+			{
+				l = new StateCons(newStates.Get(i), l);
+				i = i - 1;
+			}
+			return Builtins.StateListToSet(l);
+		}
+		return Builtins.EmptyStateSet();
+	}
+
+	# state space exploration (a tail-recursive loop in Racket)
+	public static fun Explore(IStateSet seen, IStateList todo, IIdGen ids) : IStateSet
+	{
+		while (true)
+		{
+			if (todo.IsEmpty())
+			{
+				# Nothing left to do
+				return seen;
+			}
+			if (seen.Member(todo.First()))
+			{
+				# Already seen current todo, move along
+				todo = todo.Rest();
+				continue;
+			}
+			IState st0 = todo.First();
+			IStateSet succs = Ai.Next(st0, ids);
+			seen = seen.Add(st0);
+			todo = Builtins.AppendStates(succs.Elems(), todo.Rest());
+		}
+		return seen;
+	}
+}
+
+# ---------------------------------------------------------------- ui.rkt
+class Ui
+{
+	public static fun Summarize(IStateSet states) : IStore
+	{
+		IStore store = Denotable.EmptyStore();
+		IStateList l = states.Elems();
+		while (!l.IsEmpty())
+		{
+			store = Denotable.StoreJoin(l.First().Store(), store);
+			l = l.Rest();
+		}
+		return store;
+	}
+
+	public static fun EmptyMonoStore() : IMonoStore
+	{
+		return Builtins.EmptyMonoMap();
+	}
+
+	public static fun MonovariantValue(IClosure v) : IExp
+	{
+		return v.Lam();
+	}
+
+	# ((update-lam vs) b-vs) = (set-union b-vs (list->set (set-map vs monovariant-value)))
+	public static fun UpdateLam(IDenotable vs, IExpSet bvs) : IExpSet
+	{
+		IExpSet vvs = Builtins.EmptyExpSet();
+		IClosureList l = vs.Elems();
+		while (!l.IsEmpty())
+		{
+			vvs = vvs.Add(Ui.MonovariantValue(l.First()));
+			l = l.Rest();
+		}
+		return bvs.Union(vvs);
+	}
+
+	public static fun MonovariantStore(IStore store) : IMonoStore
+	{
+		IMonoStore monoStore = Ui.EmptyMonoStore();
+		IStoreEntryList es = store.Entries();
+		while (!es.IsEmpty())
+		{
+			ISymbol v = es.First().Key().Var();
+			# (hash-update mono-store (Binding-var b) (update-lam vs) default-lam)
+			monoStore = monoStore.Set(v, Ui.UpdateLam(es.First().Value(), monoStore.Ref(v, Builtins.EmptyExpSet())));
+			es = es.Rest();
+		}
+		return monoStore;
+	}
+
+	public static fun Analyze(IExp exp, IIdGen ids) : IMonoStore
+	{
+		IState initState = new State(exp, Benv.EmptyBenv(), Denotable.EmptyStore(), Time.TimeZero());
+		IStateSet states = Ai.Explore(Builtins.EmptyStateSet(), new StateCons(initState, new StateNil()), ids);
+		IStore summary = Ui.Summarize(states);
+		IMonoStore monoStore = Ui.MonovariantStore(summary);
+		return monoStore;
+	}
+}

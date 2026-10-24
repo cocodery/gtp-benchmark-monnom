@@ -1,0 +1,51 @@
+# base-types.rkt: Posn, Block, Tetra, World, Color, BSet
+# plus the types of the Racket builtins the program uses (lists, random).
+#   Real -> Float, Color = Symbol -> String (colors are only stored, never compared)
+
+interface IPosn
+{
+	fun X() : Float;
+	fun Y() : Float;
+}
+
+interface IBlock
+{
+	fun X() : Float;
+	fun Y() : Float;
+	fun Color() : String;
+}
+
+# BSet = (Listof Block)
+interface IBlockList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IBlock;
+	fun Rest() : IBlockList;
+}
+
+interface ITetra
+{
+	fun Center() : IPosn;
+	fun Blocks() : IBlockList;
+}
+
+# (Listof Tetra)
+interface ITetraList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ITetra;
+	fun Rest() : ITetraList;
+}
+
+interface IWorld
+{
+	fun Tetra() : ITetra;
+	fun Blocks() : IBlockList;
+}
+
+# the pseudo-random generator r of aux.rkt
+interface IRng
+{
+	fun Seed(Int k) : Int;
+	fun NextInt(Int n) : Int;
+}

@@ -1,0 +1,1578 @@
+# Stand-ins for the Racket builtins and base libraries the benchmark uses: bytes, vectors, byte
+# ports, the vectors of typedefs.rkt (Bit-Port, Huffman, QT*, H*), math/array (strict arrays
+# built in row-major order), rnrs/bytevectors-6, strings, symbols, bitwise operations (MonNom has
+# no bitwise operators at run time: they are computed arithmetically), lists.
+
+class ByteStr implements IBytes
+{
+	private readonly ArrayList<Int> elems;
+	public constructor(ArrayList<Int> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : Int
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, Int v) : Int
+	{
+		elems.Set(i, v);
+		return v;
+	}
+}
+
+class IntVec implements IVec
+{
+	private readonly ArrayList<Int> elems;
+	public constructor(ArrayList<Int> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : Int
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, Int v) : Int
+	{
+		elems.Set(i, v);
+		return v;
+	}
+}
+
+# (open-input-bytes bs)
+class BytesInputPort implements IPort
+{
+	private readonly IBytes data;
+	private Int pos;
+	public constructor(IBytes d)
+	{
+		data = d;
+		pos = 0;
+	}
+	public fun IsInput() : Bool
+	{
+		return true;
+	}
+	# -1 is eof
+	public fun ReadByte() : Int
+	{
+		if (pos >= data.Length())
+		{
+			return 0 - 1;
+		}
+		Int b = data.Ref(pos);
+		pos = pos + 1;
+		return b;
+	}
+	# fewer than n bytes at the end of the input (none: eof)
+	public fun ReadBytes(Int n) : IBytes
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int k = 0;
+		while (k < n)
+		{
+			if (pos >= data.Length())
+			{
+				break;
+			}
+			e.Add(data.Ref(pos));
+			pos = pos + 1;
+			k = k + 1;
+		}
+		return new ByteStr(e);
+	}
+	public fun Position() : Int
+	{
+		return pos;
+	}
+	public fun SetPosition(Int p) : Int
+	{
+		pos = p;
+		return p;
+	}
+	public fun WriteByte(Int b) : Int
+	{
+		ERROR("write-byte: contract violation, expected output-port?");
+	}
+	public fun WriteBytes(IBytes bs) : Int
+	{
+		ERROR("write-bytes: contract violation, expected output-port?");
+	}
+	public fun Contents() : IBytes
+	{
+		ERROR("get-output-bytes: contract violation, expected output-port?");
+	}
+}
+
+# (open-output-bytes)
+class BytesOutputPort implements IPort
+{
+	private readonly ArrayList<Int> outBuf;
+	public constructor()
+	{
+		outBuf = new ArrayList<Int>();
+	}
+	public fun IsInput() : Bool
+	{
+		return false;
+	}
+	public fun ReadByte() : Int
+	{
+		ERROR("read-byte: contract violation, expected input-port?");
+	}
+	public fun ReadBytes(Int n) : IBytes
+	{
+		ERROR("read-bytes: contract violation, expected input-port?");
+	}
+	public fun Position() : Int
+	{
+		return outBuf.Length();
+	}
+	public fun SetPosition(Int p) : Int
+	{
+		ERROR("file-position: not supported");
+	}
+	public fun WriteByte(Int b) : Int
+	{
+		if (b < 0)
+		{
+			ERROR("write-byte: contract violation, expected byte?");
+		}
+		if (b > 255)
+		{
+			ERROR("write-byte: contract violation, expected byte?");
+		}
+		outBuf.Add(b);
+		return b;
+	}
+	public fun WriteBytes(IBytes bs) : Int
+	{
+		Int i = 0;
+		while (i < bs.Length())
+		{
+			outBuf.Add(bs.Ref(i));
+			i = i + 1;
+		}
+		return bs.Length();
+	}
+	# get-output-bytes
+	public fun Contents() : IBytes
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		foreach (Int b in outBuf)
+		{
+			e.Add(b);
+		}
+		return new ByteStr(e);
+	}
+}
+
+# Bit-Port = (Vector count bits port)
+class BitPortV implements IBitPort
+{
+	private Int count;
+	private Int bits;
+	private readonly IPort port;
+	public constructor(Int c, Int b, IPort p)
+	{
+		count = c;
+		bits = b;
+		port = p;
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+	public fun SetCount(Int c) : Int
+	{
+		count = c;
+		return c;
+	}
+	public fun Bits() : Int
+	{
+		return bits;
+	}
+	public fun SetBits(Int b) : Int
+	{
+		bits = b;
+		return b;
+	}
+	public fun Port() : IPort
+	{
+		return port;
+	}
+}
+
+# Huffman = (Vector size-counts size-offsets values value-indexes sizes codes max-codes)
+class HuffmanV implements IHuffman
+{
+	private readonly IBytes sizeCounts;
+	private readonly IVec sizeOffsets;
+	private readonly IBytes values;
+	private readonly IVec valueIndexes;
+	private readonly IBytes sizes;
+	private readonly IVec codes;
+	private readonly IVec maxCodes;
+	public constructor(IBytes sc, IVec so, IBytes v, IVec vi, IBytes s, IVec c, IVec mc)
+	{
+		sizeCounts = sc;
+		sizeOffsets = so;
+		values = v;
+		valueIndexes = vi;
+		sizes = s;
+		codes = c;
+		maxCodes = mc;
+	}
+	public fun SizeCounts() : IBytes
+	{
+		return sizeCounts;
+	}
+	public fun SizeOffsets() : IVec
+	{
+		return sizeOffsets;
+	}
+	public fun Values() : IBytes
+	{
+		return values;
+	}
+	public fun ValueIndexes() : IVec
+	{
+		return valueIndexes;
+	}
+	public fun Sizes() : IBytes
+	{
+		return sizes;
+	}
+	public fun Codes() : IVec
+	{
+		return codes;
+	}
+	public fun MaxCodes() : IVec
+	{
+		return maxCodes;
+	}
+}
+
+# QT* = (Vectorof (U #f Q-Table))
+class QTablesV implements IQTables
+{
+	private readonly ArrayList<IVec> tables;
+	private readonly ArrayList<Bool> present;
+	public constructor(ArrayList<IVec> t, ArrayList<Bool> p)
+	{
+		tables = t;
+		present = p;
+	}
+	public fun Length() : Int
+	{
+		return tables.Length();
+	}
+	public fun Has(Int i) : Bool
+	{
+		return present.Get(i);
+	}
+	public fun Ref(Int i) : IVec
+	{
+		if (present.Get(i))
+		{
+			return tables.Get(i);
+		}
+		ERROR("assert: #f");
+	}
+	public fun Set(Int i, IVec t) : Int
+	{
+		tables.Set(i, t);
+		present.Set(i, true);
+		return i;
+	}
+}
+
+# H* = (Vectorof (U #f Huffman))
+class HTablesV implements IHTables
+{
+	private readonly ArrayList<IHuffman> tables;
+	private readonly ArrayList<Bool> present;
+	public constructor(ArrayList<IHuffman> t, ArrayList<Bool> p)
+	{
+		tables = t;
+		present = p;
+	}
+	public fun Length() : Int
+	{
+		return tables.Length();
+	}
+	public fun Has(Int i) : Bool
+	{
+		return present.Get(i);
+	}
+	public fun Ref(Int i) : IHuffman
+	{
+		if (present.Get(i))
+		{
+			return tables.Get(i);
+		}
+		ERROR("assert: #f");
+	}
+	public fun Set(Int i, IHuffman t) : Int
+	{
+		tables.Set(i, t);
+		present.Set(i, true);
+		return i;
+	}
+}
+
+# (vector dc-freqs ac-freqs)
+class FreqsV implements IFreqs
+{
+	private readonly IQTables dc;
+	private readonly IQTables ac;
+	public constructor(IQTables d, IQTables a)
+	{
+		dc = d;
+		ac = a;
+	}
+	public fun Dc() : IQTables
+	{
+		return dc;
+	}
+	public fun Ac() : IQTables
+	{
+		return ac;
+	}
+}
+
+# (vector dc-tables ac-tables)
+class HuffmanTablesV implements IHuffmanTables
+{
+	private readonly IHTables dc;
+	private readonly IHTables ac;
+	public constructor(IHTables d, IHTables a)
+	{
+		dc = d;
+		ac = a;
+	}
+	public fun Length() : Int
+	{
+		return 2;
+	}
+	public fun Ref(Int i) : IHTables
+	{
+		if (i == 0)
+		{
+			return dc;
+		}
+		if (i == 1)
+		{
+			return ac;
+		}
+		ERROR("vector-ref: index is outBuf of range");
+	}
+}
+
+# ---- math/array: strict arrays (build-array and for/array evaluate the elements once, in
+# row-major order, and store them; in-array reads them in row-major order) ----
+
+class BlockArrayS implements IBlockArray
+{
+	private readonly IVec shp;
+	private readonly ArrayList<IVec> elems;
+	public constructor(IVec s, ArrayList<IVec> e)
+	{
+		shp = s;
+		elems = e;
+	}
+	public fun Shape() : IVec
+	{
+		return shp;
+	}
+	public fun Size() : Int
+	{
+		return elems.Length();
+	}
+	public fun RefFlat(Int k) : IVec
+	{
+		return elems.Get(k);
+	}
+}
+
+class McuS implements IMcu
+{
+	private readonly ArrayList<IBlockArray> elems;
+	public constructor(ArrayList<IBlockArray> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : IBlockArray
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, IBlockArray v) : Int
+	{
+		elems.Set(i, v);
+		return i;
+	}
+}
+
+class McuArrayS implements IMcuArray
+{
+	private readonly IVec shp;
+	private readonly ArrayList<IMcu> elems;
+	public constructor(IVec s, ArrayList<IMcu> e)
+	{
+		shp = s;
+		elems = e;
+	}
+	public fun Shape() : IVec
+	{
+		return shp;
+	}
+	public fun Size() : Int
+	{
+		return elems.Length();
+	}
+	public fun RefFlat(Int k) : IMcu
+	{
+		return elems.Get(k);
+	}
+}
+
+class CodesMcuS implements ICodesMcu
+{
+	private readonly ArrayList<IIntListList> elems;
+	public constructor(ArrayList<IIntListList> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : IIntListList
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, IIntListList v) : Int
+	{
+		elems.Set(i, v);
+		return i;
+	}
+}
+
+class CodesArrayS implements ICodesArray
+{
+	private readonly IVec shp;
+	private readonly ArrayList<ICodesMcu> elems;
+	public constructor(IVec s, ArrayList<ICodesMcu> e)
+	{
+		shp = s;
+		elems = e;
+	}
+	public fun Shape() : IVec
+	{
+		return shp;
+	}
+	public fun Size() : Int
+	{
+		return elems.Length();
+	}
+	public fun RefFlat(Int k) : ICodesMcu
+	{
+		return elems.Get(k);
+	}
+	public fun SetFlat(Int k, ICodesMcu v) : Int
+	{
+		elems.Set(k, v);
+		return k;
+	}
+}
+
+class Arrays
+{
+	public static fun ShapeSize(IVec ds) : Int
+	{
+		Int n = 1;
+		Int i = 0;
+		while (i < ds.Length())
+		{
+			n = n * ds.Ref(i);
+			i = i + 1;
+		}
+		return n;
+	}
+
+	# the next index vector in row-major order
+	public static fun NextIndexes(IVec ds, IVec js) : Int
+	{
+		Int k = ds.Length();
+		while (k != 0)
+		{
+			k = k - 1;
+			Int jk = js.Ref(k) + 1;
+			if (jk >= ds.Ref(k))
+			{
+				js.Set(k, 0);
+				continue;
+			}
+			js.Set(k, jk);
+			break;
+		}
+		return 0;
+	}
+
+	public static fun BuildBlockArray(IVec ds, IBlockProc proc) : IBlockArray
+	{
+		Int n = Arrays.ShapeSize(ds);
+		ArrayList<IVec> e = new ArrayList<IVec>();
+		IVec js = Builtins.MakeVector(ds.Length(), 0);
+		Int k = 0;
+		while (k < n)
+		{
+			e.Add(proc(Builtins.VectorCopy(js)));
+			Arrays.NextIndexes(ds, js);
+			k = k + 1;
+		}
+		return new BlockArrayS(Builtins.VectorCopy(ds), e);
+	}
+
+	public static fun BuildMcuArray(IVec ds, IMcuProc proc) : IMcuArray
+	{
+		Int n = Arrays.ShapeSize(ds);
+		ArrayList<IMcu> e = new ArrayList<IMcu>();
+		IVec js = Builtins.MakeVector(ds.Length(), 0);
+		Int k = 0;
+		while (k < n)
+		{
+			e.Add(proc(Builtins.VectorCopy(js)));
+			Arrays.NextIndexes(ds, js);
+			k = k + 1;
+		}
+		return new McuArrayS(Builtins.VectorCopy(ds), e);
+	}
+
+	# a vector of n block arrays (for/vector), filled with Set
+	public static fun MakeMcu(Int n) : IMcu
+	{
+		ArrayList<IBlockArray> e = new ArrayList<IBlockArray>();
+		IBlockArray empty = new BlockArrayS(Builtins.MakeVector(0, 0), new ArrayList<IVec>());
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(empty);
+			i = i + 1;
+		}
+		return new McuS(e);
+	}
+
+	public static fun MakeCodesMcu(Int n) : ICodesMcu
+	{
+		ArrayList<IIntListList> e = new ArrayList<IIntListList>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(new IntListNil());
+			i = i + 1;
+		}
+		return new CodesMcuS(e);
+	}
+
+	# the result array of for/array #:shp ds, filled with SetFlat
+	public static fun MakeCodesArray(IVec ds) : ICodesArray
+	{
+		Int n = Arrays.ShapeSize(ds);
+		ArrayList<ICodesMcu> e = new ArrayList<ICodesMcu>();
+		ICodesMcu empty = Arrays.MakeCodesMcu(0);
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(empty);
+			i = i + 1;
+		}
+		return new CodesArrayS(Builtins.VectorCopy(ds), e);
+	}
+}
+
+# ---- strings and symbols ----
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Txt
+{
+	public static fun Empty() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+
+	public static fun Equal(IText a, IText b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (a.CharAt(i) != b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+}
+
+class SymbolTable implements ISymbols
+{
+	private readonly ArrayList<IText> names;
+	public constructor()
+	{
+		names = new ArrayList<IText>();
+	}
+	public fun Intern(IText name) : Int
+	{
+		Int i = 0;
+		while (i < names.Length())
+		{
+			if (Txt.Equal(names.Get(i), name))
+			{
+				return i;
+			}
+			i = i + 1;
+		}
+		names.Add(name);
+		return names.Length() - 1;
+	}
+}
+
+# ---- Interp values and exif entries ----
+
+class InterpS implements IInterp
+{
+	private readonly Int kind;
+	private readonly Int nat;
+	private readonly IText str;
+	private readonly IBytes bs;
+	private readonly Int cdr;
+	private readonly Bool boolv;
+	private readonly IVec vec;
+	private readonly IPTList alist;
+	public constructor(Int k, Int n, IText s, IBytes b, Int d, Bool bo, IVec v, IPTList a)
+	{
+		kind = k;
+		nat = n;
+		str = s;
+		bs = b;
+		cdr = d;
+		boolv = bo;
+		vec = v;
+		alist = a;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun Nat() : Int
+	{
+		return nat;
+	}
+	public fun Str() : IText
+	{
+		return str;
+	}
+	public fun Bs() : IBytes
+	{
+		return bs;
+	}
+	# the car of a pair is stored in nat
+	public fun Car() : Int
+	{
+		return nat;
+	}
+	public fun Cdr() : Int
+	{
+		return cdr;
+	}
+	public fun BoolValue() : Bool
+	{
+		return boolv;
+	}
+	public fun Vec() : IVec
+	{
+		return vec;
+	}
+	public fun Alist() : IPTList
+	{
+		return alist;
+	}
+}
+
+class Interps
+{
+	public static fun Make(Int k, Int n, IText s, IBytes b, Int d, Bool bo, IVec v, IPTList a) : IInterp
+	{
+		return new InterpS(k, n, s, b, d, bo, v, a);
+	}
+	public static fun Nat(Int n) : IInterp
+	{
+		return Interps.Make(0, n, Txt.Empty(), Builtins.MakeBytes(0, 0), 0, false, Builtins.MakeVector(0, 0), new PTNil());
+	}
+	public static fun Str(IText s) : IInterp
+	{
+		return Interps.Make(1, 0, s, Builtins.MakeBytes(0, 0), 0, false, Builtins.MakeVector(0, 0), new PTNil());
+	}
+	public static fun Bs(IBytes b) : IInterp
+	{
+		return Interps.Make(2, 0, Txt.Empty(), b, 0, false, Builtins.MakeVector(0, 0), new PTNil());
+	}
+	public static fun Pair(Int a, Int d) : IInterp
+	{
+		return Interps.Make(3, a, Txt.Empty(), Builtins.MakeBytes(0, 0), d, false, Builtins.MakeVector(0, 0), new PTNil());
+	}
+	public static fun VoidValue() : IInterp
+	{
+		return Interps.Make(4, 0, Txt.Empty(), Builtins.MakeBytes(0, 0), 0, false, Builtins.MakeVector(0, 0), new PTNil());
+	}
+	public static fun Boolean(Bool b) : IInterp
+	{
+		return Interps.Make(5, 0, Txt.Empty(), Builtins.MakeBytes(0, 0), 0, b, Builtins.MakeVector(0, 0), new PTNil());
+	}
+	public static fun Vec(IVec v) : IInterp
+	{
+		return Interps.Make(6, 0, Txt.Empty(), Builtins.MakeBytes(0, 0), 0, false, v, new PTNil());
+	}
+	public static fun Alist(IPTList a) : IInterp
+	{
+		return Interps.Make(7, 0, Txt.Empty(), Builtins.MakeBytes(0, 0), 0, false, Builtins.MakeVector(0, 0), a);
+	}
+}
+
+class PTS implements IPT
+{
+	private readonly Bool isSymbol;
+	private readonly Int name;
+	private readonly IInterp value;
+	public constructor(Bool s, Int n, IInterp v)
+	{
+		isSymbol = s;
+		name = n;
+		value = v;
+	}
+	public fun IsSymbol() : Bool
+	{
+		return isSymbol;
+	}
+	public fun Name() : Int
+	{
+		return name;
+	}
+	public fun Value() : IInterp
+	{
+		return value;
+	}
+}
+
+# ---- bitwise operations on exact integers (two's complement, arbitrary sign) ----
+
+class Bits
+{
+	public static fun Pow2(Int n) : Int
+	{
+		Int r = 1;
+		Int i = 0;
+		while (i < n)
+		{
+			r = r * 2;
+			i = i + 1;
+		}
+		return r;
+	}
+
+	public static fun FloorDiv(Int a, Int b) : Int
+	{
+		Int q = a / b;
+		if (q * b > a)
+		{
+			return q - 1;
+		}
+		return q;
+	}
+
+	# (modulo a b) for b > 0
+	public static fun Mod(Int a, Int b) : Int
+	{
+		Int r = a % b;
+		if (r < 0)
+		{
+			return r + b;
+		}
+		return r;
+	}
+
+	# (arithmetic-shift x n)
+	public static fun Shift(Int x, Int n) : Int
+	{
+		if (n >= 0)
+		{
+			return x * Bits.Pow2(n);
+		}
+		return Bits.FloorDiv(x, Bits.Pow2(0 - n));
+	}
+
+	# (bitwise-and x (sub1 (arithmetic-shift 1 k)))
+	public static fun Low(Int x, Int k) : Int
+	{
+		return Bits.Mod(x, Bits.Pow2(k));
+	}
+
+	public static fun IsSign(Int x) : Int
+	{
+		if (x == 0)
+		{
+			return 1;
+		}
+		if (x == 0 - 1)
+		{
+			return 1;
+		}
+		return 0;
+	}
+
+	public static fun IsMinus1(Int x) : Int
+	{
+		if (x == 0 - 1)
+		{
+			return 1;
+		}
+		return 0;
+	}
+
+	public static fun And(Int a, Int b) : Int
+	{
+		Int r = 0;
+		Int place = 1;
+		while (Bits.IsSign(a) * Bits.IsSign(b) == 0)
+		{
+			Int ba = Bits.Mod(a, 2);
+			Int bb = Bits.Mod(b, 2);
+			r = r + place * ba * bb;
+			a = Bits.FloorDiv(a, 2);
+			b = Bits.FloorDiv(b, 2);
+			place = place * 2;
+		}
+		return r - place * Bits.IsMinus1(a) * Bits.IsMinus1(b);
+	}
+
+	public static fun Or(Int a, Int b) : Int
+	{
+		Int r = 0;
+		Int place = 1;
+		while (Bits.IsSign(a) * Bits.IsSign(b) == 0)
+		{
+			Int ba = Bits.Mod(a, 2);
+			Int bb = Bits.Mod(b, 2);
+			r = r + place * (ba + bb - ba * bb);
+			a = Bits.FloorDiv(a, 2);
+			b = Bits.FloorDiv(b, 2);
+			place = place * 2;
+		}
+		Int m1 = Bits.IsMinus1(a) + Bits.IsMinus1(b) - Bits.IsMinus1(a) * Bits.IsMinus1(b);
+		return r - place * m1;
+	}
+
+	# (bitwise-bit-set? x i)
+	public static fun BitSet(Int x, Int i) : Bool
+	{
+		return Bits.Mod(Bits.Shift(x, 0 - i), 2) == 1;
+	}
+}
+
+# ---- rnrs/bytevectors-6 ----
+
+class Bytevectors
+{
+	public static fun U8Ref(IBytes bv, Int pos) : Int
+	{
+		return bv.Ref(pos);
+	}
+
+	public static fun U16Ref(IBytes bv, Int pos, Int order) : Int
+	{
+		if (order == 1)
+		{
+			return bv.Ref(pos) * 256 + bv.Ref(pos + 1);
+		}
+		return bv.Ref(pos + 1) * 256 + bv.Ref(pos);
+	}
+
+	public static fun U32Ref(IBytes bv, Int pos, Int order) : Int
+	{
+		if (order == 1)
+		{
+			return Bytevectors.U16Ref(bv, pos, order) * 65536 + Bytevectors.U16Ref(bv, pos + 2, order);
+		}
+		return Bytevectors.U16Ref(bv, pos + 2, order) * 65536 + Bytevectors.U16Ref(bv, pos, order);
+	}
+
+	public static fun Signed(Int u, Int bits) : Int
+	{
+		if (u >= Bits.Pow2(bits - 1))
+		{
+			return u - Bits.Pow2(bits);
+		}
+		return u;
+	}
+
+	# require/typed gives these a Natural result: a negative value is a contract violation
+	public static fun CheckNatural(Int v) : Int
+	{
+		if (v < 0)
+		{
+			ERROR("contract violation: expected Natural");
+		}
+		return v;
+	}
+
+	public static fun S8Ref(IBytes bv, Int pos) : Int
+	{
+		return Bytevectors.CheckNatural(Bytevectors.Signed(bv.Ref(pos), 8));
+	}
+
+	public static fun S16Ref(IBytes bv, Int pos, Int order) : Int
+	{
+		return Bytevectors.CheckNatural(Bytevectors.Signed(Bytevectors.U16Ref(bv, pos, order), 16));
+	}
+
+	public static fun S32Ref(IBytes bv, Int pos, Int order) : Int
+	{
+		return Bytevectors.CheckNatural(Bytevectors.Signed(Bytevectors.U32Ref(bv, pos, order), 32));
+	}
+
+	# a flonum, which violates the Natural result type given by require/typed
+	public static fun IeeeSingleRef(IBytes bv, Int pos, Int order) : Int
+	{
+		ERROR("bytevector-ieee-single-ref: contract violation: expected Natural");
+	}
+
+	public static fun IeeeDoubleRef(IBytes bv, Int pos, Int order) : Int
+	{
+		ERROR("bytevector-ieee-double-ref: contract violation: expected Natural");
+	}
+
+	public static fun MakeBytevector(Int n) : IBytes
+	{
+		return Builtins.MakeBytes(n, 0);
+	}
+
+	public static fun BytevectorCopyBang(IBytes src, Int sstart, IBytes dst, Int dstart, Int n) : Int
+	{
+		Int i = 0;
+		while (i < n)
+		{
+			dst.Set(dstart + i, src.Ref(sstart + i));
+			i = i + 1;
+		}
+		return 0;
+	}
+
+	# utf8->string
+	public static fun Utf8ToString(IBytes bv) : IText
+	{
+		IText t = Txt.Empty();
+		Int i = 0;
+		while (i < bv.Length())
+		{
+			Int b = bv.Ref(i);
+			if (b < 128)
+			{
+				t.Push(b);
+				i = i + 1;
+				continue;
+			}
+			Int n = Bytevectors.Utf8Extra(b);
+			if (i + n >= bv.Length())
+			{
+				t.Push(65533);
+				i = i + 1;
+				continue;
+			}
+			Int c = Bits.Mod(b, Bits.Pow2(6 - n));
+			Int k = 1;
+			while (k <= n)
+			{
+				c = c * 64 + Bits.Mod(bv.Ref(i + k), 64);
+				k = k + 1;
+			}
+			t.Push(c);
+			i = i + n + 1;
+		}
+		return t;
+	}
+
+	public static fun Utf8Extra(Int b) : Int
+	{
+		if (b >= 240)
+		{
+			return 3;
+		}
+		if (b >= 224)
+		{
+			return 2;
+		}
+		return 1;
+	}
+}
+
+class Builtins
+{
+	public static fun MakeBytes(Int n, Int v) : IBytes
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new ByteStr(e);
+	}
+
+	public static fun FromCodes(ArrayList<Int> codes) : IBytes
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		foreach (Int c in codes)
+		{
+			e.Add(c);
+		}
+		return new ByteStr(e);
+	}
+
+	public static fun Subbytes(IBytes b, Int start, Int end) : IBytes
+	{
+		IBytes r = Builtins.MakeBytes(end - start, 0);
+		Int i = start;
+		while (i < end)
+		{
+			r.Set(i - start, b.Ref(i));
+			i = i + 1;
+		}
+		return r;
+	}
+
+	public static fun MakeVector(Int n, Int v) : IVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new IntVec(e);
+	}
+
+	public static fun VectorCopy(IVec v) : IVec
+	{
+		IVec r = Builtins.MakeVector(v.Length(), 0);
+		Int i = 0;
+		while (i < v.Length())
+		{
+			r.Set(i, v.Ref(i));
+			i = i + 1;
+		}
+		return r;
+	}
+
+	# (make-vector n #f) of Q-Tables / Huffman tables
+	public static fun MakeQTables(Int n) : IQTables
+	{
+		ArrayList<IVec> t = new ArrayList<IVec>();
+		ArrayList<Bool> p = new ArrayList<Bool>();
+		IVec none = Builtins.MakeVector(0, 0);
+		Int i = 0;
+		while (i < n)
+		{
+			t.Add(none);
+			p.Add(false);
+			i = i + 1;
+		}
+		return new QTablesV(t, p);
+	}
+
+	public static fun CopyQTables(IQTables q) : IQTables
+	{
+		IQTables r = Builtins.MakeQTables(q.Length());
+		Int i = 0;
+		while (i < q.Length())
+		{
+			if (q.Has(i))
+			{
+				r.Set(i, q.Ref(i));
+			}
+			i = i + 1;
+		}
+		return r;
+	}
+
+	public static fun MakeHTables(Int n) : IHTables
+	{
+		ArrayList<IHuffman> t = new ArrayList<IHuffman>();
+		ArrayList<Bool> p = new ArrayList<Bool>();
+		IHuffman none = Builtins.FakeHuffman();
+		Int i = 0;
+		while (i < n)
+		{
+			t.Add(none);
+			p.Add(false);
+			i = i + 1;
+		}
+		return new HTablesV(t, p);
+	}
+
+	public static fun CopyHTables(IHTables h) : IHTables
+	{
+		IHTables r = Builtins.MakeHTables(h.Length());
+		Int i = 0;
+		while (i < h.Length())
+		{
+			if (h.Has(i))
+			{
+				r.Set(i, h.Ref(i));
+			}
+			i = i + 1;
+		}
+		return r;
+	}
+
+	# (vector #"" '#() #"" '#() #"" '#() '#())
+	public static fun FakeHuffman() : IHuffman
+	{
+		IBytes eb = Builtins.MakeBytes(0, 0);
+		IVec ev = Builtins.MakeVector(0, 0);
+		return new HuffmanV(eb, ev, eb, ev, eb, ev, ev);
+	}
+
+	public static fun MakeHuffman(IBytes sc, IVec so, IBytes v, IVec vi, IBytes s, IVec c, IVec mc) : IHuffman
+	{
+		return new HuffmanV(sc, so, v, vi, s, c, mc);
+	}
+
+	public static fun MakeBitPort(IPort port) : IBitPort
+	{
+		return new BitPortV(0, 0, port);
+	}
+
+	public static fun MakeFreqs(IQTables dc, IQTables ac) : IFreqs
+	{
+		return new FreqsV(dc, ac);
+	}
+
+	public static fun MakeHuffmanTables(IHTables dc, IHTables ac) : IHuffmanTables
+	{
+		return new HuffmanTablesV(dc, ac);
+	}
+
+	public static fun OpenInputBytes(IBytes b) : IPort
+	{
+		return new BytesInputPort(b);
+	}
+
+	public static fun OpenOutputBytes() : IPort
+	{
+		return new BytesOutputPort();
+	}
+
+	public static fun Abs(Int x) : Int
+	{
+		if (x < 0)
+		{
+			return 0 - x;
+		}
+		return x;
+	}
+
+	public static fun Gcd(Int a0, Int b0) : Int
+	{
+		Int a = Builtins.Abs(a0);
+		Int b = Builtins.Abs(b0);
+		while (b != 0)
+		{
+			Int t = a % b;
+			a = b;
+			b = t;
+		}
+		return a;
+	}
+
+	public static fun Max(Int a, Int b) : Int
+	{
+		if (a > b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	# (exact-ceiling (/ a b)) for b > 0
+	public static fun CeilingDiv(Int a, Int b) : Int
+	{
+		return 0 - Bits.FloorDiv(0 - a, b);
+	}
+
+	public static fun ReverseInts(IIntList l) : IIntList
+	{
+		IIntList r = new IntNil();
+		while (!l.IsEmpty())
+		{
+			r = new IntCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun ReverseIntLists(IIntListList l) : IIntListList
+	{
+		IIntListList r = new IntListNil();
+		while (!l.IsEmpty())
+		{
+			r = new IntListCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun ReverseMiscs(IMiscList l) : IMiscList
+	{
+		IMiscList r = new MiscNil();
+		while (!l.IsEmpty())
+		{
+			r = new MiscCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun AppendMiscs(IMiscList a, IMiscList b) : IMiscList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new MiscCons(a.First(), Builtins.AppendMiscs(a.Rest(), b));
+	}
+
+	public static fun AppendPTs(IPTList a, IPTList b) : IPTList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new PTCons(a.First(), Builtins.AppendPTs(a.Rest(), b));
+	}
+
+	public static fun PTsLength(IPTList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+}
+
+class IntNil implements IIntList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntCons implements IIntList
+{
+	private readonly Int first;
+	private readonly IIntList rest;
+	public constructor(Int f, IIntList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IIntList
+	{
+		return rest;
+	}
+}
+
+class IntListNil implements IIntListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IIntList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntListCons implements IIntListList
+{
+	private readonly IIntList first;
+	private readonly IIntListList rest;
+	public constructor(IIntList f, IIntListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IIntList
+	{
+		return first;
+	}
+	public fun Rest() : IIntListList
+	{
+		return rest;
+	}
+}
+
+class MiscNil implements IMiscList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IMisc
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IMiscList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class MiscCons implements IMiscList
+{
+	private readonly IMisc first;
+	private readonly IMiscList rest;
+	public constructor(IMisc f, IMiscList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IMisc
+	{
+		return first;
+	}
+	public fun Rest() : IMiscList
+	{
+		return rest;
+	}
+}
+
+class PTNil implements IPTList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPT
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPTList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PTCons implements IPTList
+{
+	private readonly IPT first;
+	private readonly IPTList rest;
+	public constructor(IPT f, IPTList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPT
+	{
+		return first;
+	}
+	public fun Rest() : IPTList
+	{
+		return rest;
+	}
+}
+
+class PTsNil implements IPTsList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPTList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPTsList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PTsCons implements IPTsList
+{
+	private readonly IPTList first;
+	private readonly IPTsList rest;
+	public constructor(IPTList f, IPTsList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPTList
+	{
+		return first;
+	}
+	public fun Rest() : IPTsList
+	{
+		return rest;
+	}
+}
+
+class ExifsNil implements IExifList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPTsList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IExifList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ExifsCons implements IExifList
+{
+	private readonly IPTsList first;
+	private readonly IExifList rest;
+	public constructor(IPTsList f, IExifList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPTsList
+	{
+		return first;
+	}
+	public fun Rest() : IExifList
+	{
+		return rest;
+	}
+}
+

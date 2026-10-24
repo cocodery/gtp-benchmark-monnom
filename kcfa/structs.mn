@@ -1,0 +1,199 @@
+# structs.rkt: Stx, exp, Ref, Lam, Call.
+# Struct subtyping (exp and Call extend Stx, Ref and Lam extend exp) is flattened: every class
+# implements IExp (the union Exp) with all accessors; the ones of other variants raise errors,
+# like applying the wrong struct accessor.
+
+# (struct exp Stx ())
+class ExpStx implements IExp
+{
+	private readonly ISymbol label;
+	public constructor(ISymbol label0)
+	{
+		label = label0;
+	}
+	public fun IsRef() : Bool
+	{
+		return false;
+	}
+	public fun IsLam() : Bool
+	{
+		return false;
+	}
+	public fun IsCall() : Bool
+	{
+		return false;
+	}
+	public fun Label() : ISymbol
+	{
+		return label;
+	}
+	public fun RefVar() : ISymbol
+	{
+		ERROR("Ref-var: contract violation");
+	}
+	public fun LamFormals() : ISymList
+	{
+		ERROR("Lam-formals: contract violation");
+	}
+	public fun LamCall() : IExp
+	{
+		ERROR("Lam-call: contract violation");
+	}
+	public fun CallFun() : IExp
+	{
+		ERROR("Call-fun: contract violation");
+	}
+	public fun CallArgs() : IExpList
+	{
+		ERROR("Call-args: contract violation");
+	}
+}
+
+# (struct Ref exp ([var : Symbol]))
+class Ref implements IExp
+{
+	private readonly ISymbol label;
+	private readonly ISymbol var;
+	public constructor(ISymbol label0, ISymbol var0)
+	{
+		label = label0;
+		var = var0;
+	}
+	public fun IsRef() : Bool
+	{
+		return true;
+	}
+	public fun IsLam() : Bool
+	{
+		return false;
+	}
+	public fun IsCall() : Bool
+	{
+		return false;
+	}
+	public fun Label() : ISymbol
+	{
+		return label;
+	}
+	public fun RefVar() : ISymbol
+	{
+		return var;
+	}
+	public fun LamFormals() : ISymList
+	{
+		ERROR("Lam-formals: contract violation");
+	}
+	public fun LamCall() : IExp
+	{
+		ERROR("Lam-call: contract violation");
+	}
+	public fun CallFun() : IExp
+	{
+		ERROR("Call-fun: contract violation");
+	}
+	public fun CallArgs() : IExpList
+	{
+		ERROR("Call-args: contract violation");
+	}
+}
+
+# (struct Lam exp ([formals : (Listof Symbol)] [call : Exp]))
+class Lam implements IExp
+{
+	private readonly ISymbol label;
+	private readonly ISymList formals;
+	private readonly IExp call;
+	public constructor(ISymbol label0, ISymList formals0, IExp call0)
+	{
+		label = label0;
+		formals = formals0;
+		call = call0;
+	}
+	public fun IsRef() : Bool
+	{
+		return false;
+	}
+	public fun IsLam() : Bool
+	{
+		return true;
+	}
+	public fun IsCall() : Bool
+	{
+		return false;
+	}
+	public fun Label() : ISymbol
+	{
+		return label;
+	}
+	public fun RefVar() : ISymbol
+	{
+		ERROR("Ref-var: contract violation");
+	}
+	public fun LamFormals() : ISymList
+	{
+		return formals;
+	}
+	public fun LamCall() : IExp
+	{
+		return call;
+	}
+	public fun CallFun() : IExp
+	{
+		ERROR("Call-fun: contract violation");
+	}
+	public fun CallArgs() : IExpList
+	{
+		ERROR("Call-args: contract violation");
+	}
+}
+
+# (struct Call Stx ([fun : Exp] [args : (Listof Exp)]))
+class Call implements IExp
+{
+	private readonly ISymbol label;
+	private readonly IExp callee;
+	private readonly IExpList args;
+	public constructor(ISymbol label0, IExp callee0, IExpList args0)
+	{
+		label = label0;
+		callee = callee0;
+		args = args0;
+	}
+	public fun IsRef() : Bool
+	{
+		return false;
+	}
+	public fun IsLam() : Bool
+	{
+		return false;
+	}
+	public fun IsCall() : Bool
+	{
+		return true;
+	}
+	public fun Label() : ISymbol
+	{
+		return label;
+	}
+	public fun RefVar() : ISymbol
+	{
+		ERROR("Ref-var: contract violation");
+	}
+	public fun LamFormals() : ISymList
+	{
+		ERROR("Lam-formals: contract violation");
+	}
+	public fun LamCall() : IExp
+	{
+		ERROR("Lam-call: contract violation");
+	}
+	public fun CallFun() : IExp
+	{
+		return callee;
+	}
+	public fun CallArgs() : IExpList
+	{
+		return args;
+	}
+}
+

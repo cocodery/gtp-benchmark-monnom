@@ -1,0 +1,605 @@
+# command.rkt: the command% class and the default environment CMD*.
+# Each `exec` lambda of the original is a class with a single `this` method.
+
+class Command implements ICommand
+{
+	private readonly ISymbol id;
+	private readonly IText descr;
+	private readonly IExec exec;
+	public constructor(ISymbol i, IText d, IExec e)
+	{
+		id = i;
+		descr = d;
+		exec = e;
+	}
+	public fun Id() : ISymbol
+	{
+		return id;
+	}
+	public fun Descr() : IText
+	{
+		return descr;
+	}
+	public fun Exec() : IExec
+	{
+		return exec;
+	}
+}
+
+# binop-command% (a subclass of command% in Racket; here a separate class with the same fields
+# plus binop). Its exec closes over binop and the object's id.
+class BinopCommand implements ICommand
+{
+	private readonly IBinop binop;
+	private readonly ISymbol id;
+	private readonly IText descr;
+	private readonly IExec exec;
+	public constructor(IBinop b, ISymbol i, IText d)
+	{
+		binop = b;
+		id = i;
+		descr = d;
+		exec = new BinopExec(b, i);
+	}
+	public fun Binop() : IBinop
+	{
+		return binop;
+	}
+	public fun Id() : ISymbol
+	{
+		return id;
+	}
+	public fun Descr() : IText
+	{
+		return descr;
+	}
+	public fun Exec() : IExec
+	{
+		return exec;
+	}
+}
+
+class PlusOp implements IBinop
+{
+	public constructor()
+	{
+	}
+	public fun this(Int a, Int b) : Int
+	{
+		return a + b;
+	}
+}
+
+class MinusOp implements IBinop
+{
+	public constructor()
+	{
+	}
+	public fun this(Int a, Int b) : Int
+	{
+		return a - b;
+	}
+}
+
+class TimesOp implements IBinop
+{
+	public constructor()
+	{
+	}
+	public fun this(Int a, Int b) : Int
+	{
+		return a * b;
+	}
+}
+
+class BinopExec implements IExec
+{
+	private readonly IBinop binop;
+	private readonly ISymbol id;
+	public constructor(IBinop b, ISymbol i)
+	{
+		binop = b;
+		id = i;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (Commands.SingletonList(v))
+		{
+			IVal head = v.First();
+			if (head.IsSymbol())
+			{
+				if (head.Sym() == id)
+				{
+					IPop p1 = Stack.StackPop(s);
+					IPop p2 = Stack.StackPop(p1.Stack());
+					return new ResPair(e, Stack.StackPush(p2.Stack(), binop(p2.Value(), p1.Value())));
+				}
+			}
+			return new ResFalse();
+		}
+		return new ResFalse();
+	}
+}
+
+class ExitExec implements IExec
+{
+	private readonly IValList exits;
+	public constructor(IValList x)
+	{
+		exits = x;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		# (eof-object? v) and (symbol? v) never hold: v is always the token list
+		if (!v.IsEmpty())
+		{
+			if (Commands.IsExit(v.First(), exits))
+			{
+				return new ResExit();
+			}
+		}
+		return new ResFalse();
+	}
+}
+
+class HelpExec implements IExec
+{
+	private readonly IValList helps;
+	public constructor(IValList h)
+	{
+		helps = h;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (!v.IsEmpty())
+		{
+			if (Commands.IsHelp(v.First(), helps))
+			{
+				if (v.Rest().IsEmpty())
+				{
+					Txt.Print(Commands.ShowHelp(e));
+					"\n".Print();
+					return new ResPair(e, s);
+				}
+				Txt.Print(Commands.ShowHelpFor(e, v.Rest()));
+				"\n".Print();
+				return new ResPair(e, s);
+			}
+		}
+		return new ResFalse();
+	}
+}
+
+# (make-stack-command drop "...") etc.
+class DropExec implements IExec
+{
+	private readonly ISymbol op;
+	public constructor(ISymbol o)
+	{
+		op = o;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (Commands.SingletonIs(v, op))
+		{
+			return new ResPair(e, Stack.StackDrop(s));
+		}
+		return new ResFalse();
+	}
+}
+
+class DupExec implements IExec
+{
+	private readonly ISymbol op;
+	public constructor(ISymbol o)
+	{
+		op = o;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (Commands.SingletonIs(v, op))
+		{
+			return new ResPair(e, Stack.StackDup(s));
+		}
+		return new ResFalse();
+	}
+}
+
+class OverExec implements IExec
+{
+	private readonly ISymbol op;
+	public constructor(ISymbol o)
+	{
+		op = o;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (Commands.SingletonIs(v, op))
+		{
+			return new ResPair(e, Stack.StackOver(s));
+		}
+		return new ResFalse();
+	}
+}
+
+class SwapExec implements IExec
+{
+	private readonly ISymbol op;
+	public constructor(ISymbol o)
+	{
+		op = o;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (Commands.SingletonIs(v, op))
+		{
+			return new ResPair(e, Stack.StackSwap(s));
+		}
+		return new ResFalse();
+	}
+}
+
+class PushExec implements IExec
+{
+	private readonly ISymbol push;
+	public constructor(ISymbol p)
+	{
+		push = p;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		# `(push ,(? exact-integer? n))
+		if (!v.IsEmpty())
+		{
+			IVal a = v.First();
+			IValList r = v.Rest();
+			if (a.IsSymbol())
+			{
+				if (a.Sym() == push)
+				{
+					if (!r.IsEmpty())
+					{
+						if (r.First().IsInteger())
+						{
+							if (r.Rest().IsEmpty())
+							{
+								return new ResPair(e, Stack.StackPush(s, r.First().Num()));
+							}
+						}
+					}
+				}
+			}
+			# `(,(? exact-integer? n))
+			if (a.IsInteger())
+			{
+				if (r.IsEmpty())
+				{
+					return new ResPair(e, Stack.StackPush(s, a.Num()));
+				}
+			}
+		}
+		return new ResFalse();
+	}
+}
+
+class ShowExec implements IExec
+{
+	private readonly IValList shows;
+	public constructor(IValList x)
+	{
+		shows = x;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (Commands.SingletonList(v))
+		{
+			if (Commands.IsShow(v.First(), shows))
+			{
+				Txt.Print(Txt.FormatStack(s));
+				"\n".Print();
+				return new ResPair(e, s);
+			}
+		}
+		return new ResFalse();
+	}
+}
+
+class Commands
+{
+	# True if the argument is a list with one element
+	public static fun SingletonList(IValList x) : Bool
+	{
+		if (x.IsEmpty())
+		{
+			return false;
+		}
+		return x.Rest().IsEmpty();
+	}
+
+	# (and (singleton-list? v) (eq? 'op (car v)))
+	public static fun SingletonIs(IValList v, ISymbol op) : Bool
+	{
+		if (Commands.SingletonList(v))
+		{
+			IVal a = v.First();
+			if (a.IsSymbol())
+			{
+				return a.Sym() == op;
+			}
+		}
+		return false;
+	}
+
+	# (memq sym '(exit quit q leave bye))
+	public static fun IsExit(IVal sym, IValList exits) : Bool
+	{
+		return Txt.Memq(sym, exits);
+	}
+
+	# (memq sym '(help ? ??? -help --help h))
+	public static fun IsHelp(IVal sym, IValList helps) : Bool
+	{
+		return Txt.Memq(sym, helps);
+	}
+
+	# (memq sym '(show print pp ls stack))
+	public static fun IsShow(IVal sym, IValList shows) : Bool
+	{
+		return Txt.Memq(sym, shows);
+	}
+
+	# Search the environment for a command with `id` equal to `sym`
+	# (the original errors on the first command it looks at)
+	public static fun FindCommand(IEnv e, ISymbol sym) : ICommand
+	{
+		while (!e.IsEmpty())
+		{
+			e.First().Id();
+			ERROR("no");
+		}
+		ERROR("no command");
+	}
+
+	# (show-help E): list all commands, joined with "\n"
+	public static fun ShowHelp(IEnv e) : IText
+	{
+		IText s = Commands.StrAvailable();
+		Bool first = true;
+		while (!e.IsEmpty())
+		{
+			if (!first)
+			{
+				s.Push(10);
+			}
+			first = false;
+			Txt.Append(s, Commands.StrIndent());
+			Txt.Append(s, e.First().Id().Chars());
+			Txt.Append(s, Commands.StrSep());
+			Txt.Append(s, e.First().Descr());
+			e = e.Rest();
+		}
+		return s;
+	}
+
+	# (show-help E v) with v = (cdr tokens)
+	public static fun ShowHelpFor(IEnv e, IValList v) : IText
+	{
+		if (v.Rest().IsEmpty())
+		{
+			if (v.First().IsSymbol())
+			{
+				return Commands.FindCommand(e, v.First().Sym()).Descr();
+			}
+		}
+		IText s = Commands.StrCannot();
+		Txt.Append(s, Txt.FormatVals(v));
+		s.Push(39);
+		return s;
+	}
+
+	# "Available commands:\n"
+	public static fun StrAvailable() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 7339049963465767745);
+		Txt.PushWord(w, 8343405457204572576);
+		Txt.PushWord(w, 1338);
+		return w;
+	}
+	# "    "
+	public static fun StrIndent() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 67637280);
+		return w;
+	}
+	# " : "
+	public static fun StrSep() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 531744);
+		return w;
+	}
+	# "Cannot help with '"
+	public static fun StrCannot() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 7336508546233381059);
+		Txt.PushWord(w, 2828721976991299692);
+		return w;
+	}
+	# "Print the current stack"
+	public static fun DescrShow() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 7336875097264388432);
+		Txt.PushWord(w, 2371632490103009696);
+		Txt.PushWord(w, 28931816051);
+		return w;
+	}
+	# "Push a number onto the stack"
+	public static fun DescrPush() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 8492807076506827472);
+		Txt.PushWord(w, 8064182740684730733);
+		Txt.PushWord(w, 7188822088805399072);
+		Txt.PushWord(w, 107);
+		return w;
+	}
+	# "Swap the first two numbers on the stack"
+	public static fun DescrSwap() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 2363162345902472147);
+		Txt.PushWord(w, 8065895286955619558);
+		Txt.PushWord(w, 2371087128030181152);
+		Txt.PushWord(w, 8423564389026117487);
+		Txt.PushWord(w, 1765857);
+		return w;
+	}
+	# "Duplicate the top item of the stack, but place the duplicate in the third position of the stack."
+	public static fun DescrOver() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 7343549232967334596);
+		Txt.PushWord(w, 2369385581692729888);
+		Txt.PushWord(w, 8377147730404407913);
+		Txt.PushWord(w, 3231208553564353256);
+		Txt.PushWord(w, 7188786801385763104);
+		Txt.PushWord(w, 8136756608292950117);
+		Txt.PushWord(w, 7985589328446813420);
+		Txt.PushWord(w, 8274136856803293728);
+		Txt.PushWord(w, 8058016495591755876);
+		Txt.PushWord(w, 2363162345881718894);
+		Txt.PushWord(w, 1609479780979);
+		return w;
+	}
+	# "Duplicate the top item of the stack"
+	public static fun DescrDup() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 7343549232967334596);
+		Txt.PushWord(w, 2369385581692729888);
+		Txt.PushWord(w, 8377147730404407913);
+		Txt.PushWord(w, 60674415895524072);
+		return w;
+	}
+	# "Drop the top item from the stack"
+	public static fun DescrDrop() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 2363162345902700868);
+		Txt.PushWord(w, 2367652770818570228);
+		Txt.PushWord(w, 2363162345896409446);
+		Txt.PushWord(w, 28931816051);
+		return w;
+	}
+	# "Multiply the top two item on the stack."
+	public static fun DescrTimes() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 2374438819322346189);
+		Txt.PushWord(w, 8377191733256615028);
+		Txt.PushWord(w, 8016890225482020855);
+		Txt.PushWord(w, 7055395718468276334);
+		Txt.PushWord(w, 767459);
+		return w;
+	}
+	# "Subtract the top item of the stack from the second item."
+	public static fun DescrMinus() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 2371583974156319443);
+		Txt.PushWord(w, 7584558198839407732);
+		Txt.PushWord(w, 7559436246588289780);
+		Txt.PushWord(w, 7368363009252315237);
+		Txt.PushWord(w, 8305085520189028338);
+		Txt.PushWord(w, 7343582113898951141);
+		Txt.PushWord(w, 5997);
+		return w;
+	}
+	# "Add the top two numbers on the stack"
+	public static fun DescrPlus() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 8377143114226807361);
+		Txt.PushWord(w, 8492807580920854639);
+		Txt.PushWord(w, 2368256817875218797);
+		Txt.PushWord(w, 7766325234627081332);
+		return w;
+	}
+	# "Print help information"
+	public static fun DescrHelp() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 7839536629111486800);
+		Txt.PushWord(w, 7051453385447985264);
+		Txt.PushWord(w, 232518900);
+		return w;
+	}
+	# "End the REPL session"
+	public static fun DescrExit() : IText
+	{
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 5927184916937258821);
+		Txt.PushWord(w, 7631295895246678085);
+		Txt.PushWord(w, 14191);
+		return w;
+	}
+
+	public static fun Word(ISymTable st, Int packed) : ISymbol
+	{
+		return st.Intern(Txt.Unpack(packed));
+	}
+
+	# Default environment of commands
+	public static fun CMDStar(ISymTable st) : IEnv
+	{
+		# '(exit quit q leave bye), '(help ? ??? -help --help h), '(show print pp ls stack)
+		IValList exits = new ValCons(new SymVal(Commands.Word(st, 245005413)), new ValCons(new SymVal(Commands.Word(st, 245005041)), new ValCons(new SymVal(Commands.Word(st, 113)), new ValCons(new SymVal(Commands.Word(st, 27361047276)), new ValCons(new SymVal(Commands.Word(st, 1670370)), new ValNil())))));
+		IValList helps = new ValCons(new SymVal(Commands.Word(st, 236663528)), new ValCons(new SymVal(Commands.Word(st, 63)), new ValCons(new SymVal(Commands.Word(st, 1040319)), new ValCons(new SymVal(Commands.Word(st, 30292931629)), new ValCons(new SymVal(Commands.Word(st, 3877495248557)), new ValCons(new SymVal(Commands.Word(st, 104)), new ValNil()))))));
+		IValList shows = new ValCons(new SymVal(Commands.Word(st, 251393139)), new ValCons(new SymVal(Commands.Word(st, 31370934640)), new ValCons(new SymVal(Commands.Word(st, 14448)), new ValCons(new SymVal(Commands.Word(st, 14828)), new ValCons(new SymVal(Commands.Word(st, 28931816051)), new ValNil())))));
+		IEnv env = new CmdNil();
+		# built back to front: exit help + - * drop dup over swap push show
+		env = new CmdCons(new Command(Commands.Word(st, 251393139), Commands.DescrShow(), new ShowExec(shows)), env);
+		env = new CmdCons(new Command(Commands.Word(st, 220003056), Commands.DescrPush(), new PushExec(Commands.Word(st, 220003056))), env);
+		env = new CmdCons(new Command(Commands.Word(st, 236485619), Commands.DescrSwap(), new SwapExec(Commands.Word(st, 236485619))), env);
+		env = new CmdCons(new Command(Commands.Word(st, 240745327), Commands.DescrOver(), new OverExec(Commands.Word(st, 240745327))), env);
+		env = new CmdCons(new Command(Commands.Word(st, 1850084), Commands.DescrDup(), new DupExec(Commands.Word(st, 1850084))), env);
+		env = new CmdCons(new Command(Commands.Word(st, 236714340), Commands.DescrDrop(), new DropExec(Commands.Word(st, 236714340))), env);
+		env = new CmdCons(new BinopCommand(new TimesOp(), Commands.Word(st, 42), Commands.DescrTimes()), env);
+		env = new CmdCons(new BinopCommand(new MinusOp(), Commands.Word(st, 45), Commands.DescrMinus()), env);
+		env = new CmdCons(new BinopCommand(new PlusOp(), Commands.Word(st, 43), Commands.DescrPlus()), env);
+		env = new CmdCons(new Command(Commands.Word(st, 236663528), Commands.DescrHelp(), new HelpExec(helps)), env);
+		env = new CmdCons(new Command(Commands.Word(st, 245005413), Commands.DescrExit(), new ExitExec(exits)), env);
+		return env;
+	}
+}

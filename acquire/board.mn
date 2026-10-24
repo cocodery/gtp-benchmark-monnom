@@ -1,0 +1,1298 @@
+# auxiliaries.rkt, basics.rkt and board.rkt (merged to keep the configuration count down; see
+# NOTES.md)
+
+# ---- auxiliaries.rkt ----
+
+class Aux
+{
+	public static fun RandomTilePicker(IRng rng) : ITilePicker
+	{
+		return new RandomTile(rng);
+	}
+
+	# randomly-pick, instantiated at Hotel and at Tile
+	public static fun RandomlyPickHotel(IIntList l, IRng rng) : Int
+	{
+		return Builtins.IntRef(l, rng.NextInt(Builtins.IntLength(l)));
+	}
+
+	public static fun RandomlyPickTile(ITileList l, IRng rng) : ITile
+	{
+		return Board.TileRef(l, rng.NextInt(Board.TilesLength(l)));
+	}
+
+	# (distinct s) on hotels
+	public static fun DistinctInts(IIntList s) : Bool
+	{
+		while (!s.IsEmpty())
+		{
+			if (Builtins.IntMember(s.First(), s.Rest()))
+			{
+				return false;
+			}
+			s = s.Rest();
+		}
+		return true;
+	}
+
+	# (sort l <=) / (sort l >) on Reals (stable insertion sort)
+	public static fun SortInts(IIntList l, Bool ascending) : IIntList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		return Aux.Insert(l.First(), Aux.SortInts(l.Rest(), ascending), ascending);
+	}
+
+	public static fun Insert(Int x, IIntList sorted, Bool ascending) : IIntList
+	{
+		if (sorted.IsEmpty())
+		{
+			return new IntCons(x, sorted);
+		}
+		if (Aux.Before(x, sorted.First(), ascending))
+		{
+			return new IntCons(x, sorted);
+		}
+		return new IntCons(sorted.First(), Aux.Insert(x, sorted.Rest(), ascending));
+	}
+
+	public static fun Before(Int x, Int y, Bool ascending) : Bool
+	{
+		if (ascending)
+		{
+			return x <= y;
+		}
+		return x > y;
+	}
+
+	public static fun IntsEqual(IIntList a, IIntList b) : Bool
+	{
+		while (!a.IsEmpty())
+		{
+			if (b.IsEmpty())
+			{
+				return false;
+			}
+			if (a.First() != b.First())
+			{
+				return false;
+			}
+			a = a.Rest();
+			b = b.Rest();
+		}
+		return b.IsEmpty();
+	}
+
+	# the precondition of ext:aux:partition on the selected values s*
+	public static fun CheckSorted(IIntList s) : Int
+	{
+		IIntList s1 = Aux.SortInts(s, true);
+		IIntList s2 = Aux.SortInts(s, false);
+		if (Aux.IntsEqual(s, s1))
+		{
+			return 0;
+		}
+		if (Aux.IntsEqual(s, s2))
+		{
+			return 0;
+		}
+		ERROR("aux:partition: Precondition: expected a sorted list");
+	}
+}
+
+# randomly-pick at Tile as a function value (main passes it as the choice of the next tile)
+class RandomTile implements ITilePicker
+{
+	private readonly IRng rng;
+	public constructor(IRng r)
+	{
+		rng = r;
+	}
+	public fun this(ITileList l) : ITile
+	{
+		return Aux.RandomlyPickTile(l, rng);
+	}
+}
+
+# ---- basics.rkt ----
+
+class Basics
+{
+	public static fun SafeN() : Int
+	{
+		return 12;
+	}
+
+	public static fun FinalN() : Int
+	{
+		return 40;
+	}
+
+	public static fun Shares0() : Int
+	{
+		return 25;
+	}
+
+	public static fun SharesPerTurnN() : Int
+	{
+		return 2;
+	}
+
+	public static fun Cash0() : Int
+	{
+		return 8000;
+	}
+
+	# HOTELS = ALL-HOTELS
+	public static fun AllHotels() : IIntList
+	{
+		IIntList l = new IntNil();
+		Int h = 6;
+		while (h >= 0)
+		{
+			l = new IntCons(h, l);
+			h = h - 1;
+		}
+		return l;
+	}
+
+	public static fun IsHotel(Int x) : Bool
+	{
+		return Builtins.IntMember(x, Basics.AllHotels());
+	}
+
+	public static fun HotelLe(Int a, Int b) : Bool
+	{
+		return a <= b;
+	}
+
+	public static fun RandomHotel(IRng rng) : Int
+	{
+		return Aux.RandomlyPickHotel(Basics.AllHotels(), rng);
+	}
+
+	public static fun SharesOrder(IIntList hs) : Bool
+	{
+		if (hs.IsEmpty())
+		{
+			return false;
+		}
+		Int h1 = hs.First();
+		IIntList l = hs.Rest();
+		while (!l.IsEmpty())
+		{
+			if (l.First() != h1)
+			{
+				return false;
+			}
+			l = l.Rest();
+		}
+		return Builtins.IntLength(hs) <= Basics.SharesPerTurnN();
+	}
+
+	public static fun PlayerShares0() : IShares
+	{
+		return Builtins.MakeShares(0);
+	}
+
+	public static fun BankerShares0() : IShares
+	{
+		return Builtins.MakeShares(Basics.Shares0());
+	}
+
+	public static fun Max(Int a, Int b) : Int
+	{
+		if (a > b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun SharesMinus(IShares s0, IShares t) : IShares
+	{
+		IShares s = s0;
+		Int h = 0;
+		while (h < 7)
+		{
+			if (t.Has(h))
+			{
+				s = s.Set(h, Basics.Max(0, s.Ref(h) - t.Ref(h)));
+				h = h + 1;
+				continue;
+			}
+			h = h + 1;
+		}
+		return s;
+	}
+
+	public static fun SharesPlus(IShares s0, IShares t) : IShares
+	{
+		IShares s = s0;
+		Int h = 0;
+		while (h < 7)
+		{
+			if (t.Has(h))
+			{
+				s = s.Set(h, s.Ref(h) + t.Ref(h));
+				h = h + 1;
+				continue;
+			}
+			h = h + 1;
+		}
+		return s;
+	}
+
+	# ext:shares--
+	public static fun SharesMinusMinus(IShares s, Int h) : IShares
+	{
+		if (Basics.SharesAvailable(s, h) <= 0)
+		{
+			ERROR("shares--: Precondition failed");
+		}
+		return Basics.SharesMinusMinusRaw(s, h);
+	}
+
+	public static fun SharesMinusMinusRaw(IShares s, Int h) : IShares
+	{
+		return s.Set(h, s.Ref(h) - 1);
+	}
+
+	public static fun SharesPlusPlus(IShares s, Int h) : IShares
+	{
+		return s.Set(h, s.Ref(h) + 1);
+	}
+
+	public static fun SharesAvailable(IShares s, Int h) : Int
+	{
+		return s.Ref(h);
+	}
+
+	# ext:shares-available?
+	public static fun SharesAvailableP(IShares s, IIntList hotels) : Bool
+	{
+		if (!Basics.SharesOrder(hotels))
+		{
+			ERROR("shares-available: Precondition");
+		}
+		return Basics.SharesAvailablePRaw(s, hotels);
+	}
+
+	public static fun SharesAvailablePRaw(IShares s0, IIntList hotels) : Bool
+	{
+		IShares s = s0;
+		IIntList l = hotels;
+		while (!l.IsEmpty())
+		{
+			if (Basics.SharesAvailable(s, l.First()) <= 0)
+			{
+				return false;
+			}
+			s = Basics.SharesMinusMinusRaw(s, l.First());
+			l = l.Rest();
+		}
+		return true;
+	}
+
+	public static fun SharesCombinable(IShares s) : Bool
+	{
+		Int h = 0;
+		while (h < 7)
+		{
+			if (s.Has(h))
+			{
+				if (s.Ref(h) > Basics.Shares0())
+				{
+					return false;
+				}
+			}
+			h = h + 1;
+		}
+		return true;
+	}
+
+	# ext:*combine-shares: (foldr shares-plus player-shares0 ls), after the precondition
+	public static fun CombineShares(ISharesList ls) : IShares
+	{
+		IShares s = Basics.CombineSharesRaw(ls);
+		if (!Basics.SharesCombinable(s))
+		{
+			ERROR("*combine-shares: Precondition error");
+		}
+		return Basics.CombineSharesRaw(ls);
+	}
+
+	public static fun CombineSharesRaw(ISharesList ls) : IShares
+	{
+		if (ls.IsEmpty())
+		{
+			return Basics.PlayerShares0();
+		}
+		return Basics.SharesPlus(ls.First(), Basics.CombineSharesRaw(ls.Rest()));
+	}
+
+	public static fun CreateShares(Int h, Int n) : IShares
+	{
+		IShares s = Basics.PlayerShares0();
+		Int i = 0;
+		while (i < n)
+		{
+			s = Basics.SharesPlusPlus(s, h);
+			i = i + 1;
+		}
+		return s;
+	}
+
+	public static fun Bonus(Bool majority, Int hotel, Int tileN) : Int
+	{
+		Int p = Basics.PricePerShare(hotel, tileN);
+		if (p < 0)
+		{
+			ERROR("bonus");
+		}
+		if (majority)
+		{
+			return p * 10;
+		}
+		return p * 5;
+	}
+
+	# PRICES: row r (0..10): price 200 + 100 r and the limits of the three hotel groups;
+	# +inf.0 is 1000000
+	public static fun Limit(Int r, Int group) : Int
+	{
+		if (group == 0)
+		{
+			return Basics.Pick(r, 2, 3, 4, 5, 6, 11, 21, 31, 41, 1000000, 1000000);
+		}
+		if (group == 1)
+		{
+			return Basics.Pick(r, 0, 2, 3, 4, 5, 6, 11, 21, 31, 41, 1000000);
+		}
+		return Basics.Pick(r, 0, 0, 2, 3, 4, 5, 6, 11, 21, 31, 41);
+	}
+
+	public static fun Pick(Int r, Int a0, Int a1, Int a2, Int a3, Int a4, Int a5, Int a6, Int a7, Int a8, Int a9, Int a10) : Int
+	{
+		if (r == 0)
+		{
+			return a0;
+		}
+		if (r == 1)
+		{
+			return a1;
+		}
+		if (r == 2)
+		{
+			return a2;
+		}
+		if (r == 3)
+		{
+			return a3;
+		}
+		if (r == 4)
+		{
+			return a4;
+		}
+		if (r == 5)
+		{
+			return a5;
+		}
+		if (r == 6)
+		{
+			return a6;
+		}
+		if (r == 7)
+		{
+			return a7;
+		}
+		if (r == 8)
+		{
+			return a8;
+		}
+		if (r == 9)
+		{
+			return a9;
+		}
+		return a10;
+	}
+
+	# the hotel group: (WORLDWIDE SACKSON) (FESTIVAL IMPERIAL AMERICAN) (CONTINENTAL TOWER)
+	public static fun Group(Int hotel) : Int
+	{
+		if (hotel == 6)
+		{
+			return 0;
+		}
+		if (hotel == 4)
+		{
+			return 0;
+		}
+		if (hotel == 2)
+		{
+			return 1;
+		}
+		if (hotel == 3)
+		{
+			return 1;
+		}
+		if (hotel == 0)
+		{
+			return 1;
+		}
+		if (hotel == 1)
+		{
+			return 2;
+		}
+		if (hotel == 5)
+		{
+			return 2;
+		}
+		ERROR("price-per-share");
+	}
+
+	# (Option Cash): -1 for #f; the rows are visited from the most expensive, as the folds over
+	# the reversed price* and limit* lists do
+	public static fun PricePerShare(Int hotel, Int tileN) : Int
+	{
+		Int group = Basics.Group(hotel);
+		Int r = 10;
+		while (r >= 0)
+		{
+			if (tileN >= Basics.Limit(r, group))
+			{
+				return 200 + 100 * r;
+			}
+			r = r - 1;
+		}
+		return 0 - 1;
+	}
+}
+
+# ---- board.rkt ----
+
+class TileS implements ITile
+{
+	private readonly Int column;
+	private readonly Int row;
+	public constructor(Int c, Int r)
+	{
+		column = c;
+		row = r;
+	}
+	public fun Column() : Int
+	{
+		return column;
+	}
+	public fun Row() : Int
+	{
+		return row;
+	}
+}
+
+class MergingWhichS implements IMergingWhich
+{
+	private readonly IIntList acquirers;
+	private readonly IIntList acquired;
+	public constructor(IIntList a, IIntList d)
+	{
+		acquirers = a;
+		acquired = d;
+	}
+	public fun Acquirers() : IIntList
+	{
+		return acquirers;
+	}
+	public fun Acquired() : IIntList
+	{
+		return acquired;
+	}
+}
+
+class Board
+{
+	public static fun Founding() : Int
+	{
+		return 0;
+	}
+	public static fun Growing() : Int
+	{
+		return 1;
+	}
+	public static fun Merging() : Int
+	{
+		return 2;
+	}
+	public static fun Singleton() : Int
+	{
+		return 3;
+	}
+	public static fun Impossible() : Int
+	{
+		return 4;
+	}
+	public static fun Untaken() : Int
+	{
+		return 7;
+	}
+	public static fun TakenNoHotel() : Int
+	{
+		return 8;
+	}
+	public static fun StarterTilesN() : Int
+	{
+		return 6;
+	}
+
+	public static fun Tile(Int c, Int r) : ITile
+	{
+		return new TileS(c, r);
+	}
+
+	public static fun TileEqual(ITile a, ITile b) : Bool
+	{
+		if (a.Column() != b.Column())
+		{
+			return false;
+		}
+		return a.Row() == b.Row();
+	}
+
+	public static fun TilesLength(ITileList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	public static fun TileRef(ITileList l, Int k) : ITile
+	{
+		Int i = 0;
+		while (i < k)
+		{
+			l = l.Rest();
+			i = i + 1;
+		}
+		return l.First();
+	}
+
+	public static fun TileMember(ITile t, ITileList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (Board.TileEqual(t, l.First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	# (remove t l)
+	public static fun TileRemove(ITile t, ITileList l) : ITileList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		if (Board.TileEqual(t, l.First()))
+		{
+			return l.Rest();
+		}
+		return new TileCons(l.First(), Board.TileRemove(t, l.Rest()));
+	}
+
+	# (remove* ts l)
+	public static fun TileRemoveAll(ITileList ts, ITileList l) : ITileList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		if (Board.TileMember(l.First(), ts))
+		{
+			return Board.TileRemoveAll(ts, l.Rest());
+		}
+		return new TileCons(l.First(), Board.TileRemoveAll(ts, l.Rest()));
+	}
+
+	public static fun TileAppend(ITileList a, ITileList b) : ITileList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new TileCons(a.First(), Board.TileAppend(a.Rest(), b));
+	}
+
+	public static fun TileTake(ITileList l, Int n) : ITileList
+	{
+		if (n == 0)
+		{
+			return new TileNil();
+		}
+		return new TileCons(l.First(), Board.TileTake(l.Rest(), n - 1));
+	}
+
+	public static fun TileDrop(ITileList l, Int n) : ITileList
+	{
+		Int i = 0;
+		while (i < n)
+		{
+			l = l.Rest();
+			i = i + 1;
+		}
+		return l;
+	}
+
+	# (sort l tile<=?), stable
+	public static fun SortTiles(ITileList l) : ITileList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		return Board.InsertTile(l.First(), Board.SortTiles(l.Rest()));
+	}
+
+	public static fun InsertTile(ITile t, ITileList sorted) : ITileList
+	{
+		if (sorted.IsEmpty())
+		{
+			return new TileCons(t, sorted);
+		}
+		if (Board.TileLe(t, sorted.First()))
+		{
+			return new TileCons(t, sorted);
+		}
+		return new TileCons(sorted.First(), Board.InsertTile(t, sorted.Rest()));
+	}
+
+	# COLUMNS 1..13
+	public static fun IsColumn(Int c) : Bool
+	{
+		if (c < 1)
+		{
+			return false;
+		}
+		return c <= 13;
+	}
+
+	# column-> / column-<: -1 for #f
+	public static fun ColumnRight(Int c) : Int
+	{
+		if (c >= 1)
+		{
+			if (c < 13)
+			{
+				return c + 1;
+			}
+		}
+		return 0 - 1;
+	}
+
+	public static fun ColumnLeft(Int c) : Int
+	{
+		if (c > 1)
+		{
+			if (c <= 13)
+			{
+				return c - 1;
+			}
+		}
+		return 0 - 1;
+	}
+
+	# ROWS A..I = 0..8; row-v / row-^: -1 for #f
+	public static fun RowDown(Int r) : Int
+	{
+		if (r >= 0)
+		{
+			if (r < 8)
+			{
+				return r + 1;
+			}
+		}
+		return 0 - 1;
+	}
+
+	public static fun RowUp(Int r) : Int
+	{
+		if (r > 0)
+		{
+			if (r <= 8)
+			{
+				return r - 1;
+			}
+		}
+		return 0 - 1;
+	}
+
+	# list-index into ROWS (90 if absent)
+	public static fun RowIndex(Int r) : Int
+	{
+		if (r >= 0)
+		{
+			if (r <= 8)
+			{
+				return r;
+			}
+		}
+		return 90;
+	}
+
+	public static fun TileLe(ITile t1, ITile t2) : Bool
+	{
+		if (Board.RowIndex(t1.Row()) < Board.RowIndex(t2.Row()))
+		{
+			return true;
+		}
+		if (Board.RowIndex(t1.Row()) <= Board.RowIndex(t2.Row()))
+		{
+			return t1.Column() <= t2.Column();
+		}
+		return false;
+	}
+
+	public static fun AllTiles() : ITileList
+	{
+		ITileList l = new TileNil();
+		Int r = 8;
+		while (r >= 0)
+		{
+			Int c = 13;
+			while (c >= 1)
+			{
+				l = new TileCons(new TileS(c, r), l);
+				c = c - 1;
+			}
+			r = r - 1;
+		}
+		return l;
+	}
+
+	# (board): #hash()
+	public static fun MakeBoard() : IBoard
+	{
+		return Builtins.EmptyBoard(new TileS(0, 0));
+	}
+
+	# (hash-keys b), in the order of the board's slots
+	public static fun BoardTiles(IBoard b) : ITileList
+	{
+		ITileList l = new TileNil();
+		Int k = b.Count() - 1;
+		while (k >= 0)
+		{
+			l = new TileCons(b.KeyAt(k), l);
+			k = k - 1;
+		}
+		return l;
+	}
+
+	public static fun BoardRef(IBoard b, Int c, Int r) : Int
+	{
+		ITile t = new TileS(c, r);
+		if (b.Has(t))
+		{
+			return b.Ref(t);
+		}
+		return Board.Untaken();
+	}
+
+	public static fun BoardSet(IBoard b, Int c, Int r, Int h) : IBoard
+	{
+		return b.Set(new TileS(c, r), h);
+	}
+
+	# (cardinal-direction n-s e-w): dir 0 north (row-^), 1 east (column->), 2 south (row-v),
+	# 3 west (column-<)
+	public static fun CardinalDirection(IBoard b, Int c, Int r, Int dir) : Int
+	{
+		Int northSouth = r;
+		Int eastWest = c;
+		if (dir == 0)
+		{
+			return Board.Direction(b, c, Board.RowUp(r));
+		}
+		if (dir == 2)
+		{
+			return Board.Direction(b, c, Board.RowDown(r));
+		}
+		if (dir == 1)
+		{
+			return Board.Direction(b, Board.ColumnRight(c), r);
+		}
+		return Board.Direction(b, Board.ColumnLeft(c), r);
+	}
+
+	public static fun Direction(IBoard b, Int eastWest, Int northSouth) : Int
+	{
+		if (northSouth < 0)
+		{
+			return Board.Untaken();
+		}
+		if (eastWest < 0)
+		{
+			return Board.Untaken();
+		}
+		return Board.BoardRef(b, eastWest, northSouth);
+	}
+
+	# (neighbors b c r list): north east south west
+	public static fun Neighbors(IBoard b, Int c, Int r) : IIntList
+	{
+		Int n = Board.CardinalDirection(b, c, r, 0);
+		Int e = Board.CardinalDirection(b, c, r, 1);
+		Int s = Board.CardinalDirection(b, c, r, 2);
+		Int w = Board.CardinalDirection(b, c, r, 3);
+		return new IntCons(n, new IntCons(e, new IntCons(s, new IntCons(w, new IntNil()))));
+	}
+
+	public static fun FreeSpot(IBoard board, ITile tile) : Bool
+	{
+		return Board.BoardRef(board, tile.Column(), tile.Row()) == Board.Untaken();
+	}
+
+	public static fun HotelsOf(IIntList surroundings) : IIntList
+	{
+		if (surroundings.IsEmpty())
+		{
+			return new IntNil();
+		}
+		if (Basics.IsHotel(surroundings.First()))
+		{
+			return new IntCons(surroundings.First(), Board.HotelsOf(surroundings.Rest()));
+		}
+		return Board.HotelsOf(surroundings.Rest());
+	}
+
+	# ext:what-kind-of-spot
+	public static fun WhatKindOfSpot(IBoard board, ITile tile) : Int
+	{
+		if (!Board.FreeSpot(board, tile))
+		{
+			ERROR("what-kind-of-spot: Precondition: (free-spot board tile)");
+		}
+		return Board.WhatKindOfSpotRaw(board, tile);
+	}
+
+	public static fun WhatKindOfSpotRaw(IBoard board, ITile tile) : Int
+	{
+		IIntList surroundings = Board.Neighbors(board, tile.Column(), tile.Row());
+		IIntList hotels = Board.DeduplicateHotel(Board.HotelsOf(surroundings));
+		Int hotelsN = Builtins.IntLength(hotels);
+		Bool neighborTakenNoHotel = Builtins.IntMember(Board.TakenNoHotel(), surroundings);
+		if (hotelsN == 0)
+		{
+			if (neighborTakenNoHotel)
+			{
+				return Board.Founding();
+			}
+			return Board.Singleton();
+		}
+		if (hotelsN == 1)
+		{
+			if (neighborTakenNoHotel)
+			{
+				return Board.Impossible();
+			}
+			return Board.Growing();
+		}
+		if (neighborTakenNoHotel)
+		{
+			return Board.Impossible();
+		}
+		if (Board.AnyHotelSafe(board, hotels))
+		{
+			return Board.Impossible();
+		}
+		return Board.Merging();
+	}
+
+	public static fun AnyHotelSafe(IBoard board, IIntList hotels) : Bool
+	{
+		while (!hotels.IsEmpty())
+		{
+			if (Board.SizeOfHotel(board, hotels.First()) >= Basics.SafeN())
+			{
+				return true;
+			}
+			hotels = hotels.Rest();
+		}
+		return false;
+	}
+
+	# ext:growing-which; -1 for #f
+	public static fun GrowingWhich(IBoard board, ITile tile) : Int
+	{
+		if (Board.WhatKindOfSpotRaw(board, tile) != Board.Growing())
+		{
+			ERROR("growing-which: Precondition: expected growing");
+		}
+		return Board.GrowingWhichRaw(board, tile);
+	}
+
+	public static fun GrowingWhichRaw(IBoard board, ITile tile) : Int
+	{
+		IIntList n = Board.Neighbors(board, tile.Column(), tile.Row());
+		while (!n.IsEmpty())
+		{
+			if (Basics.IsHotel(n.First()))
+			{
+				return n.First();
+			}
+			n = n.Rest();
+		}
+		return 0 - 1;
+	}
+
+	# ext:merging-which
+	public static fun MergingWhich(IBoard board, ITile tile) : IMergingWhich
+	{
+		if (Board.WhatKindOfSpotRaw(board, tile) != Board.Merging())
+		{
+			ERROR("merging-which: Precondition: expected merging");
+		}
+		return Board.MergingWhichRaw(board, tile);
+	}
+
+	public static fun MergingWhichRaw(IBoard board, ITile tile) : IMergingWhich
+	{
+		IIntList surroundings = Board.Neighbors(board, tile.Column(), tile.Row());
+		IIntList hotels = Board.DeduplicateHotel(Board.HotelsOf(surroundings));
+		# sorted: (list h (size-of-hotel board h)) by decreasing size (stable sort)
+		IIntList sorted = Board.SortBySize(board, hotels);
+		IIntList sizes = Board.Sizes(board, sorted);
+		# partitioned = (aux:partition sorted second car); the precondition of the exported
+		# aux:partition checks that the sizes are sorted
+		Aux.CheckSorted(sizes);
+		Int s0 = sizes.First();
+		IIntList acquirers = new IntNil();
+		IIntList acquired = new IntNil();
+		IIntList hs = sorted;
+		IIntList ss = sizes;
+		Bool first = true;
+		while (!hs.IsEmpty())
+		{
+			if (Board.SameGroup(first, ss.First(), s0))
+			{
+				acquirers = new IntCons(hs.First(), acquirers);
+				hs = hs.Rest();
+				ss = ss.Rest();
+				continue;
+			}
+			first = false;
+			acquired = new IntCons(hs.First(), acquired);
+			hs = hs.Rest();
+			ss = ss.Rest();
+		}
+		if (acquirers.IsEmpty())
+		{
+			ERROR("assert: pairof-hotel-listof-hotel");
+		}
+		return new MergingWhichS(Builtins.IntReverse(acquirers), Builtins.IntReverse(acquired));
+	}
+
+	public static fun SameGroup(Bool first, Int size, Int s0) : Bool
+	{
+		if (first)
+		{
+			return size == s0;
+		}
+		return false;
+	}
+
+	public static fun Sizes(IBoard board, IIntList hotels) : IIntList
+	{
+		if (hotels.IsEmpty())
+		{
+			return new IntNil();
+		}
+		return new IntCons(Board.SizeOfHotel(board, hotels.First()), Board.Sizes(board, hotels.Rest()));
+	}
+
+	public static fun SortBySize(IBoard board, IIntList hotels) : IIntList
+	{
+		if (hotels.IsEmpty())
+		{
+			return hotels;
+		}
+		return Board.InsertBySize(board, hotels.First(), Board.SortBySize(board, hotels.Rest()));
+	}
+
+	public static fun InsertBySize(IBoard board, Int h, IIntList sorted) : IIntList
+	{
+		if (sorted.IsEmpty())
+		{
+			return new IntCons(h, sorted);
+		}
+		if (Board.SizeOfHotel(board, sorted.First()) <= Board.SizeOfHotel(board, h))
+		{
+			return new IntCons(h, sorted);
+		}
+		return new IntCons(sorted.First(), Board.InsertBySize(board, h, sorted.Rest()));
+	}
+
+	public static fun DeduplicateHotel(IIntList hs) : IIntList
+	{
+		if (hs.IsEmpty())
+		{
+			return hs;
+		}
+		if (Builtins.IntMember(hs.First(), hs.Rest()))
+		{
+			return Board.DeduplicateHotel(hs.Rest());
+		}
+		return new IntCons(hs.First(), Board.DeduplicateHotel(hs.Rest()));
+	}
+
+	public static fun SizeOfHotel(IBoard board, Int hotel) : Int
+	{
+		Int size = 0;
+		Int k = 0;
+		while (k < board.Count())
+		{
+			if (board.ValueAt(k) == hotel)
+			{
+				size = size + 1;
+				k = k + 1;
+				continue;
+			}
+			k = k + 1;
+		}
+		return size;
+	}
+
+	# ext:grow-hotel
+	public static fun GrowHotel(IBoard board, ITile tile) : IBoard
+	{
+		if (Board.WhatKindOfSpotRaw(board, tile) != Board.Growing())
+		{
+			ERROR("grow-hotel: Precondition: expected founding");
+		}
+		return Board.GrowHotelRaw(board, tile);
+	}
+
+	public static fun GrowHotelRaw(IBoard board, ITile tile) : IBoard
+	{
+		IIntList surroundings = Board.Neighbors(board, tile.Column(), tile.Row());
+		Int hotelThatTouches = Board.HotelsOf(surroundings).First();
+		return Board.BoardSet(board, tile.Column(), tile.Row(), hotelThatTouches);
+	}
+
+	# ext:merge-hotels
+	public static fun MergeHotels(IBoard board, ITile tile, Int hotel) : IBoard
+	{
+		if (Board.WhatKindOfSpotRaw(board, tile) != Board.Merging())
+		{
+			ERROR("merge-hotels: Precondition: expected merging");
+		}
+		if (!Builtins.IntMember(hotel, Board.MergingWhichRaw(board, tile).Acquirers()))
+		{
+			ERROR("merge-hotels: Precondition: hotel is not on a merging spot");
+		}
+		return Board.MergeHotelsRaw(board, tile, hotel);
+	}
+
+	public static fun MergeHotelsRaw(IBoard board, ITile tile, Int hotel) : IBoard
+	{
+		IMergingWhich mw = Board.MergingWhichRaw(board, tile);
+		IIntList acquiredHotels = Builtins.IntAppend(Builtins.IntRemove(hotel, mw.Acquirers()), mw.Acquired());
+		# (for/hash ([(key current-content) (in-hash board)]) ...)
+		IBoard relabeled = Board.MakeBoard();
+		Int k = 0;
+		while (k < board.Count())
+		{
+			ITile key = board.KeyAt(k);
+			Int content = board.ValueAt(k);
+			k = k + 1;
+			if (Builtins.IntMember(content, acquiredHotels))
+			{
+				relabeled = relabeled.Set(key, hotel);
+				continue;
+			}
+			relabeled = relabeled.Set(key, content);
+		}
+		return Board.BoardSet(relabeled, tile.Column(), tile.Row(), hotel);
+	}
+
+	# ext:found-hotel
+	public static fun FoundHotel(IBoard board, ITile tile, Int hotel) : IBoard
+	{
+		if (Board.WhatKindOfSpotRaw(board, tile) != Board.Founding())
+		{
+			ERROR("found-hotel: Precondition: expected founding");
+		}
+		return Board.FoundHotelRaw(board, tile, hotel);
+	}
+
+	public static fun FoundHotelRaw(IBoard board, ITile tile, Int hotel) : IBoard
+	{
+		IBoard b = Board.HotelTakeOverNeighboringTiles(board, tile.Column(), tile.Row(), hotel);
+		return Board.BoardSet(b, tile.Column(), tile.Row(), hotel);
+	}
+
+	public static fun IfTaken(Int content, Int c, Int r, ITileList rest) : ITileList
+	{
+		if (content == Board.TakenNoHotel())
+		{
+			if (c < 0)
+			{
+				ERROR("badcol");
+			}
+			if (r < 0)
+			{
+				ERROR("badrow");
+			}
+			return new TileCons(new TileS(c, r), rest);
+		}
+		return rest;
+	}
+
+	public static fun HotelTakeOverNeighboringTiles(IBoard board0, Int column0, Int row0, Int hotel) : IBoard
+	{
+		IBoard board = board0;
+		ITileList toVisit = new TileCons(new TileS(column0, row0), new TileNil());
+		ITileList visited = new TileNil();
+		while (!toVisit.IsEmpty())
+		{
+			ITile t = toVisit.First();
+			if (Board.TileMember(t, visited))
+			{
+				toVisit = toVisit.Rest();
+				continue;
+			}
+			Int column = t.Column();
+			Int row = t.Row();
+			IIntList r = Board.Neighbors(board, column, row);
+			Int n = r.First();
+			Int e = r.Rest().First();
+			Int s = r.Rest().Rest().First();
+			Int w = r.Rest().Rest().Rest().First();
+			# (append (if n ...) (if e ...) (if s ...) (if w ...) (rest to-visit))
+			ITileList next = Board.IfTaken(w, Board.ColumnLeft(column), row, toVisit.Rest());
+			next = Board.IfTaken(s, column, Board.RowDown(row), next);
+			next = Board.IfTaken(e, Board.ColumnRight(column), row, next);
+			next = Board.IfTaken(n, column, Board.RowUp(row), next);
+			board = Board.BoardSet(board, column, row, hotel);
+			toVisit = next;
+			visited = new TileCons(t, visited);
+		}
+		return board;
+	}
+
+	# ext:place-tile
+	public static fun PlaceTile(IBoard board, ITile tile) : IBoard
+	{
+		Int k = Board.WhatKindOfSpotRaw(board, tile);
+		if (k != Board.Singleton())
+		{
+			if (k != Board.Growing())
+			{
+				if (k != Board.Founding())
+				{
+					ERROR("place-tile: precondition");
+				}
+			}
+		}
+		return Board.PlaceTileRaw(board, tile);
+	}
+
+	public static fun PlaceTileRaw(IBoard board, ITile tile) : IBoard
+	{
+		return Board.BoardSet(board, tile.Column(), tile.Row(), Board.TakenNoHotel());
+	}
+
+	# ext:set-board (hotel -1 = #f)
+	public static fun SetBoard(IBoard board, ITile tile, Int kind, Int hotel) : IBoard
+	{
+		if (!Board.FreeSpot(board, tile))
+		{
+			ERROR("set-board: Precondition");
+		}
+		if (hotel >= 0)
+		{
+			if (kind != Board.Founding())
+			{
+				if (kind != Board.Merging())
+				{
+					ERROR("set-board: Precondition");
+				}
+			}
+		}
+		if (kind == Board.Merging())
+		{
+			if (hotel < 0)
+			{
+				ERROR("set-board: Precondition");
+			}
+		}
+		return Board.SetBoardRaw(board, tile, kind, hotel);
+	}
+
+	public static fun SetBoardRaw(IBoard board, ITile tile, Int kind, Int hotel) : IBoard
+	{
+		if (kind == Board.Founding())
+		{
+			if (hotel >= 0)
+			{
+				return Board.FoundHotelRaw(board, tile, hotel);
+			}
+			return Board.PlaceTileRaw(board, tile);
+		}
+		if (kind == Board.Merging())
+		{
+			return Board.MergeHotelsRaw(board, tile, hotel);
+		}
+		if (kind == Board.Singleton())
+		{
+			return Board.PlaceTileRaw(board, tile);
+		}
+		if (kind == Board.Growing())
+		{
+			return Board.GrowHotelRaw(board, tile);
+		}
+		ERROR("nopers");
+	}
+
+	# ext:affordable?
+	public static fun Affordable(IBoard board, IIntList hotels, Int budget) : Bool
+	{
+		if (!Basics.SharesOrder(hotels))
+		{
+			ERROR("afoordable: precondigin");
+		}
+		return Board.AffordableRaw(board, hotels, budget);
+	}
+
+	public static fun AffordableRaw(IBoard board, IIntList hotels, Int budget) : Bool
+	{
+		Int s = 0;
+		Bool anyFalse = false;
+		IIntList l = hotels;
+		while (!l.IsEmpty())
+		{
+			Int c = Basics.PricePerShare(l.First(), Board.SizeOfHotel(board, l.First()));
+			l = l.Rest();
+			if (c < 0)
+			{
+				anyFalse = true;
+				continue;
+			}
+			s = s + c;
+		}
+		if (anyFalse)
+		{
+			return false;
+		}
+		return s <= budget;
+	}
+}

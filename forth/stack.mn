@@ -1,0 +1,68 @@
+# stack.rkt: Forth stacks (Stack = (Listof Integer)), data definition & operations.
+# Operations raise "empty stack" if called on a stack with too few elements.
+
+class Stack
+{
+	public static fun ListToStack(IStack xs) : IStack
+	{
+		# for/fold over (reverse xs), pushing each element
+		IStack rev = new IntNil();
+		while (!xs.IsEmpty())
+		{
+			rev = new IntCons(xs.First(), rev);
+			xs = xs.Rest();
+		}
+		IStack s = Stack.StackInit();
+		while (!rev.IsEmpty())
+		{
+			s = Stack.StackPush(s, rev.First());
+			rev = rev.Rest();
+		}
+		return s;
+	}
+
+	public static fun StackDrop(IStack s) : IStack
+	{
+		IPop p = Stack.StackPop(s);
+		return p.Stack();
+	}
+
+	public static fun StackDup(IStack s) : IStack
+	{
+		IPop p = Stack.StackPop(s);
+		return Stack.StackPush(Stack.StackPush(p.Stack(), p.Value()), p.Value());
+	}
+
+	public static fun StackInit() : IStack
+	{
+		return new IntNil();
+	}
+
+	public static fun StackOver(IStack s) : IStack
+	{
+		IPop p1 = Stack.StackPop(s);
+		IPop p2 = Stack.StackPop(p1.Stack());
+		return Stack.StackPush(Stack.StackPush(Stack.StackPush(p2.Stack(), p1.Value()), p2.Value()), p1.Value());
+	}
+
+	public static fun StackPop(IStack s) : IPop
+	{
+		if (s.IsEmpty())
+		{
+			ERROR("empty stack");
+		}
+		return new Pop(s.First(), s.Rest());
+	}
+
+	public static fun StackPush(IStack s, Int v) : IStack
+	{
+		return new IntCons(v, s);
+	}
+
+	public static fun StackSwap(IStack s) : IStack
+	{
+		IPop p1 = Stack.StackPop(s);
+		IPop p2 = Stack.StackPop(p1.Stack());
+		return Stack.StackPush(Stack.StackPush(p2.Stack(), p1.Value()), p2.Value());
+	}
+}

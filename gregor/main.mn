@@ -1,0 +1,317 @@
+# main.rkt (unit tests for time/date operations) and difference.rkt (merged to keep the
+# configuration count down; see NOTES.md)
+
+# ---- difference.rkt ----
+
+class Difference
+{
+	public static fun DatetimeMonthsBetween(IDateTime dt1, IDateTime dt2) : Int
+	{
+		if (GDateTime.DatetimeLt(dt2, dt1))
+		{
+			return 0 - Difference.DatetimeMonthsBetween(dt2, dt1);
+		}
+		IDate d1 = GDateTime.DatetimeToDate(dt1);
+		IDate d2 = GDateTime.DatetimeToDate(dt2);
+		IYMD ymd1 = GDate.DateToYmd(d1);
+		IYMD ymd2 = GDate.DateToYmd(d2);
+		Int y1 = ymd1.Y();
+		Int m1 = ymd1.M();
+		Int y2 = ymd2.Y();
+		Int m2 = ymd2.M();
+		Int diff = (y2 - y1) * 12 + m2 - m1;
+		Int startDom = Difference.StartDom(ymd1.D(), y2, m2, ymd2.D());
+		IDateTime dt1a = GDateTime.DateTimeToDatetime(GDate.Date(y1, m1, startDom), GDateTime.DatetimeToTime(dt1));
+		IRat ts1 = Q.Sub(GDateTime.DatetimeToJd(dt1a), GDateTime.DatetimeToJd(GDateTime.Datetime(y1, m1, 1, 0, 0, 0, 0)));
+		IRat ts2 = Q.Sub(GDateTime.DatetimeToJd(dt2), GDateTime.DatetimeToJd(GDateTime.Datetime(y2, m2, 1, 0, 0, 0, 0)));
+		if (Q.Lt(ts2, ts1))
+		{
+			return diff - 1;
+		}
+		return diff;
+	}
+
+	public static fun StartDom(Int d1, Int y2, Int m2, Int d2) : Int
+	{
+		if (d1 > d2)
+		{
+			if (Ymd.DaysInMonth(y2, m2) == d2)
+			{
+				return MomentBase.Abs(d2);
+			}
+		}
+		return MomentBase.Abs(d1);
+	}
+
+	public static fun DatetimeDaysBetween(IDateTime dt1, IDateTime dt2) : Int
+	{
+		return Q.Floor(Q.Sub(GDateTime.DatetimeToJd(dt2), GDateTime.DatetimeToJd(dt1)));
+	}
+
+	public static fun DatetimeNanosecondsBetween(IDateTime dt1, IDateTime dt2) : IBig
+	{
+		return Q.BigSub(Difference.DatetimeToJdns(dt2), Difference.DatetimeToJdns(dt1));
+	}
+
+	public static fun DatetimeToJdns(IDateTime dt) : IBig
+	{
+		return Q.FloorTimesNsDay(GDateTime.DatetimeToJd(dt), Hmsn.NsDay());
+	}
+}
+
+# ---- main.rkt ----
+
+class Main
+{
+	public static fun Dt(Int y, Int m, Int d, Int h, Int mi, Int s, Int n, IDateTimeList rest) : IDateTimeList
+	{
+		return new DateTimeCons(GDateTime.Datetime(y, m, d, h, mi, s, n), rest);
+	}
+
+	public static fun HistoricDates() : IDateTimeList
+	{
+		IDateTimeList l = new DateTimeNil();
+		l = Main.Dt(1099, 7, 10, 0, 0, 0, 0, l);
+		l = Main.Dt(1898, 4, 1, 0, 0, 0, 0, l);
+		l = Main.Dt(1030, 1, 1, 0, 0, 0, 0, l);
+		l = Main.Dt(12, 1, 1, 0, 0, 0, 0, l);
+		l = Main.Dt(1922, 2, 2, 0, 0, 0, 0, l);
+		l = Main.Dt(1991, 4, 29, 0, 0, 0, 0, l);
+		l = Main.Dt(1998, 9, 28, 0, 0, 0, 0, l);
+		l = Main.Dt(2013, 6, 18, 0, 0, 0, 0, l);
+		l = Main.Dt(1980, 12, 8, 0, 0, 0, 0, l);
+		l = Main.Dt(1977, 8, 16, 0, 0, 0, 0, l);
+		l = Main.Dt(1969, 7, 20, 20, 18, 0, 0, l);
+		l = Main.Dt(1989, 11, 9, 0, 0, 0, 0, l);
+		l = Main.Dt(1835, 1, 30, 0, 0, 0, 0, l);
+		l = Main.Dt(1950, 11, 1, 0, 0, 0, 0, l);
+		l = Main.Dt(1928, 11, 19, 0, 0, 0, 0, l);
+		l = Main.Dt(1912, 10, 14, 0, 0, 0, 0, l);
+		l = Main.Dt(1933, 2, 15, 0, 0, 0, 0, l);
+		l = Main.Dt(1901, 9, 6, 0, 0, 0, 0, l);
+		l = Main.Dt(1881, 7, 2, 0, 0, 0, 0, l);
+		l = Main.Dt(1865, 4, 14, 10, 0, 0, 0, l);
+		l = Main.Dt(1963, 11, 22, 12, 30, 0, 0, l);
+		l = Main.Dt(1984, 1, 1, 0, 0, 0, 0, l);
+		l = Main.Dt(1944, 6, 6, 6, 6, 6, 6, l);
+		l = Main.Dt(2001, 9, 11, 9, 3, 0, 0, l);
+		l = Main.Dt(2001, 9, 11, 8, 46, 0, 0, l);
+		return l;
+	}
+
+	public static fun RandomDates() : IDateTimeList
+	{
+		IDateTimeList l = new DateTimeNil();
+		l = Main.Dt(9999, 12, 30, 30, 30, 30, 30, l);
+		l = Main.Dt(1, 2, 3, 4, 5, 6, 7, l);
+		l = Main.Dt(777, 7, 77, 77, 77, 0, 0, l);
+		l = Main.Dt(2002, 11, 42, 32, 0, 0, 0, l);
+		l = Main.Dt(123, 4, 5, 12, 53, 0, 0, l);
+		l = Main.Dt(1386, 2, 1, 0, 0, 0, 0, l);
+		l = Main.Dt(1251, 3, 18, 6, 0, 0, 0, l);
+		l = Main.Dt(8, 6, 7, 5, 3, 0, 9, l);
+		l = Main.Dt(6, 6, 6, 6, 6, 6, 6, l);
+		l = Main.Dt(32, 5, 8, 12, 2, 41, 39, l);
+		l = Main.Dt(1111, 12, 30, 8, 48, 11, 44, l);
+		l = Main.Dt(6, 9, 12, 0, 55, 6, 8, l);
+		l = Main.Dt(324, 2, 1, 4, 32, 66, 23, l);
+		return l;
+	}
+
+	public static fun Append(IDateTimeList a, IDateTimeList b) : IDateTimeList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new DateTimeCons(a.First(), Main.Append(a.Rest(), b));
+	}
+
+	public static fun Chicago() : ITz
+	{
+		return Tz.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 4854747488904115905), 3841784870120));
+	}
+
+	public static fun TestClock(IParams params, Results r) : Int
+	{
+		IClock old = params.CurrentClock();
+		params.SetCurrentClock(new ConstClock(Q.FromInt(1)));
+		# -- today
+		if (!GDate.DateEq(Clock.TodayUtc(params), GDate.Date(1970, 1, 1)))
+		{
+			ERROR("test1");
+		}
+		r.Pass();
+		if (!GDate.DateEq(Clock.Today(Main.Chicago(), params), GDate.Date(1969, 12, 31)))
+		{
+			ERROR("test2");
+		}
+		r.Pass();
+		# -- current-time
+		if (!GTime.TimeEq(Clock.CurrentTimeUtc(params), GTime.MakeTime(0, 0, 1, 0)))
+		{
+			ERROR("test 3");
+		}
+		r.Pass();
+		if (!GTime.TimeEq(Clock.CurrentTime(Main.Chicago(), params), GTime.MakeTime(18, 0, 1, 0)))
+		{
+			ERROR("test4");
+		}
+		r.Pass();
+		# -- now
+		if (!GDateTime.DatetimeEq(Clock.NowUtc(params), GDateTime.Datetime(1970, 1, 1, 0, 0, 1, 0)))
+		{
+			ERROR("test5");
+		}
+		r.Pass();
+		if (!GDateTime.DatetimeEq(Clock.Now(Main.Chicago(), params), GDateTime.Datetime(1969, 12, 31, 18, 0, 1, 0)))
+		{
+			ERROR("test6");
+		}
+		r.Pass();
+		# -- "moment"
+		IMoment m7 = GMoment.Moment(1970, 1, 1, 0, 0, 1, 0, Tz.Str(GMoment.Utc()), Resolvers.ResolveOffsetRaise(), params);
+		if (!GMoment.MomentEq(Clock.NowMomentUtc(params), m7, params))
+		{
+			ERROR("test7");
+		}
+		r.Pass();
+		params.SetCurrentClock(old);
+		return 0;
+	}
+
+	public static fun TestIso(IDateTimeList dates, IParams params, Results r) : Int
+	{
+		IClock oldClock = params.CurrentClock();
+		ITz oldTz = params.CurrentTimezone();
+		params.SetCurrentTimezone(Tz.Str(Txt.PushWord(Txt.PushWord(Txt.Empty(), 5647381023321323201), 474537971416037)));
+		params.SetCurrentClock(new ConstClock(Q.Frac(1463207954418177, 1024000)));
+		# -- test-case "today"
+		IDate d = Clock.Today(params.CurrentTimezone(), params);
+		if (!Txt.Equal(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3556385215640000562), 51), GDate.DateToIso8601(d)))
+		{
+			ERROR("test9");
+		}
+		r.Pass();
+		# -- test-case "current-time"
+		ITime t = Clock.CurrentTime(params.CurrentTimezone(), params);
+		if (!Txt.Equal(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3345837880217868848), 3994382270439726137), GTime.TimeToIso8601(t)))
+		{
+			ERROR("test10");
+		}
+		r.Pass();
+		# -- test-case "now"
+		IDateTime n = Clock.Now(params.CurrentTimezone(), params);
+		if (!Txt.Equal(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3556385215640000562), 3707814461630589491), 4134517399838676791), 7095), GDateTime.DatetimeToIso8601(n)))
+		{
+			ERROR("test11");
+		}
+		r.Pass();
+		# -- test-case "now/moment"
+		IMoment nm = Clock.NowMoment(params.CurrentTimezone(), params);
+		if (!Txt.Equal(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 3556385215640000562), 3707814461630589491), 4134517399838676791), 6584475768373074871), 5647381023321323201), 52828883639598053), MomentBase.MomentToIso8601Tzid(nm)))
+		{
+			ERROR("test12");
+		}
+		r.Pass();
+		params.SetCurrentClock(oldClock);
+		params.SetCurrentTimezone(oldTz);
+		IDateTimeList l = dates;
+		while (!l.IsEmpty())
+		{
+			IDateTime d1 = l.First();
+			r.See(GDateTime.DatetimeToIso8601(d1));
+			r.See(GTime.TimeToIso8601(GDateTime.DatetimeToTime(d1)));
+			r.See(GDate.DateToIso8601(GDateTime.DatetimeToDate(d1)));
+			l = l.Rest();
+		}
+		return 0;
+	}
+
+	public static fun TestDifference(IDateTimeList dates, IParams params, Results r) : Int
+	{
+		IDateTimeList l1 = dates;
+		while (!l1.IsEmpty())
+		{
+			IDateTime dt1 = l1.First();
+			IDateTimeList l2 = dates;
+			while (!l2.IsEmpty())
+			{
+				IDateTime dt2 = l2.First();
+				Main.TestPair(dt1, dt2, params, r);
+				l2 = l2.Rest();
+			}
+			l1 = l1.Rest();
+		}
+		return 0;
+	}
+
+	public static fun TestPair(IDateTime dt1, IDateTime dt2, IParams params, Results r) : Int
+	{
+		if (GDateTime.DatetimeLe(dt1, dt2))
+		{
+			r.Le();
+		}
+		r.Months(Difference.DatetimeMonthsBetween(dt1, dt2));
+		r.Days(Difference.DatetimeDaysBetween(dt1, dt2));
+		r.Nanos(Difference.DatetimeNanosecondsBetween(dt1, dt2));
+		ITz utc = Tz.Str(GMoment.Utc());
+		IMoment m1 = GMoment.PosixToMoment(GDateTime.DatetimeToPosix(dt1), utc, params);
+		IMoment m2 = GMoment.PosixToMoment(GDateTime.DatetimeToPosix(dt2), utc, params);
+		if (GMoment.MomentEq(m1, m2, params))
+		{
+			r.Meq();
+		}
+		return 0;
+	}
+
+	public static fun Run(Int n, Bool large, IParams params, Results r) : Int
+	{
+		if (large)
+		{
+			return Main.RunOn(n, Main.Append(Main.HistoricDates(), Main.RandomDates()), params, r);
+		}
+		return Main.RunOn(n, Main.HistoricDates(), params, r);
+	}
+
+	public static fun RunOn(Int n, IDateTimeList dates, IParams params, Results r) : Int
+	{
+		Int i = 0;
+		while (i < n)
+		{
+			Main.TestClock(params, r);
+			Main.TestIso(dates, params, r);
+			Main.TestDifference(dates, params, r);
+			i = i + 1;
+		}
+		return 0;
+	}
+
+	public static fun Print(Int v) : Int
+	{
+		v.ToString().Print();
+		"\n".Print();
+		return 0;
+	}
+
+	public static fun Main() : Void
+	{
+		Int iterations = 200;
+		# the parameters' initial values; current-timezone is (system-tzid) in the original,
+		# which is never used by the benchmark (see NOTES.md)
+		IParams params = new Params(Clock.CurrentPosixSeconds(), Tz.Str(GMoment.Utc()), Tzinfo.MakeZoneinfoSource());
+		Timer t = new Timer();
+		Results r = new Results();
+		Main.Run(iterations, true, params, r);
+		t.PrintDifference();
+		"\n".Print();
+		Main.Print(r.Tests);
+		Main.Print(r.IsoLen);
+		Main.Print(r.IsoHash);
+		Main.Print(r.LeCount);
+		Main.Print(r.MonthsHash);
+		Main.Print(r.DaysHash);
+		Main.Print(r.NanosHash);
+		Main.Print(r.MeqCount);
+	}
+}

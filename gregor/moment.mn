@@ -1,0 +1,506 @@
+# moment-base.rkt, moment.rkt, offset-resolvers.rkt and clock.rkt (merged to keep the
+# configuration count down; see NOTES.md)
+# The parameters current-timezone, current-clock and current-tzinfo-source are fields of an
+# IParams object passed explicitly; keyword arguments with defaults are explicit arguments.
+
+# ---- moment-base.rkt ----
+
+class MomentBase
+{
+	public static fun MomentToIso8601Tzid(IMoment m) : IText
+	{
+		IText iso = MomentBase.MomentToIso8601(m);
+		ITz z = m.Zone();
+		if (z.Kind() == 1)
+		{
+			return Txt.Append(Txt.Append(Txt.Append(iso, Txt.Char(91)), z.Name()), Txt.Char(93));
+		}
+		return iso;
+	}
+
+	public static fun MomentToIso8601(IMoment m) : IText
+	{
+		IDateTime d = m.DatetimeLocal();
+		Int o = m.UtcOffset();
+		if (o == 0)
+		{
+			return Txt.Append(GDateTime.DatetimeToIso8601(d), Txt.Char(90));
+		}
+		Int sec = MomentBase.Abs(o);
+		Int hrs = sec / 3600;
+		Int min = (sec - hrs * 3600) / 60;
+		IText t = Txt.Append(GDateTime.DatetimeToIso8601(d), Txt.Char(MomentBase.SignChar(o)));
+		IText t2 = Txt.Append(Txt.Append(t, Txt.Pad(hrs, 2)), Txt.Char(58));
+		return Txt.Append(t2, Txt.Pad(min, 2));
+	}
+
+	public static fun Abs(Int x) : Int
+	{
+		if (x < 0)
+		{
+			return 0 - x;
+		}
+		return x;
+	}
+
+	# "-" or "+"
+	public static fun SignChar(Int o) : Int
+	{
+		if (o < 0)
+		{
+			return 45;
+		}
+		return 43;
+	}
+
+	public static fun MakeMoment(IDateTime dt, Int off, ITz z) : IMoment
+	{
+		if (z.Kind() == 1)
+		{
+			return new MomentS(dt, off, Tz.Str(Txt.Copy(z.Name())));
+		}
+		return new MomentS(dt, off, Tz.False());
+	}
+}
+
+# ---- offset-resolvers.rkt ----
+
+class ResolveArgs implements IResolveArgs
+{
+	private readonly ITzResult gapOrOverlap;
+	private readonly IDateTime targetDt;
+	private readonly ITz targetTzid;
+	private readonly IMoment orig;
+	public constructor(ITzResult g, IDateTime dt, ITz z, IMoment o)
+	{
+		gapOrOverlap = g;
+		targetDt = dt;
+		targetTzid = z;
+		orig = o;
+	}
+	public fun GapOrOverlap() : ITzResult
+	{
+		return gapOrOverlap;
+	}
+	public fun TargetDt() : IDateTime
+	{
+		return targetDt;
+	}
+	public fun TargetTzid() : ITz
+	{
+		return targetTzid;
+	}
+	public fun Orig() : IMoment
+	{
+		return orig;
+	}
+}
+
+class ResolveGapPre implements IResolver
+{
+	public constructor()
+	{
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		ITzResult gap = a.GapOrOverlap();
+		Int delta = gap.OffsetBefore().UtcSeconds();
+		IRat p = Q.Sub(Q.FromInt(gap.StartsAt() + delta), Q.Frac(1, Hmsn.NsSecond()));
+		return MomentBase.MakeMoment(GDateTime.PosixToDatetime(p), delta, a.TargetTzid());
+	}
+}
+
+class ResolveGapPost implements IResolver
+{
+	public constructor()
+	{
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		ITzResult gap = a.GapOrOverlap();
+		Int delta = gap.OffsetAfter().UtcSeconds();
+		return MomentBase.MakeMoment(GDateTime.PosixToDatetime(Q.FromInt(gap.StartsAt() + delta)), delta, a.TargetTzid());
+	}
+}
+
+class ResolveGapPush implements IResolver
+{
+	public constructor()
+	{
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		ITzResult gap = a.GapOrOverlap();
+		Int delta1 = gap.OffsetBefore().UtcSeconds();
+		Int delta2 = gap.OffsetAfter().UtcSeconds();
+		IRat p = Q.Add(GDateTime.DatetimeToPosix(a.TargetDt()), Q.FromInt(delta2 - delta1));
+		return MomentBase.MakeMoment(GDateTime.PosixToDatetime(p), delta2, a.TargetTzid());
+	}
+}
+
+class ResolveOverlapPre implements IResolver
+{
+	public constructor()
+	{
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		Int delta = a.GapOrOverlap().OffsetBefore().UtcSeconds();
+		return MomentBase.MakeMoment(a.TargetDt(), delta, a.TargetTzid());
+	}
+}
+
+class ResolveOverlapPost implements IResolver
+{
+	public constructor()
+	{
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		Int delta = a.GapOrOverlap().OffsetAfter().UtcSeconds();
+		return MomentBase.MakeMoment(a.TargetDt(), delta, a.TargetTzid());
+	}
+}
+
+class ResolveOverlapRetain implements IResolver
+{
+	public constructor()
+	{
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		Int delta1 = a.GapOrOverlap().OffsetBefore().UtcSeconds();
+		Int delta2 = a.GapOrOverlap().OffsetAfter().UtcSeconds();
+		return MomentBase.MakeMoment(a.TargetDt(), Resolvers.RetainOffset(a.Orig(), delta1, delta2), a.TargetTzid());
+	}
+}
+
+# (offset-resolver rg ro)
+class OffsetResolver implements IResolver
+{
+	private readonly IResolver rg;
+	private readonly IResolver ro;
+	public constructor(IResolver g, IResolver o)
+	{
+		rg = g;
+		ro = o;
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		IResolver g = rg;
+		IResolver o = ro;
+		if (a.GapOrOverlap().Kind() == 1)
+		{
+			return g(a);
+		}
+		return o(a);
+	}
+}
+
+class ResolveOffsetRaise implements IResolver
+{
+	public constructor()
+	{
+	}
+	public fun this(IResolveArgs a) : IMoment
+	{
+		return Resolvers.RaiseInvalidOffset(a);
+	}
+}
+
+class Resolvers
+{
+	# exn:gregor:invalid-offset (MonNom has no exceptions: the program stops)
+	public static fun RaiseInvalidOffset(IResolveArgs a) : IMoment
+	{
+		ERROR("Illegal moment: local time does not exist or is ambiguous in time zone");
+	}
+
+	# (or (and orig (= (Moment-utc-offset orig) delta1) delta1) delta2)
+	public static fun RetainOffset(IMoment orig, Int delta1, Int delta2) : Int
+	{
+		if (!orig.IsFalse())
+		{
+			if (orig.UtcOffset() == delta1)
+			{
+				return delta1;
+			}
+		}
+		return delta2;
+	}
+
+	public static fun OffsetResolver(IResolver rg, IResolver ro) : IResolver
+	{
+		return new OffsetResolver(rg, ro);
+	}
+
+	public static fun ResolveOffsetPre() : IResolver
+	{
+		return Resolvers.OffsetResolver(new ResolveGapPre(), new ResolveOverlapPre());
+	}
+
+	public static fun ResolveOffsetPost() : IResolver
+	{
+		return Resolvers.OffsetResolver(new ResolveGapPost(), new ResolveOverlapPost());
+	}
+
+	public static fun ResolveOffsetPostGapPreOverlap() : IResolver
+	{
+		return Resolvers.OffsetResolver(new ResolveGapPost(), new ResolveOverlapPre());
+	}
+
+	public static fun ResolveOffsetRetain() : IResolver
+	{
+		return Resolvers.OffsetResolver(new ResolveGapPost(), new ResolveOverlapRetain());
+	}
+
+	public static fun ResolveOffsetPush() : IResolver
+	{
+		return Resolvers.OffsetResolver(new ResolveGapPush(), new ResolveOverlapPost());
+	}
+
+	public static fun ResolveOffsetRaise() : IResolver
+	{
+		return new ResolveOffsetRaise();
+	}
+}
+
+# ---- moment.rkt ----
+
+class GMoment
+{
+	# UTC = "Etc/UTC"
+	public static fun Utc() : IText
+	{
+		return Txt.PushWord(Txt.Empty(), 297578251483717);
+	}
+
+	# (moment year month day hour minute second nano #:tz tz #:resolve-offset resolve)
+	public static fun Moment(Int year, Int month, Int day, Int hour, Int minute, Int second, Int nano, ITz tz, IResolver resolve, IParams params) : IMoment
+	{
+		if (tz.Kind() == 0)
+		{
+			ERROR("no timezone");
+		}
+		return GMoment.DatetimeTzToMoment(GDateTime.Datetime(year, month, day, hour, minute, second, nano), tz, resolve, params);
+	}
+
+	public static fun DatetimeTzToMoment(IDateTime dt, ITz zone, IResolver resolve, IParams params) : IMoment
+	{
+		if (zone.Kind() == 1)
+		{
+			ITzSource src = params.TzinfoSource();
+			ITzResult res = src.LocalSecondsToTzOffset(zone.Name(), Q.Round(GDateTime.DatetimeToPosix(dt)));
+			if (res.Kind() == 0)
+			{
+				return MomentBase.MakeMoment(dt, res.AsOffset().UtcSeconds(), zone);
+			}
+			return resolve(new ResolveArgs(res, dt, zone, new NoMoment()));
+		}
+		if (zone.Kind() == 2)
+		{
+			if (zone.Offset() >= 0)
+			{
+				return MomentBase.MakeMoment(dt, zone.Offset(), Tz.False());
+			}
+		}
+		ERROR("datetime+tz->moment unknown zone");
+	}
+
+	public static fun MomentToDatetimeLocal(IMoment m) : IDateTime
+	{
+		return m.DatetimeLocal();
+	}
+
+	public static fun MomentToUtcOffset(IMoment m) : Int
+	{
+		return m.UtcOffset();
+	}
+
+	public static fun MomentToTzid(IMoment m) : ITz
+	{
+		return m.Zone();
+	}
+
+	public static fun MomentToTimezone(IMoment m) : ITz
+	{
+		ITz z = GMoment.MomentToTzid(m);
+		if (z.Kind() == 1)
+		{
+			return z;
+		}
+		return Tz.Integer(GMoment.MomentToUtcOffset(m));
+	}
+
+	public static fun IsUtc(ITz z) : Bool
+	{
+		if (z.Kind() == 1)
+		{
+			return Txt.Equal(GMoment.Utc(), z.Name());
+		}
+		return false;
+	}
+
+	public static fun MomentInUtc(IMoment m, IParams params) : IMoment
+	{
+		if (GMoment.IsUtc(GMoment.MomentToTimezone(m)))
+		{
+			return m;
+		}
+		return GMoment.TimezoneAdjust(m, Tz.Str(GMoment.Utc()), params);
+	}
+
+	public static fun MomentToJd(IMoment m, IParams params) : IRat
+	{
+		return GDateTime.DatetimeToJd(GMoment.MomentToDatetimeLocal(GMoment.MomentInUtc(m, params)));
+	}
+
+	public static fun MomentToPosix(IMoment m, IParams params) : IRat
+	{
+		return GDateTime.DatetimeToPosix(GMoment.MomentToDatetimeLocal(GMoment.MomentInUtc(m, params)));
+	}
+
+	public static fun PosixToMoment(IRat p, ITz z, IParams params) : IMoment
+	{
+		Int off = GMoment.PosixOffset(p, z, params);
+		IDateTime dt = GDateTime.PosixToDatetime(Q.Add(p, Q.FromInt(off)));
+		if (z.Kind() != 1)
+		{
+			ERROR("posix->moment: can't call make-moment with an integer");
+		}
+		return MomentBase.MakeMoment(dt, off, z);
+	}
+
+	public static fun PosixOffset(IRat p, ITz z, IParams params) : Int
+	{
+		if (z.Kind() == 1)
+		{
+			ITzSource src = params.TzinfoSource();
+			return src.UtcSecondsToTzOffset(z.Name(), p).UtcSeconds();
+		}
+		return 0;
+	}
+
+	public static fun MomentAddNanoseconds(IMoment m, Int n, IParams params) : IMoment
+	{
+		IRat p = Q.Add(GMoment.MomentToPosix(m, params), Q.MulInt(Q.Frac(1, Hmsn.NsSecond()), n));
+		return GMoment.PosixToMoment(p, GMoment.MomentToTimezone(m), params);
+	}
+
+	public static fun TimezoneAdjust(IMoment m, ITz z, IParams params) : IMoment
+	{
+		IDateTime dt = m.DatetimeLocal();
+		Int negSec = m.UtcOffset();
+		IDateTime dtUtc = GDateTime.DatetimeAddSeconds(dt, 0 - negSec);
+		if (z.Kind() == 1)
+		{
+			IRat posix = GDateTime.DatetimeToPosix(dtUtc);
+			ITzSource src = params.TzinfoSource();
+			Int offset = src.UtcSecondsToTzOffset(z.Name(), posix).UtcSeconds();
+			IDateTime local = GDateTime.DatetimeAddSeconds(dtUtc, offset);
+			return MomentBase.MakeMoment(local, offset, z);
+		}
+		IDateTime local2 = GDateTime.DatetimeAddSeconds(dtUtc, z.Offset());
+		return MomentBase.MakeMoment(local2, z.Offset(), Tz.False());
+	}
+
+	public static fun TimezoneCoerce(IMoment m, ITz z, IResolver resolve, IParams params) : IMoment
+	{
+		return GMoment.DatetimeTzToMoment(GMoment.MomentToDatetimeLocal(m), z, resolve, params);
+	}
+
+	public static fun MomentEq(IMoment m1, IMoment m2, IParams params) : Bool
+	{
+		return Q.NumEq(GMoment.MomentToJd(m1, params), GMoment.MomentToJd(m2, params));
+	}
+
+	public static fun MomentLt(IMoment m1, IMoment m2, IParams params) : Bool
+	{
+		return Q.Lt(GMoment.MomentToJd(m1, params), GMoment.MomentToJd(m2, params));
+	}
+
+	public static fun MomentLe(IMoment m1, IMoment m2, IParams params) : Bool
+	{
+		return Q.Le(GMoment.MomentToJd(m1, params), GMoment.MomentToJd(m2, params));
+	}
+}
+
+# ---- clock.rkt ----
+
+# current-posix-seconds, the default value of current-clock: MonNom programs cannot read the
+# wall clock (the benchmark always parameterizes current-clock)
+class CurrentPosixSeconds implements IClock
+{
+	public constructor()
+	{
+	}
+	public fun this() : IRat
+	{
+		ERROR("current-posix-seconds: no wall clock");
+	}
+}
+
+class Clock
+{
+	public static fun CurrentPosixSeconds() : IClock
+	{
+		return new CurrentPosixSeconds();
+	}
+
+	public static fun NowMoment(ITz tz, IParams params) : IMoment
+	{
+		if (tz.Kind() == 0)
+		{
+			ERROR("current-timezone is #f");
+		}
+		IClock clock = params.CurrentClock();
+		return GMoment.PosixToMoment(clock(), tz, params);
+	}
+
+	public static fun NowMomentUtc(IParams params) : IMoment
+	{
+		return Clock.NowMoment(Tz.Str(GMoment.Utc()), params);
+	}
+
+	public static fun Now(ITz tz, IParams params) : IDateTime
+	{
+		if (tz.Kind() == 0)
+		{
+			ERROR("now: current-timezone is #f");
+		}
+		return GMoment.MomentToDatetimeLocal(Clock.NowMoment(tz, params));
+	}
+
+	public static fun NowUtc(IParams params) : IDateTime
+	{
+		return Clock.Now(Tz.Str(GMoment.Utc()), params);
+	}
+
+	public static fun Today(ITz tz, IParams params) : IDate
+	{
+		if (tz.Kind() == 0)
+		{
+			ERROR("today: current-timezone is #f");
+		}
+		return GDateTime.DatetimeToDate(Clock.Now(tz, params));
+	}
+
+	public static fun TodayUtc(IParams params) : IDate
+	{
+		return Clock.Today(Tz.Str(GMoment.Utc()), params);
+	}
+
+	public static fun CurrentTime(ITz tz, IParams params) : ITime
+	{
+		if (tz.Kind() == 0)
+		{
+			ERROR("current-time:  current-timezone is #f");
+		}
+		return GDateTime.DatetimeToTime(Clock.Now(tz, params));
+	}
+
+	public static fun CurrentTimeUtc(IParams params) : ITime
+	{
+		return Clock.CurrentTime(Tz.Str(GMoment.Utc()), params);
+	}
+}

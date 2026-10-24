@@ -1,0 +1,45 @@
+# collide.rkt
+
+class Collide
+{
+	# Is the snake colliding with any of the walls?
+	public static fun SnakeWallCollide(ISnake snk) : Bool
+	{
+		return Collide.HeadCollide(snk.Segs().First());
+	}
+
+	public static fun HeadCollide(IPosn p) : Bool
+	{
+		if (p.X() <= 0)
+		{
+			return true;
+		}
+		if (p.X() >= Const.BoardWidth())
+		{
+			return true;
+		}
+		if (p.Y() <= 0)
+		{
+			return true;
+		}
+		return p.Y() >= Const.BoardHeight();
+	}
+
+	public static fun SnakeSelfCollide(ISnake snk) : Bool
+	{
+		return Collide.SegsSelfCollide(snk.Segs().First(), snk.Segs().Rest());
+	}
+
+	public static fun SegsSelfCollide(IPosn h, IPosnList segs) : Bool
+	{
+		if (segs.IsEmpty())
+		{
+			return false;
+		}
+		if (Data.PosnEq(segs.First(), h))
+		{
+			return true;
+		}
+		return Collide.SegsSelfCollide(h, segs.Rest());
+	}
+}

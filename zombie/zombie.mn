@@ -1,0 +1,1975 @@
+# zombie.rkt: the game, written with closures as objects.
+# Every Racket (lambda ...) is a class with a single `this` method, every object
+# (new-posn, new-zombie, ...) is a class whose `this` method dispatches on the message tag.
+
+# ---------------------------------------------------------------------------- module functions
+class Zombie
+{
+	public static fun Width() : Float
+	{
+		return 400.0;
+	}
+	public static fun Height() : Float
+	{
+		return 400.0;
+	}
+	public static fun MtScene() : IImage
+	{
+		return Images.EmptyScene(Zombie.Width(), Zombie.Height());
+	}
+	public static fun PlayerSpeed() : Float
+	{
+		return 4.0;
+	}
+	public static fun ZombieSpeed() : Float
+	{
+		return 2.0;
+	}
+	public static fun ZombieRadius() : Float
+	{
+		return 20.0;
+	}
+	public static fun PlayerRadius() : Float
+	{
+		return 20.0;
+	}
+	public static fun PlayerImg() : IImage
+	{
+		return Images.Circle(Zombie.PlayerRadius(), "solid", "green");
+	}
+	public static fun NewWorld(IPlayer player, IPosn mouse, IHorde zombies) : IWorld
+	{
+		return new WorldObj(player, mouse, zombies);
+	}
+	public static fun NewPlayer(IPosn p) : IPlayer
+	{
+		return new PlayerObj(p);
+	}
+	public static fun NewHorde(IZombies undead, IZombies dead) : IHorde
+	{
+		return new HordeObj(undead, dead);
+	}
+	public static fun NewConsZombies(IZombie z, IZombies r) : IZombies
+	{
+		return new ConsZombiesObj(z, r);
+	}
+	public static fun NewMtZombies() : IZombies
+	{
+		return new MtZombiesObj();
+	}
+	public static fun NewZombie(IPosn p) : IZombie
+	{
+		return new ZombieObj(p);
+	}
+	public static fun NewPosn(Float x, Float y) : IPosn
+	{
+		return new PosnObj(x, y);
+	}
+	# w0 (a module-level value in Racket)
+	public static fun W0() : IWorld
+	{
+		return Zombie.NewWorld(
+			Zombie.NewPlayer(Zombie.NewPosn(0.0, 0.0)),
+			Zombie.NewPosn(0.0, 0.0),
+			Zombie.NewHorde(
+				Zombie.NewConsZombies(
+					Zombie.NewZombie(Zombie.NewPosn(100.0, 300.0)),
+					Zombie.NewConsZombies(
+						Zombie.NewZombie(Zombie.NewPosn(100.0, 200.0)),
+						Zombie.NewMtZombies())),
+				Zombie.NewConsZombies(
+					Zombie.NewZombie(Zombie.NewPosn(200.0, 200.0)),
+					Zombie.NewMtZombies())));
+	}
+}
+
+# ---------------------------------------------------------------------------- new-world
+class WorldObj implements IWorld
+{
+	private readonly IPlayer player;
+	private readonly IPosn mouse;
+	private readonly IHorde zombies;
+	public constructor(IPlayer p, IPosn m, IHorde z)
+	{
+		player = p;
+		mouse = m;
+		zombies = z;
+	}
+	public fun this(Int msg) : IWorldMsg
+	{
+		if (msg == 16)
+		{
+			return new WorldMsgMouseToWorld(16, new FnWorldOnMouse(player, zombies));
+		}
+		if (msg == 17)
+		{
+			return new WorldMsgWorldThunk(17, new FnWorldOnTick(player, mouse, zombies));
+		}
+		if (msg == 18)
+		{
+			return new WorldMsgImageThunk(18, new FnWorldToDraw(player, zombies));
+		}
+		if (msg == 19)
+		{
+			return new WorldMsgBoolThunk(19, new FnWorldStopWhen(player, zombies));
+		}
+		ERROR("world: unknown message");
+	}
+}
+
+class FnWorldOnMouse implements IMouseToWorld
+{
+	private readonly IPlayer player;
+	private readonly IHorde zombies;
+	public constructor(IPlayer p, IHorde z)
+	{
+		player = p;
+		zombies = z;
+	}
+	public fun this(IMouseArgs a) : IWorld
+	{
+		if (a.Me() == 2)
+		{
+			return Zombie.NewWorld(player, Getters.PlayerPosn(player)(), zombies);
+		}
+		return Zombie.NewWorld(player, Zombie.NewPosn(a.X(), a.Y()), zombies);
+	}
+}
+
+class FnWorldOnTick implements IWorldThunk
+{
+	private readonly IPlayer player;
+	private readonly IPosn mouse;
+	private readonly IHorde zombies;
+	public constructor(IPlayer p, IPosn m, IHorde z)
+	{
+		player = p;
+		mouse = m;
+		zombies = z;
+	}
+	public fun this() : IWorld
+	{
+		IPlayer moved = Getters.PlayerMoveToward(player)(mouse);
+		IHorde eaten = Getters.HordeEatBrains(zombies)();
+		return Zombie.NewWorld(moved, mouse, Getters.HordeMoveToward(eaten)(Getters.PlayerPosn(player)()));
+	}
+}
+
+class FnWorldToDraw implements IImageThunk
+{
+	private readonly IPlayer player;
+	private readonly IHorde zombies;
+	public constructor(IPlayer p, IHorde z)
+	{
+		player = p;
+		zombies = z;
+	}
+	public fun this() : IImage
+	{
+		return Getters.PlayerDrawOn(player)(Getters.HordeDrawOn(zombies)(Zombie.MtScene()));
+	}
+}
+
+class FnWorldStopWhen implements IBoolThunk
+{
+	private readonly IPlayer player;
+	private readonly IHorde zombies;
+	public constructor(IPlayer p, IHorde z)
+	{
+		player = p;
+		zombies = z;
+	}
+	public fun this() : Bool
+	{
+		return Getters.HordeTouching(zombies)(Getters.PlayerPosn(player)());
+	}
+}
+
+# ---------------------------------------------------------------------------- new-player
+class PlayerObj implements IPlayer
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this(Int msg) : IPlayerMsg
+	{
+		if (msg == 3)
+		{
+			return new PlayerMsgPosnThunk(3, new FnPlayerPosn(p));
+		}
+		if (msg == 8)
+		{
+			return new PlayerMsgPosnToPlayer(8, new FnPlayerMoveToward(p));
+		}
+		if (msg == 9)
+		{
+			return new PlayerMsgImageToImage(9, new FnPlayerDrawOn(p));
+		}
+		ERROR("player: unknown message");
+	}
+}
+
+class FnPlayerPosn implements IPosnThunk
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this() : IPosn
+	{
+		return p;
+	}
+}
+
+class FnPlayerMoveToward implements IPosnToPlayer
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this(IPosn q) : IPlayer
+	{
+		return Zombie.NewPlayer(Getters.PosnMoveTowardSpeed(p)(q, Zombie.PlayerSpeed()));
+	}
+}
+
+class FnPlayerDrawOn implements IImageToImage
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this(IImage scn) : IImage
+	{
+		return Getters.PosnDrawOnImage(p)(Zombie.PlayerImg(), scn);
+	}
+}
+
+# ---------------------------------------------------------------------------- new-horde
+class HordeObj implements IHorde
+{
+	private readonly IZombies undead;
+	private readonly IZombies dead;
+	public constructor(IZombies u, IZombies d)
+	{
+		undead = u;
+		dead = d;
+	}
+	public fun this(Int msg) : IHordeMsg
+	{
+		if (msg == 12)
+		{
+			return new HordeMsgZombiesThunk(12, new FnHordeDead(dead));
+		}
+		if (msg == 13)
+		{
+			return new HordeMsgZombiesThunk(13, new FnHordeUndead(undead));
+		}
+		if (msg == 9)
+		{
+			return new HordeMsgImageToImage(9, new FnHordeDrawOn(undead, dead));
+		}
+		if (msg == 11)
+		{
+			return new HordeMsgPosnToBool(11, new FnHordeTouching(undead, dead));
+		}
+		if (msg == 8)
+		{
+			return new HordeMsgPosnToHorde(8, new FnHordeMoveToward(undead, dead));
+		}
+		if (msg == 14)
+		{
+			return new HordeMsgHordeThunk(14, new FnHordeEatBrains(undead, dead));
+		}
+		ERROR("horde: unknown message");
+	}
+}
+
+class FnHordeDead implements IZombiesThunk
+{
+	private readonly IZombies dead;
+	public constructor(IZombies d)
+	{
+		dead = d;
+	}
+	public fun this() : IZombies
+	{
+		return dead;
+	}
+}
+
+class FnHordeUndead implements IZombiesThunk
+{
+	private readonly IZombies undead;
+	public constructor(IZombies u)
+	{
+		undead = u;
+	}
+	public fun this() : IZombies
+	{
+		return undead;
+	}
+}
+
+class FnHordeDrawOn implements IImageToImage
+{
+	private readonly IZombies undead;
+	private readonly IZombies dead;
+	public constructor(IZombies u, IZombies d)
+	{
+		undead = u;
+		dead = d;
+	}
+	public fun this(IImage scn) : IImage
+	{
+		return Getters.ZombiesDrawOnColor(undead)("yellow", Getters.ZombiesDrawOnColor(dead)("black", scn));
+	}
+}
+
+class FnHordeTouching implements IPosnToBool
+{
+	private readonly IZombies undead;
+	private readonly IZombies dead;
+	public constructor(IZombies u, IZombies d)
+	{
+		undead = u;
+		dead = d;
+	}
+	public fun this(IPosn p) : Bool
+	{
+		if (Getters.ZombiesTouching(undead)(p))
+		{
+			return true;
+		}
+		return Getters.ZombiesTouching(dead)(p);
+	}
+}
+
+class FnHordeMoveToward implements IPosnToHorde
+{
+	private readonly IZombies undead;
+	private readonly IZombies dead;
+	public constructor(IZombies u, IZombies d)
+	{
+		undead = u;
+		dead = d;
+	}
+	public fun this(IPosn p) : IHorde
+	{
+		return Zombie.NewHorde(Getters.ZombiesMoveToward(undead)(p), dead);
+	}
+}
+
+class FnHordeEatBrains implements IHordeThunk
+{
+	private readonly IZombies undead;
+	private readonly IZombies dead;
+	public constructor(IZombies u, IZombies d)
+	{
+		undead = u;
+		dead = d;
+	}
+	public fun this() : IHorde
+	{
+		return Getters.ZombiesKillAll(undead)(dead);
+	}
+}
+
+# ---------------------------------------------------------------------------- new-cons-zombies
+class ConsZombiesObj implements IZombies
+{
+	private readonly IZombie z;
+	private readonly IZombies r;
+	public constructor(IZombie z0, IZombies r0)
+	{
+		z = z0;
+		r = r0;
+	}
+	public fun this(Int msg) : IZombiesMsg
+	{
+		if (msg == 8)
+		{
+			return new ZombiesMsgPosnToZombies(8, new FnConsMoveToward(z, r));
+		}
+		if (msg == 10)
+		{
+			return new ZombiesMsgStringImageToImage(10, new FnConsDrawOnColor(z, r));
+		}
+		if (msg == 11)
+		{
+			return new ZombiesMsgPosnToBool(11, new FnConsTouching(z, r));
+		}
+		if (msg == 15)
+		{
+			return new ZombiesMsgZombiesToHorde(15, new FnConsKillAll(z, r));
+		}
+		ERROR("zombies: unknown message");
+	}
+}
+
+class FnConsMoveToward implements IPosnToZombies
+{
+	private readonly IZombie z;
+	private readonly IZombies r;
+	public constructor(IZombie z0, IZombies r0)
+	{
+		z = z0;
+		r = r0;
+	}
+	public fun this(IPosn p) : IZombies
+	{
+		return Zombie.NewConsZombies(Getters.ZombieMoveToward(z)(p), Getters.ZombiesMoveToward(r)(p));
+	}
+}
+
+class FnConsDrawOnColor implements IStringImageToImage
+{
+	private readonly IZombie z;
+	private readonly IZombies r;
+	public constructor(IZombie z0, IZombies r0)
+	{
+		z = z0;
+		r = r0;
+	}
+	public fun this(String c, IImage s) : IImage
+	{
+		return Getters.ZombieDrawOnColor(z)(c, Getters.ZombiesDrawOnColor(r)(c, s));
+	}
+}
+
+class FnConsTouching implements IPosnToBool
+{
+	private readonly IZombie z;
+	private readonly IZombies r;
+	public constructor(IZombie z0, IZombies r0)
+	{
+		z = z0;
+		r = r0;
+	}
+	public fun this(IPosn p) : Bool
+	{
+		if (Getters.ZombieTouching(z)(p))
+		{
+			return true;
+		}
+		return Getters.ZombiesTouching(r)(p);
+	}
+}
+
+class FnConsKillAll implements IZombiesToHorde
+{
+	private readonly IZombie z;
+	private readonly IZombies r;
+	public constructor(IZombie z0, IZombies r0)
+	{
+		z = z0;
+		r = r0;
+	}
+	public fun this(IZombies dead) : IHorde
+	{
+		if (Getters.ZombiesTouching(r)(Getters.ZombiePosn(z)()))
+		{
+			return Getters.ZombiesKillAll(r)(Zombie.NewConsZombies(z, dead));
+		}
+		if (Getters.ZombiesTouching(dead)(Getters.ZombiePosn(z)()))
+		{
+			return Getters.ZombiesKillAll(r)(Zombie.NewConsZombies(z, dead));
+		}
+		IHorde res = Getters.ZombiesKillAll(r)(dead);
+		return Zombie.NewHorde(Zombie.NewConsZombies(z, Getters.HordeUndead(res)()), Getters.HordeDead(res)());
+	}
+}
+
+# ---------------------------------------------------------------------------- new-mt-zombies
+class MtZombiesObj implements IZombies
+{
+	public constructor()
+	{
+	}
+	public fun this(Int msg) : IZombiesMsg
+	{
+		if (msg == 8)
+		{
+			return new ZombiesMsgPosnToZombies(8, new FnMtMoveToward());
+		}
+		if (msg == 10)
+		{
+			return new ZombiesMsgStringImageToImage(10, new FnMtDrawOnColor());
+		}
+		if (msg == 11)
+		{
+			return new ZombiesMsgPosnToBool(11, new FnMtTouching());
+		}
+		if (msg == 15)
+		{
+			return new ZombiesMsgZombiesToHorde(15, new FnMtKillAll());
+		}
+		ERROR("zombies: unknown message");
+	}
+}
+
+class FnMtMoveToward implements IPosnToZombies
+{
+	public constructor()
+	{
+	}
+	public fun this(IPosn p) : IZombies
+	{
+		return Zombie.NewMtZombies();
+	}
+}
+
+class FnMtDrawOnColor implements IStringImageToImage
+{
+	public constructor()
+	{
+	}
+	public fun this(String c, IImage s) : IImage
+	{
+		return s;
+	}
+}
+
+class FnMtTouching implements IPosnToBool
+{
+	public constructor()
+	{
+	}
+	public fun this(IPosn p) : Bool
+	{
+		return false;
+	}
+}
+
+class FnMtKillAll implements IZombiesToHorde
+{
+	public constructor()
+	{
+	}
+	public fun this(IZombies dead) : IHorde
+	{
+		return Zombie.NewHorde(Zombie.NewMtZombies(), dead);
+	}
+}
+
+# ---------------------------------------------------------------------------- new-zombie
+class ZombieObj implements IZombie
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this(Int msg) : IZombieMsg
+	{
+		if (msg == 3)
+		{
+			return new ZombieMsgPosnThunk(3, new FnZombiePosn(p));
+		}
+		if (msg == 10)
+		{
+			return new ZombieMsgStringImageToImage(10, new FnZombieDrawOnColor(p));
+		}
+		if (msg == 11)
+		{
+			return new ZombieMsgPosnToBool(11, new FnZombieTouching(p));
+		}
+		if (msg == 8)
+		{
+			return new ZombieMsgPosnToZombie(8, new FnZombieMoveToward(p));
+		}
+		ERROR("zombie: unknown message");
+	}
+}
+
+class FnZombiePosn implements IPosnThunk
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this() : IPosn
+	{
+		return p;
+	}
+}
+
+class FnZombieDrawOnColor implements IStringImageToImage
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this(String c, IImage s) : IImage
+	{
+		return Getters.PosnDrawOnImage(p)(Images.Circle(Zombie.ZombieRadius(), "solid", c), s);
+	}
+}
+
+class FnZombieTouching implements IPosnToBool
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this(IPosn q) : Bool
+	{
+		return Getters.PosnDist(p)(q) <= Zombie.ZombieRadius();
+	}
+}
+
+class FnZombieMoveToward implements IPosnToZombie
+{
+	private readonly IPosn p;
+	public constructor(IPosn p0)
+	{
+		p = p0;
+	}
+	public fun this(IPosn q) : IZombie
+	{
+		return Zombie.NewZombie(Getters.PosnMoveTowardSpeed(p)(q, Zombie.ZombieSpeed()));
+	}
+}
+
+# ---------------------------------------------------------------------------- new-posn
+class PosnObj implements IPosn
+{
+	private readonly Float x;
+	private readonly Float y;
+	public constructor(Float x0, Float y0)
+	{
+		x = x0;
+		y = y0;
+	}
+	public fun this(Int msg) : IPosnMsg
+	{
+		IPosn self = Zombie.NewPosn(x, y);
+		if (msg == 1)
+		{
+			return new PosnMsgRealThunk(1, new FnPosnX(x));
+		}
+		if (msg == 2)
+		{
+			return new PosnMsgRealThunk(2, new FnPosnY(y));
+		}
+		if (msg == 3)
+		{
+			return new PosnMsgPosnThunk(3, new FnPosnPosn(self));
+		}
+		if (msg == 4)
+		{
+			return new PosnMsgPosnRealToPosn(msg, new FnPosnMoveTowardSpeed(x, y, self));
+		}
+		if (msg == 5)
+		{
+			return new PosnMsgRealRealToPosn(5, new FnPosnMove(x, y));
+		}
+		if (msg == 6)
+		{
+			return new PosnMsgImageImageToImage(6, new FnPosnDrawOnImage(x, y));
+		}
+		if (msg == 7)
+		{
+			return new PosnMsgPosnToReal(7, new FnPosnDist(x, y));
+		}
+		ERROR("posn: unknown message");
+	}
+}
+
+class FnPosnX implements IRealThunk
+{
+	private readonly Float x;
+	public constructor(Float x0)
+	{
+		x = x0;
+	}
+	public fun this() : Float
+	{
+		return x;
+	}
+}
+
+class FnPosnY implements IRealThunk
+{
+	private readonly Float y;
+	public constructor(Float y0)
+	{
+		y = y0;
+	}
+	public fun this() : Float
+	{
+		return y;
+	}
+}
+
+class FnPosnPosn implements IPosnThunk
+{
+	private readonly IPosn self;
+	public constructor(IPosn s)
+	{
+		self = s;
+	}
+	public fun this() : IPosn
+	{
+		return self;
+	}
+}
+
+class FnPosnMoveTowardSpeed implements IPosnRealToPosn
+{
+	private readonly Float x;
+	private readonly Float y;
+	private readonly IPosn self;
+	public constructor(Float x0, Float y0, IPosn s)
+	{
+		x = x0;
+		y = y0;
+		self = s;
+	}
+	public fun this(IPosn p, Float speed) : IPosn
+	{
+		Float x2 = Getters.PosnX(p)() - x;
+		Float y2 = Getters.PosnY(p)() - y;
+		Float moveDistance = MathRkt.Min(speed, MathRkt.Max(MathRkt.Abs(x2), MathRkt.Abs(y2)));
+		if (MathRkt.Abs(x2) < MathRkt.Abs(y2))
+		{
+			if (y2 > 0.0)
+			{
+				return Getters.PosnMove(self)(0.0, moveDistance);
+			}
+			return Getters.PosnMove(self)(0.0, 0.0 - moveDistance);
+		}
+		if (x2 > 0.0)
+		{
+			return Getters.PosnMove(self)(moveDistance, 0.0);
+		}
+		return Getters.PosnMove(self)(0.0 - moveDistance, 0.0);
+	}
+}
+
+class FnPosnMove implements IRealRealToPosn
+{
+	private readonly Float x;
+	private readonly Float y;
+	public constructor(Float x0, Float y0)
+	{
+		x = x0;
+		y = y0;
+	}
+	public fun this(Float dx, Float dy) : IPosn
+	{
+		return Zombie.NewPosn(x + dx, y + dy);
+	}
+}
+
+class FnPosnDrawOnImage implements IImageImageToImage
+{
+	private readonly Float x;
+	private readonly Float y;
+	public constructor(Float x0, Float y0)
+	{
+		x = x0;
+		y = y0;
+	}
+	public fun this(IImage img, IImage scn) : IImage
+	{
+		return Images.PlaceImage(img, x, y, scn);
+	}
+}
+
+class FnPosnDist implements IPosnToReal
+{
+	private readonly Float x;
+	private readonly Float y;
+	public constructor(Float x0, Float y0)
+	{
+		x = x0;
+		y = y0;
+	}
+	public fun this(IPosn p) : Float
+	{
+		return MathRkt.Msqrt(MathRkt.Sqr(Getters.PosnY(p)() - y) + MathRkt.Sqr(Getters.PosnX(p)() - x));
+	}
+}
+
+# ---------------------------------------------------------------------------- message pairs and getters
+# (cons tag payload) with a IRealThunk payload
+class PosnMsgRealThunk implements IPosnMsg
+{
+	private readonly Int tag;
+	private readonly IRealThunk payload;
+	public constructor(Int t, IRealThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsRealThunk() : IRealThunk
+	{
+		return payload;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnRealToPosn() : IPosnRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsRealRealToPosn() : IRealRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageImageToImage() : IImageImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToReal() : IPosnToReal
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnThunk payload
+class PosnMsgPosnThunk implements IPosnMsg
+{
+	private readonly Int tag;
+	private readonly IPosnThunk payload;
+	public constructor(Int t, IPosnThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsRealThunk() : IRealThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		return payload;
+	}
+	public fun AsPosnRealToPosn() : IPosnRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsRealRealToPosn() : IRealRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageImageToImage() : IImageImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToReal() : IPosnToReal
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnRealToPosn payload
+class PosnMsgPosnRealToPosn implements IPosnMsg
+{
+	private readonly Int tag;
+	private readonly IPosnRealToPosn payload;
+	public constructor(Int t, IPosnRealToPosn p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsRealThunk() : IRealThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnRealToPosn() : IPosnRealToPosn
+	{
+		return payload;
+	}
+	public fun AsRealRealToPosn() : IRealRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageImageToImage() : IImageImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToReal() : IPosnToReal
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IRealRealToPosn payload
+class PosnMsgRealRealToPosn implements IPosnMsg
+{
+	private readonly Int tag;
+	private readonly IRealRealToPosn payload;
+	public constructor(Int t, IRealRealToPosn p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsRealThunk() : IRealThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnRealToPosn() : IPosnRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsRealRealToPosn() : IRealRealToPosn
+	{
+		return payload;
+	}
+	public fun AsImageImageToImage() : IImageImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToReal() : IPosnToReal
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IImageImageToImage payload
+class PosnMsgImageImageToImage implements IPosnMsg
+{
+	private readonly Int tag;
+	private readonly IImageImageToImage payload;
+	public constructor(Int t, IImageImageToImage p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsRealThunk() : IRealThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnRealToPosn() : IPosnRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsRealRealToPosn() : IRealRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageImageToImage() : IImageImageToImage
+	{
+		return payload;
+	}
+	public fun AsPosnToReal() : IPosnToReal
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnToReal payload
+class PosnMsgPosnToReal implements IPosnMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToReal payload;
+	public constructor(Int t, IPosnToReal p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsRealThunk() : IRealThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnRealToPosn() : IPosnRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsRealRealToPosn() : IRealRealToPosn
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageImageToImage() : IImageImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToReal() : IPosnToReal
+	{
+		return payload;
+	}
+}
+
+# (cons tag payload) with a IPosnThunk payload
+class PlayerMsgPosnThunk implements IPlayerMsg
+{
+	private readonly Int tag;
+	private readonly IPosnThunk payload;
+	public constructor(Int t, IPosnThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		return payload;
+	}
+	public fun AsPosnToPlayer() : IPosnToPlayer
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnToPlayer payload
+class PlayerMsgPosnToPlayer implements IPlayerMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToPlayer payload;
+	public constructor(Int t, IPosnToPlayer p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToPlayer() : IPosnToPlayer
+	{
+		return payload;
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IImageToImage payload
+class PlayerMsgImageToImage implements IPlayerMsg
+{
+	private readonly Int tag;
+	private readonly IImageToImage payload;
+	public constructor(Int t, IImageToImage p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToPlayer() : IPosnToPlayer
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		return payload;
+	}
+}
+
+# (cons tag payload) with a IPosnThunk payload
+class ZombieMsgPosnThunk implements IZombieMsg
+{
+	private readonly Int tag;
+	private readonly IPosnThunk payload;
+	public constructor(Int t, IPosnThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		return payload;
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToZombie() : IPosnToZombie
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IStringImageToImage payload
+class ZombieMsgStringImageToImage implements IZombieMsg
+{
+	private readonly Int tag;
+	private readonly IStringImageToImage payload;
+	public constructor(Int t, IStringImageToImage p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		return payload;
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToZombie() : IPosnToZombie
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnToBool payload
+class ZombieMsgPosnToBool implements IZombieMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToBool payload;
+	public constructor(Int t, IPosnToBool p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		return payload;
+	}
+	public fun AsPosnToZombie() : IPosnToZombie
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnToZombie payload
+class ZombieMsgPosnToZombie implements IZombieMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToZombie payload;
+	public constructor(Int t, IPosnToZombie p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnThunk() : IPosnThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToZombie() : IPosnToZombie
+	{
+		return payload;
+	}
+}
+
+# (cons tag payload) with a IZombiesThunk payload
+class HordeMsgZombiesThunk implements IHordeMsg
+{
+	private readonly Int tag;
+	private readonly IZombiesThunk payload;
+	public constructor(Int t, IZombiesThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsZombiesThunk() : IZombiesThunk
+	{
+		return payload;
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToHorde() : IPosnToHorde
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsHordeThunk() : IHordeThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IImageToImage payload
+class HordeMsgImageToImage implements IHordeMsg
+{
+	private readonly Int tag;
+	private readonly IImageToImage payload;
+	public constructor(Int t, IImageToImage p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsZombiesThunk() : IZombiesThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		return payload;
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToHorde() : IPosnToHorde
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsHordeThunk() : IHordeThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnToBool payload
+class HordeMsgPosnToBool implements IHordeMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToBool payload;
+	public constructor(Int t, IPosnToBool p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsZombiesThunk() : IZombiesThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		return payload;
+	}
+	public fun AsPosnToHorde() : IPosnToHorde
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsHordeThunk() : IHordeThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnToHorde payload
+class HordeMsgPosnToHorde implements IHordeMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToHorde payload;
+	public constructor(Int t, IPosnToHorde p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsZombiesThunk() : IZombiesThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToHorde() : IPosnToHorde
+	{
+		return payload;
+	}
+	public fun AsHordeThunk() : IHordeThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IHordeThunk payload
+class HordeMsgHordeThunk implements IHordeMsg
+{
+	private readonly Int tag;
+	private readonly IHordeThunk payload;
+	public constructor(Int t, IHordeThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsZombiesThunk() : IZombiesThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageToImage() : IImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToHorde() : IPosnToHorde
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsHordeThunk() : IHordeThunk
+	{
+		return payload;
+	}
+}
+
+# (cons tag payload) with a IPosnToZombies payload
+class ZombiesMsgPosnToZombies implements IZombiesMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToZombies payload;
+	public constructor(Int t, IPosnToZombies p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnToZombies() : IPosnToZombies
+	{
+		return payload;
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsZombiesToHorde() : IZombiesToHorde
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IStringImageToImage payload
+class ZombiesMsgStringImageToImage implements IZombiesMsg
+{
+	private readonly Int tag;
+	private readonly IStringImageToImage payload;
+	public constructor(Int t, IStringImageToImage p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnToZombies() : IPosnToZombies
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		return payload;
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsZombiesToHorde() : IZombiesToHorde
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IPosnToBool payload
+class ZombiesMsgPosnToBool implements IZombiesMsg
+{
+	private readonly Int tag;
+	private readonly IPosnToBool payload;
+	public constructor(Int t, IPosnToBool p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnToZombies() : IPosnToZombies
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		return payload;
+	}
+	public fun AsZombiesToHorde() : IZombiesToHorde
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IZombiesToHorde payload
+class ZombiesMsgZombiesToHorde implements IZombiesMsg
+{
+	private readonly Int tag;
+	private readonly IZombiesToHorde payload;
+	public constructor(Int t, IZombiesToHorde p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsPosnToZombies() : IPosnToZombies
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsStringImageToImage() : IStringImageToImage
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsPosnToBool() : IPosnToBool
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsZombiesToHorde() : IZombiesToHorde
+	{
+		return payload;
+	}
+}
+
+# (cons tag payload) with a IMouseToWorld payload
+class WorldMsgMouseToWorld implements IWorldMsg
+{
+	private readonly Int tag;
+	private readonly IMouseToWorld payload;
+	public constructor(Int t, IMouseToWorld p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsMouseToWorld() : IMouseToWorld
+	{
+		return payload;
+	}
+	public fun AsWorldThunk() : IWorldThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageThunk() : IImageThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsBoolThunk() : IBoolThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IWorldThunk payload
+class WorldMsgWorldThunk implements IWorldMsg
+{
+	private readonly Int tag;
+	private readonly IWorldThunk payload;
+	public constructor(Int t, IWorldThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsMouseToWorld() : IMouseToWorld
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsWorldThunk() : IWorldThunk
+	{
+		return payload;
+	}
+	public fun AsImageThunk() : IImageThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsBoolThunk() : IBoolThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IImageThunk payload
+class WorldMsgImageThunk implements IWorldMsg
+{
+	private readonly Int tag;
+	private readonly IImageThunk payload;
+	public constructor(Int t, IImageThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsMouseToWorld() : IMouseToWorld
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsWorldThunk() : IWorldThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageThunk() : IImageThunk
+	{
+		return payload;
+	}
+	public fun AsBoolThunk() : IBoolThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+}
+
+# (cons tag payload) with a IBoolThunk payload
+class WorldMsgBoolThunk implements IWorldMsg
+{
+	private readonly Int tag;
+	private readonly IBoolThunk payload;
+	public constructor(Int t, IBoolThunk p)
+	{
+		tag = t;
+		payload = p;
+	}
+	public fun Tag() : Int
+	{
+		return tag;
+	}
+	public fun AsMouseToWorld() : IMouseToWorld
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsWorldThunk() : IWorldThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsImageThunk() : IImageThunk
+	{
+		ERROR("cdr: wrong payload");
+	}
+	public fun AsBoolThunk() : IBoolThunk
+	{
+		return payload;
+	}
+}
+
+# the getters generated by make-fake-object-type*
+class Getters
+{
+	# posn-x
+	public static fun PosnX(IPosn v) : IRealThunk
+	{
+		IPosnMsg r = v(1);
+		if (1 == r.Tag())
+		{
+			return r.AsRealThunk();
+		}
+		ERROR("posn-x: type error");
+	}
+	# posn-y
+	public static fun PosnY(IPosn v) : IRealThunk
+	{
+		IPosnMsg r = v(2);
+		if (2 == r.Tag())
+		{
+			return r.AsRealThunk();
+		}
+		ERROR("posn-y: type error");
+	}
+	# posn-posn
+	public static fun PosnPosn(IPosn v) : IPosnThunk
+	{
+		IPosnMsg r = v(3);
+		if (3 == r.Tag())
+		{
+			return r.AsPosnThunk();
+		}
+		ERROR("posn-posn: type error");
+	}
+	# posn-move-toward/speed
+	public static fun PosnMoveTowardSpeed(IPosn v) : IPosnRealToPosn
+	{
+		IPosnMsg r = v(4);
+		if (4 == r.Tag())
+		{
+			return r.AsPosnRealToPosn();
+		}
+		ERROR("posn-move-toward/speed: type error");
+	}
+	# posn-move
+	public static fun PosnMove(IPosn v) : IRealRealToPosn
+	{
+		IPosnMsg r = v(5);
+		if (5 == r.Tag())
+		{
+			return r.AsRealRealToPosn();
+		}
+		ERROR("posn-move: type error");
+	}
+	# posn-draw-on/image
+	public static fun PosnDrawOnImage(IPosn v) : IImageImageToImage
+	{
+		IPosnMsg r = v(6);
+		if (6 == r.Tag())
+		{
+			return r.AsImageImageToImage();
+		}
+		ERROR("posn-draw-on/image: type error");
+	}
+	# posn-dist
+	public static fun PosnDist(IPosn v) : IPosnToReal
+	{
+		IPosnMsg r = v(7);
+		if (7 == r.Tag())
+		{
+			return r.AsPosnToReal();
+		}
+		ERROR("posn-dist: type error");
+	}
+	# player-posn
+	public static fun PlayerPosn(IPlayer v) : IPosnThunk
+	{
+		IPlayerMsg r = v(3);
+		if (3 == r.Tag())
+		{
+			return r.AsPosnThunk();
+		}
+		ERROR("player-posn: type error");
+	}
+	# player-move-toward
+	public static fun PlayerMoveToward(IPlayer v) : IPosnToPlayer
+	{
+		IPlayerMsg r = v(8);
+		if (8 == r.Tag())
+		{
+			return r.AsPosnToPlayer();
+		}
+		ERROR("player-move-toward: type error");
+	}
+	# player-draw-on
+	public static fun PlayerDrawOn(IPlayer v) : IImageToImage
+	{
+		IPlayerMsg r = v(9);
+		if (9 == r.Tag())
+		{
+			return r.AsImageToImage();
+		}
+		ERROR("player-draw-on: type error");
+	}
+	# zombie-posn
+	public static fun ZombiePosn(IZombie v) : IPosnThunk
+	{
+		IZombieMsg r = v(3);
+		if (3 == r.Tag())
+		{
+			return r.AsPosnThunk();
+		}
+		ERROR("zombie-posn: type error");
+	}
+	# zombie-draw-on/color
+	public static fun ZombieDrawOnColor(IZombie v) : IStringImageToImage
+	{
+		IZombieMsg r = v(10);
+		if (10 == r.Tag())
+		{
+			return r.AsStringImageToImage();
+		}
+		ERROR("zombie-draw-on/color: type error");
+	}
+	# zombie-touching?
+	public static fun ZombieTouching(IZombie v) : IPosnToBool
+	{
+		IZombieMsg r = v(11);
+		if (11 == r.Tag())
+		{
+			return r.AsPosnToBool();
+		}
+		ERROR("zombie-touching?: type error");
+	}
+	# zombie-move-toward
+	public static fun ZombieMoveToward(IZombie v) : IPosnToZombie
+	{
+		IZombieMsg r = v(8);
+		if (8 == r.Tag())
+		{
+			return r.AsPosnToZombie();
+		}
+		ERROR("zombie-move-toward: type error");
+	}
+	# horde-dead
+	public static fun HordeDead(IHorde v) : IZombiesThunk
+	{
+		IHordeMsg r = v(12);
+		if (12 == r.Tag())
+		{
+			return r.AsZombiesThunk();
+		}
+		ERROR("horde-dead: type error");
+	}
+	# horde-undead
+	public static fun HordeUndead(IHorde v) : IZombiesThunk
+	{
+		IHordeMsg r = v(13);
+		if (13 == r.Tag())
+		{
+			return r.AsZombiesThunk();
+		}
+		ERROR("horde-undead: type error");
+	}
+	# horde-draw-on
+	public static fun HordeDrawOn(IHorde v) : IImageToImage
+	{
+		IHordeMsg r = v(9);
+		if (9 == r.Tag())
+		{
+			return r.AsImageToImage();
+		}
+		ERROR("horde-draw-on: type error");
+	}
+	# horde-touching?
+	public static fun HordeTouching(IHorde v) : IPosnToBool
+	{
+		IHordeMsg r = v(11);
+		if (11 == r.Tag())
+		{
+			return r.AsPosnToBool();
+		}
+		ERROR("horde-touching?: type error");
+	}
+	# horde-move-toward
+	public static fun HordeMoveToward(IHorde v) : IPosnToHorde
+	{
+		IHordeMsg r = v(8);
+		if (8 == r.Tag())
+		{
+			return r.AsPosnToHorde();
+		}
+		ERROR("horde-move-toward: type error");
+	}
+	# horde-eat-brains
+	public static fun HordeEatBrains(IHorde v) : IHordeThunk
+	{
+		IHordeMsg r = v(14);
+		if (14 == r.Tag())
+		{
+			return r.AsHordeThunk();
+		}
+		ERROR("horde-eat-brains: type error");
+	}
+	# zombies-move-toward
+	public static fun ZombiesMoveToward(IZombies v) : IPosnToZombies
+	{
+		IZombiesMsg r = v(8);
+		if (8 == r.Tag())
+		{
+			return r.AsPosnToZombies();
+		}
+		ERROR("zombies-move-toward: type error");
+	}
+	# zombies-draw-on/color
+	public static fun ZombiesDrawOnColor(IZombies v) : IStringImageToImage
+	{
+		IZombiesMsg r = v(10);
+		if (10 == r.Tag())
+		{
+			return r.AsStringImageToImage();
+		}
+		ERROR("zombies-draw-on/color: type error");
+	}
+	# zombies-touching?
+	public static fun ZombiesTouching(IZombies v) : IPosnToBool
+	{
+		IZombiesMsg r = v(11);
+		if (11 == r.Tag())
+		{
+			return r.AsPosnToBool();
+		}
+		ERROR("zombies-touching?: type error");
+	}
+	# zombies-kill-all
+	public static fun ZombiesKillAll(IZombies v) : IZombiesToHorde
+	{
+		IZombiesMsg r = v(15);
+		if (15 == r.Tag())
+		{
+			return r.AsZombiesToHorde();
+		}
+		ERROR("zombies-kill-all: type error");
+	}
+	# world-on-mouse
+	public static fun WorldOnMouse(IWorld v) : IMouseToWorld
+	{
+		IWorldMsg r = v(16);
+		if (16 == r.Tag())
+		{
+			return r.AsMouseToWorld();
+		}
+		ERROR("world-on-mouse: type error");
+	}
+	# world-on-tick
+	public static fun WorldOnTick(IWorld v) : IWorldThunk
+	{
+		IWorldMsg r = v(17);
+		if (17 == r.Tag())
+		{
+			return r.AsWorldThunk();
+		}
+		ERROR("world-on-tick: type error");
+	}
+	# world-to-draw
+	public static fun WorldToDraw(IWorld v) : IImageThunk
+	{
+		IWorldMsg r = v(18);
+		if (18 == r.Tag())
+		{
+			return r.AsImageThunk();
+		}
+		ERROR("world-to-draw: type error");
+	}
+	# world-stop-when
+	public static fun WorldStopWhen(IWorld v) : IBoolThunk
+	{
+		IWorldMsg r = v(19);
+		if (19 == r.Tag())
+		{
+			return r.AsBoolThunk();
+		}
+		ERROR("world-stop-when: type error");
+	}
+}

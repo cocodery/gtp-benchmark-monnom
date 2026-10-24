@@ -1,0 +1,304 @@
+# automata.rkt: an N-states, N-inputs automaton, as a class.
+
+# a Transition vector
+class Transition implements ITransition
+{
+	private readonly ArrayList<Int> states;
+	public constructor(ArrayList<Int> s)
+	{
+		states = s;
+	}
+	public fun Length() : Int
+	{
+		return states.Length();
+	}
+	public fun Ref(Int i) : Int
+	{
+		return states.Get(i);
+	}
+}
+
+# a Transition* vector
+class Transitions implements ITransitions
+{
+	private readonly ArrayList<ITransition> rows;
+	public constructor(ArrayList<ITransition> r)
+	{
+		rows = r;
+	}
+	public fun Length() : Int
+	{
+		return rows.Length();
+	}
+	public fun Ref(Int i) : ITransition
+	{
+		return rows.Get(i);
+	}
+}
+
+class AutomatonPair implements IAutomatonPair
+{
+	private readonly IAutomaton fst;
+	private readonly IAutomaton snd;
+	public constructor(IAutomaton a, IAutomaton b)
+	{
+		fst = a;
+		snd = b;
+	}
+	public fun Fst() : IAutomaton
+	{
+		return fst;
+	}
+	public fun Snd() : IAutomaton
+	{
+		return snd;
+	}
+}
+
+# (cons Payoff Payoff)
+class PayoffPair
+{
+	public readonly Int Car;
+	public readonly Int Cdr;
+	public constructor(Int a, Int d)
+	{
+		Car = a;
+		Cdr = d;
+	}
+}
+
+# automaton%
+class Automaton implements IAutomaton
+{
+	private Int current;
+	private Int payoff;
+	private readonly ITransitions table;
+	private readonly Int original;
+	public constructor(Int c, Int p, ITransitions t, Int o)
+	{
+		current = c;
+		payoff = p;
+		table = t;
+		original = o;
+	}
+	public fun Current() : Int
+	{
+		return current;
+	}
+	public fun SetCurrent(Int c) : Int
+	{
+		current = c;
+		return c;
+	}
+	public fun Payoff() : Int
+	{
+		return payoff;
+	}
+	public fun SetPayoff(Int p) : Int
+	{
+		payoff = p;
+		return p;
+	}
+	public fun Table() : ITransitions
+	{
+		return table;
+	}
+	public fun Original() : Int
+	{
+		return original;
+	}
+	public fun MatchPair(IAutomaton other, Int r) : IAutomatonPair
+	{
+		# PAYOFF-TABLE is created once, in the `let` around the class, in Racket
+		ArrayList<ArrayList<PayoffPair>> payoffTable = Automata.PayoffTable();
+		# the boxes c1 y1 c2 y2 of the original
+		Int c1 = this.Current();
+		Int y1 = this.Payoff();
+		ITransitions t1 = this.Table();
+		Int c2 = other.Current();
+		Int y2 = other.Payoff();
+		# (sic: the original reads `this`'s table for t2 as well)
+		ITransitions t2 = this.Table();
+		Int i = 0;
+		while (i < r)
+		{
+			Int input = c2;
+			PayoffPair p = payoffTable.Get(c1).Get(input);
+			c1 = t1.Ref(c1).Ref(input);
+			y1 = y1 + p.Car;
+			c2 = t2.Ref(c2).Ref(c1);
+			y2 = y2 + p.Cdr;
+			i = i + 1;
+		}
+		this.SetCurrent(c1);
+		this.SetPayoff(y1);
+		other.SetCurrent(c2);
+		other.SetPayoff(y2);
+		return new AutomatonPair(this, other);
+	}
+	public fun Jump(Int input, Int delta) : Int
+	{
+		current = table.Ref(current).Ref(input);
+		payoff = payoff + delta;
+		return payoff;
+	}
+	public fun Pay() : Int
+	{
+		return payoff;
+	}
+	# (new automaton% ...) inside the class goes through Automata.New: the benchmark generator
+	# loops forever when a class that it turns into a record instantiates itself
+	public fun Reset() : IAutomaton
+	{
+		return Automata.New(original, 0, table, original);
+	}
+	public fun Clone() : IAutomaton
+	{
+		return Automata.New(original, 0, table, original);
+	}
+	# private compute-payoffs
+	public fun ComputePayoffs(Int otherCurrent) : PayoffPair
+	{
+		return Automata.PayoffTable().Get(current).Get(otherCurrent);
+	}
+	public fun Equal(IAutomaton other) : Bool
+	{
+		if (current != other.Current())
+		{
+			return false;
+		}
+		if (original != other.Original())
+		{
+			return false;
+		}
+		if (payoff != other.Payoff())
+		{
+			return false;
+		}
+		return Automata.EqualTables(table, other.Table());
+	}
+}
+
+class Automata
+{
+	public static fun Cooperate() : Int
+	{
+		return 0;
+	}
+	public static fun Defect() : Int
+	{
+		return 1;
+	}
+
+	# (new automaton% [current c] [payoff p] [table t] [original o])
+	public static fun New(Int c, Int p, ITransitions t, Int o) : IAutomaton
+	{
+		return new Automaton(c, p, t, o);
+	}
+
+	public static fun PayoffTable() : ArrayList<ArrayList<PayoffPair>>
+	{
+		ArrayList<PayoffPair> r0 = new ArrayList<PayoffPair>();
+		r0.Add(new PayoffPair(3, 3));
+		r0.Add(new PayoffPair(0, 4));
+		ArrayList<PayoffPair> r1 = new ArrayList<PayoffPair>();
+		r1.Add(new PayoffPair(4, 0));
+		r1.Add(new PayoffPair(1, 1));
+		ArrayList<ArrayList<PayoffPair>> t = new ArrayList<ArrayList<PayoffPair>>();
+		t.Add(r0);
+		t.Add(r1);
+		return t;
+	}
+
+	# equal? on two transition tables
+	public static fun EqualTables(ITransitions a, ITransitions b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			ITransition ra = a.Ref(i);
+			ITransition rb = b.Ref(i);
+			if (ra.Length() != rb.Length())
+			{
+				return false;
+			}
+			Int j = 0;
+			while (j < ra.Length())
+			{
+				if (ra.Ref(j) != rb.Ref(j))
+				{
+					return false;
+				}
+				j = j + 1;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	# (make-random-automaton n) builds an n states x n inputs automaton
+	# with a random transition table
+	public static fun MakeRandomAutomaton(Int n, IRng rng) : IAutomaton
+	{
+		Int seed = rng.NextInt(n);
+		ArrayList<ITransition> rows = new ArrayList<ITransition>();
+		Int i = 0;
+		while (i < n)
+		{
+			ArrayList<Int> row = new ArrayList<Int>();
+			Int j = 0;
+			while (j < n)
+			{
+				row.Add(rng.NextInt(n));
+				j = j + 1;
+			}
+			rows.Add(new Transition(row));
+			i = i + 1;
+		}
+		return new Automaton(seed, 0, new Transitions(rows), seed);
+	}
+
+	public static fun Transitions(Int cc, Int cd, Int dc, Int dd) : ITransitions
+	{
+		ArrayList<Int> c = new ArrayList<Int>();
+		c.Add(cc);
+		c.Add(cd);
+		ArrayList<Int> d = new ArrayList<Int>();
+		d.Add(dc);
+		d.Add(dd);
+		ArrayList<ITransition> t = new ArrayList<ITransition>();
+		t.Add(new Transition(c));
+		t.Add(new Transition(d));
+		return new Transitions(t);
+	}
+
+	public static fun Defects(Int p0) : IAutomaton
+	{
+		Int d = Automata.Defect();
+		return new Automaton(d, p0, Automata.Transitions(d, d, d, d), d);
+	}
+
+	public static fun Cooperates(Int p0) : IAutomaton
+	{
+		Int c = Automata.Cooperate();
+		return new Automaton(c, p0, Automata.Transitions(c, c, c, c), c);
+	}
+
+	public static fun TitForTat(Int p0) : IAutomaton
+	{
+		Int c = Automata.Cooperate();
+		Int d = Automata.Defect();
+		return new Automaton(c, p0, Automata.Transitions(c, d, c, d), c);
+	}
+
+	public static fun GrimTrigger(Int p0) : IAutomaton
+	{
+		Int c = Automata.Cooperate();
+		Int d = Automata.Defect();
+		return new Automaton(c, p0, Automata.Transitions(c, d, d, d), c);
+	}
+}

@@ -1,0 +1,35 @@
+# data-adaptor.rkt: the typed view of the structs of data.rkt.
+#   Dir = (U "up" "down" "left" "right") is encoded as Int: 0 up, 1 down, 2 left, 3 right.
+
+interface IPosn
+{
+	fun X() : Int;
+	fun Y() : Int;
+}
+
+# (Listof Posn) / (NEListof Posn)
+interface IPosnList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPosn;
+	fun Rest() : IPosnList;
+}
+
+interface ISnake
+{
+	fun Dir() : Int;
+	fun Segs() : IPosnList;
+}
+
+interface IWorld
+{
+	fun GetSnake() : ISnake;
+	fun Food() : IPosn;
+}
+
+# pseudo-random-generator (used by motion.rkt)
+interface IRng
+{
+	fun Seed(Int k) : Void;
+	fun NextInt(Int n) : Int;
+}

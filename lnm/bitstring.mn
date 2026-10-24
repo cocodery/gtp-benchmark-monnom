@@ -1,0 +1,127 @@
+# bitstring.rkt: strings of 0s and 1s naming configurations.
+
+class Bitstring
+{
+	# (exact-ceiling (/ (log n) (log 2))): the smallest k with 2^k >= n
+	public static fun Log2(Int n) : Int
+	{
+		Int k = 0;
+		Int p = 1;
+		while (p < n)
+		{
+			p = p * 2;
+			k = k + 1;
+		}
+		return k;
+	}
+
+	# (~r n #:base 2 #:min-width pad-width #:pad-string "0")
+	public static fun NaturalToBitstring(Int n, Int padWidth) : IText
+	{
+		ArrayList<Int> digits = new ArrayList<Int>();
+		Int m = n;
+		while (m > 0)
+		{
+			digits.Add(48 + m % 2);
+			m = m / 2;
+		}
+		if (digits.Length() == 0)
+		{
+			digits.Add(48);
+		}
+		IText s = Txt.Empty();
+		Int pad = padWidth - digits.Length();
+		while (pad > 0)
+		{
+			s.Push(48);
+			pad = pad - 1;
+		}
+		Int k = digits.Length() - 1;
+		while (k >= 0)
+		{
+			s.Push(digits.Get(k));
+			k = k - 1;
+		}
+		return s;
+	}
+
+	public static fun BitstringToNatural(IText str) : Int
+	{
+		Int n = str.Length();
+		Int res = 0;
+		Int i = 0;
+		Int p = 1;
+		while (i < n)
+		{
+			Int c = str.CharAt(n - (i + 1));
+			res = res + Bitstring.DigitValue(c, p);
+			p = p * 2;
+			i = i + 1;
+		}
+		return res;
+	}
+
+	public static fun DigitValue(Int c, Int p) : Int
+	{
+		if (c == 49)
+		{
+			return p;
+		}
+		return 0;
+	}
+
+	public static fun InReach(IText str, Int l) : ITextList
+	{
+		if (l == 0)
+		{
+			return new TextNil();
+		}
+		# (for/list ([i ...] #:when (equal? #\0 (string-ref str i))) (cons str+ (in-reach str+ (sub1 L))))
+		ArrayList<ITextList> res = new ArrayList<ITextList>();
+		Int i = 0;
+		while (i < str.Length())
+		{
+			Int idx = i;
+			i = i + 1;
+			if (str.CharAt(idx) == 48)
+			{
+				IText strPlus = Bitstring.BitstringFlip(str, idx);
+				res.Add(new TextCons(strPlus, Bitstring.InReach(strPlus, l - 1)));
+				continue;
+			}
+		}
+		# (remove-duplicates (apply append res*) string=?): keeps first occurrences, in order
+		ITextList kept = new TextNil();
+		foreach (ITextList part in res)
+		{
+			ITextList p = part;
+			while (!p.IsEmpty())
+			{
+				IText s = p.First();
+				p = p.Rest();
+				if (!Txt.Member(s, kept))
+				{
+					kept = new TextCons(s, kept);
+					continue;
+				}
+			}
+		}
+		return Builtins.ReverseTexts(kept);
+	}
+
+	public static fun BitstringFlip(IText str, Int i) : IText
+	{
+		IText r = Txt.Substring(str, 0, i);
+		r.Push(Bitstring.Flip(str.CharAt(i)));
+		return Txt.Append(r, Txt.Substring(str, i + 1, str.Length()));
+	}
+
+	public static fun Flip(Int c) : Int
+	{
+		if (c == 48)
+		{
+			return 49;
+		}
+		return 48;
+	}
+}

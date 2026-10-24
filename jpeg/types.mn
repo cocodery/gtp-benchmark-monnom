@@ -1,0 +1,344 @@
+# base/typedefs.rkt (Bit-Port, Huffman, Q-Table, QT*, H*, MCU, Interp, PTs), the struct types
+# that main.rkt imports from jfif.rkt (jfif, frame, component, misc, params), and the types of the
+# Racket builtins and base libraries the benchmark uses (bytes, vectors, ports, math/array).
+#   (U #f Natural) in vectors (Q-Table, size-offsets, codes, value-indexes) is -1 for #f.
+#   Symbols are interned Ints (see ISymbols); Endianness is 0 = little, 1 = big.
+
+# Bytes
+interface IBytes
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Int;
+	fun Set(Int i, Int v) : Int;
+}
+
+# (Vectorof Integer), (Vectorof (U #f Natural)) (Q-Table)
+interface IVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Int;
+	fun Set(Int i, Int v) : Int;
+}
+
+# Input-Port / Output-Port over bytes (open-input-bytes, open-output-bytes)
+interface IPort
+{
+	fun IsInput() : Bool;
+	fun ReadByte() : Int;
+	fun ReadBytes(Int n) : IBytes;
+	fun Position() : Int;
+	fun SetPosition(Int p) : Int;
+	fun WriteByte(Int b) : Int;
+	fun WriteBytes(IBytes bs) : Int;
+	fun Contents() : IBytes;
+}
+
+# Bit-Port = (Vector Natural Natural Port)
+interface IBitPort
+{
+	fun Count() : Int;
+	fun SetCount(Int c) : Int;
+	fun Bits() : Int;
+	fun SetBits(Int b) : Int;
+	fun Port() : IPort;
+}
+
+# Huffman = (Vector size-counts size-offsets values value-indexes sizes codes max-codes)
+interface IHuffman
+{
+	fun SizeCounts() : IBytes;
+	fun SizeOffsets() : IVec;
+	fun Values() : IBytes;
+	fun ValueIndexes() : IVec;
+	fun Sizes() : IBytes;
+	fun Codes() : IVec;
+	fun MaxCodes() : IVec;
+}
+
+# QT* = (Vectorof (U #f Q-Table))
+interface IQTables
+{
+	fun Length() : Int;
+	fun Has(Int i) : Bool;
+	fun Ref(Int i) : IVec;
+	fun Set(Int i, IVec t) : Int;
+}
+
+# H* = (Vectorof (U #f Huffman))
+interface IHTables
+{
+	fun Length() : Int;
+	fun Has(Int i) : Bool;
+	fun Ref(Int i) : IHuffman;
+	fun Set(Int i, IHuffman t) : Int;
+}
+
+# (Vector QT* QT*) of compute-code-frequencies
+interface IFreqs
+{
+	fun Dc() : IQTables;
+	fun Ac() : IQTables;
+}
+
+# (Vectorof (Vectorof (U #f Huffman))) of compute-huffman-code-tables (dc tables, ac tables)
+interface IHuffmanTables
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IHTables;
+}
+
+# the procedures given to build-array (match-lambda ((vector i j) ...))
+interface IBlockProc
+{
+	fun this(IVec js) : IVec;
+}
+
+interface IMcuProc
+{
+	fun this(IVec js) : IMcu;
+}
+
+# (Array (Vectorof Integer)): the blocks of one component of an MCU
+interface IBlockArray
+{
+	fun Shape() : IVec;
+	fun Size() : Int;
+	fun RefFlat(Int k) : IVec;
+}
+
+# MCU = (Vectorof (Array (Vectorof Integer)))
+interface IMcu
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IBlockArray;
+	fun Set(Int i, IBlockArray v) : Int;
+}
+
+# (Array MCU)
+interface IMcuArray
+{
+	fun Shape() : IVec;
+	fun Size() : Int;
+	fun RefFlat(Int k) : IMcu;
+}
+
+# (Vectorof (Listof (Listof Integer))): the codes of one MCU
+interface ICodesMcu
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IIntListList;
+	fun Set(Int i, IIntListList v) : Int;
+}
+
+# CodesT = (Array (Vectorof (Listof (Listof Integer))))
+interface ICodesArray
+{
+	fun Shape() : IVec;
+	fun Size() : Int;
+	fun RefFlat(Int k) : ICodesMcu;
+	fun SetFlat(Int k, ICodesMcu v) : Int;
+}
+
+# (struct component (id index samp-x samp-y q-table))
+interface IComponent
+{
+	fun Id() : Int;
+	fun Index() : Int;
+	fun SampX() : Int;
+	fun SampY() : Int;
+	fun QTable() : Int;
+}
+
+# (Vectorof component)
+interface IComponentVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IComponent;
+}
+
+# (struct frame (marker precision y x components samp-x samp-y))
+interface IFrame
+{
+	fun Marker() : Int;
+	fun Precision() : Int;
+	fun Y() : Int;
+	fun X() : Int;
+	fun Components() : IComponentVec;
+	fun SampX() : Int;
+	fun SampY() : Int;
+}
+
+# (struct misc (marker bytes))
+interface IMisc
+{
+	fun Marker() : Int;
+	fun Bytes() : IBytes;
+}
+
+# (struct params (q-tables dc-tables ac-tables restart-interval misc-segments))
+interface IParams
+{
+	fun QTables() : IQTables;
+	fun DcTables() : IHTables;
+	fun AcTables() : IHTables;
+	fun RestartInterval() : Int;
+	fun MiscSegments() : IMiscList;
+}
+
+# (struct jfif (frame misc-segments mcu-array))
+interface IJfif
+{
+	fun Frame() : IFrame;
+	fun MiscSegments() : IMiscList;
+	fun McuArray() : IMcuArray;
+}
+
+# the state of jfif.rkt's module-level definitions (normal-order, *initial-params*, FAKE-HUFF,
+# FAKE-SC)
+interface IJfifState
+{
+	fun NormalOrder() : IBytes;
+	fun InitialParams() : IParams;
+	fun FakeHuffman() : IHuffman;
+}
+
+# Interp = (U Basic-Value (Listof (Pairof Symbol Basic-Value))),
+# Basic-Value = (U Bytes (Pairof Natural Natural) Natural Void String Boolean (Vectorof Natural))
+# Kind: 0 Natural (Nat), 1 String (Str), 2 Bytes (Bs), 3 pair (Car, Cdr), 4 Void, 5 Boolean (Bool),
+# 6 vector (Vec), 7 alist (Alist)
+interface IInterp
+{
+	fun Kind() : Int;
+	fun Nat() : Int;
+	fun Str() : IText;
+	fun Bs() : IBytes;
+	fun Car() : Int;
+	fun Cdr() : Int;
+	fun BoolValue() : Bool;
+	fun Vec() : IVec;
+	fun Alist() : IPTList;
+}
+
+# (Pairof (U Integer Symbol) Interp); a symbol name is an interned Int
+interface IPT
+{
+	fun IsSymbol() : Bool;
+	fun Name() : Int;
+	fun Value() : IInterp;
+}
+
+# a string (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# the arguments (bv pos order) of an Exif-Type-Parser
+interface IParseArgs
+{
+	fun Bv() : IBytes;
+	fun Pos() : Int;
+	fun Order() : Int;
+}
+
+# Exif-Type-Parser = (-> Bytes Natural Endianness (U Natural (Pairof Natural Natural)))
+interface ITypeParser
+{
+	fun this(IParseArgs a) : IInterp;
+}
+
+# Value-Interpreter = (-> Natural Interp)
+interface IValueInterpreter
+{
+	fun this(Int value) : IInterp;
+}
+
+# exif.rkt's module-level tables: *exif-tag-names* (tag -> symbol), *value-interpreters*
+# (symbol -> interpreter), *type-widths*, *type-parsers*
+interface IExifState
+{
+	fun TagName(Int tag) : Int;
+	fun Interpreter(Int sym) : IValueInterpreter;
+	fun HasInterpreter(Int sym) : Bool;
+	fun TypeWidthCount() : Int;
+	fun TypeWidth(Int type) : Int;
+	fun TypeParserCount() : Int;
+	fun TypeParser(Int type) : ITypeParser;
+	fun HasTypeParser(Int type) : Bool;
+}
+
+# interned symbols
+interface ISymbols
+{
+	fun Intern(IText name) : Int;
+}
+
+# Scan-Component = (Vector Component Integer Q-Table Huffman Huffman)
+interface IScanComponent
+{
+	fun Component() : IComponent;
+	fun PrevDc() : Int;
+	fun SetPrevDc(Int dc) : Int;
+	fun QTable() : IVec;
+	fun DcTable() : IHuffman;
+	fun AcTable() : IHuffman;
+}
+
+# SC* = (Vectorof Scan-Component)
+interface IScanComponents
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IScanComponent;
+	fun Set(Int i, IScanComponent sc) : Int;
+}
+
+# (Listof Int)
+interface IIntList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IIntList;
+}
+
+# (Listof IIntList)
+interface IIntListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IIntList;
+	fun Rest() : IIntListList;
+}
+
+# (Listof IMisc)
+interface IMiscList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IMisc;
+	fun Rest() : IMiscList;
+}
+
+# (Listof IPT)
+interface IPTList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPT;
+	fun Rest() : IPTList;
+}
+
+# (Listof IPTList)
+interface IPTsList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPTList;
+	fun Rest() : IPTsList;
+}
+
+# (Listof IPTsList)
+interface IExifList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPTsList;
+	fun Rest() : IExifList;
+}
+

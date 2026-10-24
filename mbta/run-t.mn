@@ -1,0 +1,53 @@
+# run-t.rkt: answer path / disable / enable requests (the regexps are matched by hand).
+
+class RunT
+{
+	public static fun Done() : IText
+	{
+		return Txt.PushWord(Txt.Empty(), 213628900);
+	}
+	public static fun Eom() : IText
+	{
+		return Txt.PushWord(Txt.Empty(), 1800165);
+	}
+
+	# manage is a module-level value of run-t.rkt (created by main here)
+	public static fun RunT(IText next, IManage manage) : IText
+	{
+		# #rx"from (.*) to (.*)$"
+		Int i = Txt.IndexOf(next, Txt.PushWord(Txt.Empty(), 8820357478), 0);
+		if (i >= 0)
+		{
+			Int j = Txt.LastIndexOf(next, Txt.PushWord(Txt.Empty(), 68942368), i + 5);
+			if (j >= 0)
+			{
+				IText x2 = Txt.Substring(next, i + 5, j);
+				IText x3 = Txt.Substring(next, j + 4, next.Length());
+				return manage.Find(x2, x3);
+			}
+		}
+		# #rx"disable (.*)$"
+		Int d = Txt.IndexOf(next, Txt.PushWord(Txt.Empty(), 18462338570843364), 0);
+		if (d >= 0)
+		{
+			return RunT.StatusCheck(manage.AddToDisabled(Txt.Substring(next, d + 8, next.Length())));
+		}
+		# #rx"enable (.*)$"
+		Int e = Txt.IndexOf(next, Txt.PushWord(Txt.Empty(), 144237020084069), 0);
+		if (e >= 0)
+		{
+			return RunT.StatusCheck(manage.RemoveFromDisabled(Txt.Substring(next, e + 7, next.Length())));
+		}
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7944797510713537261), 8351247277497006703), 211548148);
+	}
+
+	# (if (boolean? status) DONE status)
+	public static fun StatusCheck(IOptText status) : IText
+	{
+		if (status.IsFalse())
+		{
+			return RunT.Done();
+		}
+		return status.Text();
+	}
+}

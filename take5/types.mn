@@ -1,0 +1,151 @@
+# The type modules basics-types.rkt, card-adapted.rkt, card-pool-types.rkt, dealer-types.rkt,
+# deck-types.rkt, player-types.rkt, stack-types.rkt, plus the list types of the builtins.
+#   Name = Face = Bulls = Natural -> Int
+
+# card (a #:transparent struct)
+interface ICard
+{
+	fun Face() : Int;
+	fun Bulls() : Int;
+}
+
+# (-> (Listof Card) (Listof Card)): shuffle / order functions
+interface ICardsFn
+{
+	fun this(ICardList cs) : ICardList;
+}
+
+# (-> Bulls)
+interface IBullsFn
+{
+	fun this() : Int;
+}
+
+# (Instance CardPool%)
+interface ICardPool
+{
+	fun DrawCard() : ICard;
+	fun DrawHand() : ICardList;
+}
+
+# the (U Card (Listof Card)) argument of replace-stack
+interface ICardOrStack
+{
+	fun IsList() : Bool;
+	fun AsCard() : ICard;
+	fun AsList() : ICardList;
+}
+
+# (Instance Deck%): the base deck extended by the for-dealer and for-player mixins
+interface IDeck
+{
+	fun Cards0() : ICardList;
+	fun MyStacks() : IStackList;
+	fun FewestBulls() : ICardList;
+	fun Fit(ICard c) : ICardList;
+	fun Push(ICard c) : Int;
+	fun Replace(ICardList s, ICard c) : Int;
+	fun ReplaceStack(ICard top0, ICardOrStack c) : Int;
+	fun LargerThanSomeTopOfStacks(ICard c) : Bool;
+}
+
+# (Instance Player%)
+interface IPlayer
+{
+	fun Name() : Int;
+	fun StartRound(ICardList loc) : Int;
+	fun StartTurn(IDeck d) : ICard;
+	fun Choose(IDeck d) : ICardList;
+}
+
+# (Instance Internal%): implements Player% and adds bulls / add-score
+# (the Player% methods are repeated instead of `extends IPlayer`: casts to an interface with
+# inherited methods are not implemented in the runtime, NomInterface::GetCheckReturnTypeFunction)
+interface IInternal
+{
+	fun Name() : Int;
+	fun StartRound(ICardList loc) : Int;
+	fun StartTurn(IDeck d) : ICard;
+	fun Choose(IDeck d) : ICardList;
+	fun Bulls() : Int;
+	fun AddScore(Int n) : Int;
+}
+
+# (List Name Natural)
+interface IScore
+{
+	fun Name() : Int;
+	fun Bulls() : Int;
+}
+
+# Result = (List (List 'after-round Natural) (Listof (List Name Natural)))
+interface IResult
+{
+	fun Round() : Int;
+	fun Scores() : IScoreList;
+}
+
+# (List Internal Card)
+interface IPlayed
+{
+	fun Player() : IInternal;
+	fun Card() : ICard;
+}
+
+# (Instance Dealer%)
+interface IDealer
+{
+	fun PresentResults(Int i) : IResult;
+	fun AnyPlayerDone() : Bool;
+	fun PlayRound(ICardsFn shuffle, IBullsFn faces) : Int;
+	fun PlayGame(ICardsFn shuffle, IBullsFn faces) : IResult;
+}
+
+# (Listof ICard)
+interface ICardList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ICard;
+	fun Rest() : ICardList;
+}
+
+# (Listof ICardList)
+interface IStackList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ICardList;
+	fun Rest() : IStackList;
+}
+
+# (Listof IPlayer)
+interface IPlayerList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPlayer;
+	fun Rest() : IPlayerList;
+}
+
+# (Listof IInternal)
+interface IInternalList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IInternal;
+	fun Rest() : IInternalList;
+}
+
+# (Listof IScore)
+interface IScoreList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IScore;
+	fun Rest() : IScoreList;
+}
+
+# (Listof IPlayed)
+interface IPlayedList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPlayed;
+	fun Rest() : IPlayedList;
+}
+

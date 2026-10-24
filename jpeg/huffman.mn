@@ -1,0 +1,478 @@
+# bit-ports.rkt and huffman.rkt (merged to keep the configuration count down; see NOTES.md)
+
+# ---- bit-ports.rkt ----
+
+class BitPorts
+{
+	public static fun MakeBitPort(IPort port) : IBitPort
+	{
+		return Builtins.MakeBitPort(port);
+	}
+
+	public static fun NextU8(IPort port) : Int
+	{
+		Int u8 = port.ReadByte();
+		if (u8 < 0)
+		{
+			ERROR("Got EOF while reading bits");
+		}
+		if (u8 == 255)
+		{
+			Int u82 = port.ReadByte();
+			if (u82 != 0)
+			{
+				if (u82 < 0)
+				{
+					ERROR("Got EOF while reading bits");
+				}
+				ERROR("Found marker while reading bits");
+			}
+		}
+		return u8;
+	}
+
+	public static fun ReadBits(IBitPort bitPort, Int n) : Int
+	{
+		Int count = bitPort.Count();
+		Int bits = bitPort.Bits();
+		while (true)
+		{
+			if (n <= count)
+			{
+				bitPort.SetCount(count - n);
+				return Bits.And(Bits.Shift(bits, n - count), Bits.Shift(1, n) - 1);
+			}
+			IPort port = bitPort.Port();
+			if (!port.IsInput())
+			{
+				ERROR("bg1");
+			}
+			Int u8 = BitPorts.NextU8(port);
+			# We never need more than 16 bits in the buffer.
+			bits = Bits.And(Bits.Shift(bits, 8), 65535) + u8;
+			bitPort.SetBits(bits);
+			count = count + 8;
+		}
+		return 0;
+	}
+
+	public static fun ReadBit(IBitPort bitPort) : Int
+	{
+		return BitPorts.ReadBits(bitPort, 1);
+	}
+
+	public static fun ReadSignedBits(IBitPort bitPort, Int n) : Int
+	{
+		Int bits = BitPorts.ReadBits(bitPort, n);
+		if (bits < Bits.Shift(1, n - 1))
+		{
+			return Bits.Shift(0 - 1, n) + 1 + bits;
+		}
+		return bits;
+	}
+
+	public static fun WriteByteStuff(Int u8, IPort port) : Int
+	{
+		port.WriteByte(u8);
+		if (u8 == 255)
+		{
+			port.WriteByte(0);
+		}
+		return 0;
+	}
+
+	public static fun WriteBits(IBitPort bitPort, Int bits0, Int len0) : Int
+	{
+		if (bits0 < 0)
+		{
+			return BitPorts.WriteBits(bitPort, bits0 - (Bits.Shift(0 - 1, len0) + 1), len0);
+		}
+		IPort port = bitPort.Port();
+		if (port.IsInput())
+		{
+			ERROR("bg2");
+		}
+		Int count = bitPort.Count();
+		Int buf = bitPort.Bits();
+		Int bits = bits0;
+		Int len = len0;
+		while (true)
+		{
+			if (count + len < 8)
+			{
+				bitPort.SetCount(count + len);
+				bitPort.SetBits(BitPorts.AssertNatural(Bits.Or(Bits.Shift(buf, len), bits)));
+				return 0;
+			}
+			Int headLen = 8 - count;
+			Int headBits = Bits.And(Bits.Shift(bits, headLen - len), Bits.Shift(1, headLen) - 1);
+			Int tailLen = BitPorts.AssertNatural(len - headLen);
+			Int tailBits = Bits.And(bits, Bits.Shift(1, tailLen) - 1);
+			BitPorts.WriteByteStuff(Bits.Or(Bits.Shift(buf, headLen), headBits), port);
+			count = 0;
+			buf = 0;
+			bits = tailBits;
+			len = tailLen;
+		}
+		return 0;
+	}
+
+	public static fun AssertNatural(Int v) : Int
+	{
+		if (v < 0)
+		{
+			ERROR("assert: natural?");
+		}
+		return v;
+	}
+
+	public static fun FlushBits(IBitPort bitPort) : Int
+	{
+		IPort port = bitPort.Port();
+		if (port.IsInput())
+		{
+			ERROR("bg0");
+		}
+		Int count = bitPort.Count();
+		if (count != 0)
+		{
+			# Pad remaining bits with 1, and stuff as needed.
+			Int bits = Bits.Or(Bits.Shift(bitPort.Bits(), 8 - count), Bits.Shift(1, 8 - count) - 1);
+			BitPorts.WriteByteStuff(bits, port);
+			bitPort.SetCount(0);
+			bitPort.SetBits(0);
+		}
+		return 0;
+	}
+}
+
+# ---- huffman.rkt ----
+
+class Huffman
+{
+	public static fun MakeHuffmanTable(IBytes sizeCounts, IBytes values) : IHuffman
+	{
+		Int count = values.Length();
+		IVec sizeOffsets = Builtins.MakeVector(16, 0 - 1);
+		IBytes sizes = Builtins.MakeBytes(count, 0);
+		IVec codes = Builtins.MakeVector(count, 0 - 1);
+		IVec valueIndexes = Builtins.MakeVector(256, 0 - 1);
+		IVec maxCodes = Builtins.MakeVector(16, 0 - 1);
+		# A reverse map from value to index.
+		Int i = 0;
+		while (i < values.Length())
+		{
+			valueIndexes.Set(values.Ref(i), i);
+			i = i + 1;
+		}
+		# Compute sizes for each value.
+		Int size = 0;
+		Int offset = 0;
+		while (size < 16)
+		{
+			sizeOffsets.Set(size, offset);
+			Int sizeCount = sizeCounts.Ref(size);
+			Int j = 0;
+			while (j < sizeCount)
+			{
+				sizes.Set(offset + j, size + 1);
+				j = j + 1;
+			}
+			size = size + 1;
+			offset = offset + sizeCount;
+		}
+		# Compute codes.  This is the algorithm from Annex C, verbatim.
+		Int k = 0;
+		Int code = 0;
+		Int si = sizes.Ref(0);
+		while (true)
+		{
+			maxCodes.Set(si - 1, code);
+			codes.Set(k, code);
+			code = code + 1;
+			k = k + 1;
+			if (k >= sizes.Length())
+			{
+				break;
+			}
+			while (sizes.Ref(k) != si)
+			{
+				code = Bits.Shift(code, 1);
+				si = si + 1;
+				if (si > 255)
+				{
+					ERROR("assert: byte?");
+				}
+			}
+		}
+		# Done.
+		return Builtins.MakeHuffman(sizeCounts, sizeOffsets, values, valueIndexes, sizes, codes, maxCodes);
+	}
+
+	public static fun AssertInteger(Int v) : Int
+	{
+		if (v < 0)
+		{
+			ERROR("assert: integer?");
+		}
+		return v;
+	}
+
+	public static fun ReadHuffmanCodedValue(IBitPort bitPort, IHuffman table) : Int
+	{
+		IVec maxCodes = table.MaxCodes();
+		IVec sizeOffsets = table.SizeOffsets();
+		IVec codes = table.Codes();
+		Int sizeIdx = 0;
+		Int code = BitPorts.ReadBit(bitPort);
+		while (code > maxCodes.Ref(sizeIdx))
+		{
+			sizeIdx = sizeIdx + 1;
+			code = Bits.Shift(code, 1) + BitPorts.ReadBit(bitPort);
+		}
+		Int sizeOffset = Huffman.AssertInteger(sizeOffsets.Ref(sizeIdx));
+		Int idx = sizeOffset + (code - Huffman.AssertInteger(codes.Ref(sizeOffset)));
+		if (code < Huffman.AssertInteger(codes.Ref(sizeOffset)))
+		{
+			ERROR("impossaurus");
+		}
+		return table.Values().Ref(idx);
+	}
+
+	public static fun AssertValue(Int v) : Int
+	{
+		if (v < 0)
+		{
+			ERROR("assert: #f");
+		}
+		return v;
+	}
+
+	public static fun VectorIncBang(IVec v, Int idx, Int addend) : Int
+	{
+		v.Set(idx, Huffman.AssertValue(v.Ref(idx)) + addend);
+		return 0;
+	}
+
+	# max-size is a set!-ed local: it lives in a one-element vector
+	public static fun IncSizeBang(IBytes sizes, IVec maxSize, Int code) : Int
+	{
+		Int size = sizes.Ref(code) + 1;
+		sizes.Set(code, size);
+		if (maxSize.Ref(0) < size)
+		{
+			maxSize.Set(0, size);
+		}
+		return 0;
+	}
+
+	# the next least-idx of find-least-idx's loop
+	public static fun LeastStep(IVec freqs, Int i, Int leastIdx) : Int
+	{
+		Int x = Huffman.AssertValue(freqs.Ref(i));
+		if (x == 0)
+		{
+			return leastIdx;
+		}
+		if (leastIdx < 0)
+		{
+			return i;
+		}
+		if (x <= Huffman.AssertValue(freqs.Ref(leastIdx)))
+		{
+			return i;
+		}
+		return leastIdx;
+	}
+
+	public static fun FindLeastIdx(IVec freqs) : Int
+	{
+		Int i = 0;
+		Int leastIdx = 0 - 1;
+		while (i < 257)
+		{
+			leastIdx = Huffman.LeastStep(freqs, i, leastIdx);
+			i = i + 1;
+		}
+		return BitPorts.AssertNatural(leastIdx);
+	}
+
+	public static fun NextLeastStep(IVec freqs, Int i, Int leastIdx, Int nextLeastIdx) : Int
+	{
+		Int x = Huffman.AssertValue(freqs.Ref(i));
+		if (x == 0)
+		{
+			return nextLeastIdx;
+		}
+		if (i == leastIdx)
+		{
+			return nextLeastIdx;
+		}
+		if (nextLeastIdx < 0)
+		{
+			return i;
+		}
+		if (x <= Huffman.AssertValue(freqs.Ref(nextLeastIdx)))
+		{
+			return i;
+		}
+		return nextLeastIdx;
+	}
+
+	# -1 for #f
+	public static fun FindNextLeast(IVec freqs, Int leastIdx) : Int
+	{
+		Int i = 0;
+		Int nextLeastIdx = 0 - 1;
+		while (i < 257)
+		{
+			nextLeastIdx = Huffman.NextLeastStep(freqs, i, leastIdx, nextLeastIdx);
+			i = i + 1;
+		}
+		return nextLeastIdx;
+	}
+
+	# (values sizes max-size): max-size is returned through the one-element vector maxSize
+	public static fun ComputeHuffmanCodeSizesForFreqs(IVec freqs, IVec maxSize) : IBytes
+	{
+		IBytes sizes = Builtins.MakeBytes(257, 0);
+		IVec others = Builtins.MakeVector(257, 0 - 1);
+		Int v1 = 256;
+		while (true)
+		{
+			Int v2 = Huffman.FindNextLeast(freqs, v1);
+			if (v2 < 0)
+			{
+				return sizes;
+			}
+			Huffman.VectorIncBang(freqs, v1, Huffman.AssertValue(freqs.Ref(v2)));
+			freqs.Set(v2, 0);
+			Int a = v1;
+			while (true)
+			{
+				Huffman.IncSizeBang(sizes, maxSize, a);
+				if (others.Ref(a) >= 0)
+				{
+					a = others.Ref(a);
+					continue;
+				}
+				others.Set(a, v2);
+				Int b = v2;
+				while (true)
+				{
+					Huffman.IncSizeBang(sizes, maxSize, b);
+					if (others.Ref(b) >= 0)
+					{
+						b = others.Ref(b);
+						continue;
+					}
+					break;
+				}
+				break;
+			}
+			v1 = Huffman.FindLeastIdx(freqs);
+		}
+		ERROR("unreachable");
+	}
+
+	public static fun BytesTruncate(IBytes bv, Int len) : IBytes
+	{
+		if (len < bv.Length())
+		{
+			return Builtins.Subbytes(bv, 0, len);
+		}
+		return bv;
+	}
+
+	public static fun IncSizeCountBang(IBytes sizeCounts, Int size, Int n) : Int
+	{
+		Int v = sizeCounts.Ref(size) + n;
+		if (v < 0)
+		{
+			ERROR("bytes-set!: contract violation, expected byte?");
+		}
+		sizeCounts.Set(size, v);
+		return 0;
+	}
+
+	public static fun ComputeHuffmanTableForFreqs(IVec freqs) : IHuffman
+	{
+		IVec copy = Builtins.MakeVector(257, 0);
+		Int c = 0;
+		while (c < freqs.Length())
+		{
+			copy.Set(c, freqs.Ref(c));
+			c = c + 1;
+		}
+		# Add dummy entry.
+		copy.Set(256, 1);
+		IVec maxSizeBox = Builtins.MakeVector(1, 0);
+		IBytes sizes = Huffman.ComputeHuffmanCodeSizesForFreqs(copy, maxSizeBox);
+		Int maxSize = maxSizeBox.Ref(0);
+		IBytes sizeCounts = Builtins.MakeBytes(Builtins.Max(maxSize, 16), 0);
+		Int i = 0;
+		while (i < 257)
+		{
+			Int size = sizes.Ref(i);
+			if (size != 0)
+			{
+				Huffman.IncSizeCountBang(sizeCounts, size - 1, 1);
+			}
+			i = i + 1;
+		}
+		Int ai = BitPorts.AssertNatural(maxSize - 1);
+		while (true)
+		{
+			if (sizeCounts.Ref(ai) == 0)
+			{
+				ai = BitPorts.AssertNatural(ai - 1);
+				continue;
+			}
+			if (ai < 16)
+			{
+				# We're done.  Remove the dummy entry.
+				Huffman.IncSizeCountBang(sizeCounts, ai, 0 - 1);
+				break;
+			}
+			# We have a code that is > 16 bits long.  Reshuffle the tree to fit the code into 16
+			# bits.
+			Int j = BitPorts.AssertNatural(ai - 2);
+			while (sizeCounts.Ref(j) == 0)
+			{
+				j = BitPorts.AssertNatural(j - 1);
+			}
+			Huffman.IncSizeCountBang(sizeCounts, ai, 0 - 2);
+			Huffman.IncSizeCountBang(sizeCounts, BitPorts.AssertNatural(ai - 1), 1);
+			Huffman.IncSizeCountBang(sizeCounts, j + 1, 2);
+			Huffman.IncSizeCountBang(sizeCounts, j, 0 - 1);
+		}
+		# Sort values, then compute codes.
+		Int count = 0;
+		Int s = 0;
+		while (s < sizeCounts.Length())
+		{
+			count = count + sizeCounts.Ref(s);
+			s = s + 1;
+		}
+		IBytes values = Builtins.MakeBytes(count, 0);
+		Int vsize = 1;
+		Int k = 0;
+		while (vsize <= maxSize)
+		{
+			Int vj = 0;
+			while (vj != 256)
+			{
+				if (sizes.Ref(vj) == vsize)
+				{
+					values.Set(k, vj);
+					k = k + 1;
+					vj = vj + 1;
+					continue;
+				}
+				vj = vj + 1;
+			}
+			vsize = vsize + 1;
+		}
+		return Huffman.MakeHuffmanTable(Huffman.BytesTruncate(sizeCounts, 16), values);
+	}
+}

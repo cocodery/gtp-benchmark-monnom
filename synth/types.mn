@@ -1,0 +1,180 @@
+# both/typed-data.rkt (Array, Settable-Array, Mutable-Array, Indexes, Weighted-Signal,
+# Drum-Symbol, Pattern) plus the types of the closures and Racket builtins used.
+#   Drum-Symbol (U 'O 'X #f) -> Int: 1 'O, 2 'X, 0 #f
+
+# Indexes = (Vectorof Integer); also used for (Vectorof Integer) results
+interface IIdx
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Int;
+	fun Set(Int i, Int v) : Int;
+}
+
+# (Vectorof Float)
+interface IFloatVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Float;
+	fun Set(Int i, Float v) : Int;
+}
+
+# (Boxof Boolean)
+interface IBoolBox
+{
+	fun Get() : Bool;
+	fun Put(Bool b) : Int;
+}
+
+# (-> Indexes Float): the unsafe-proc of an array
+interface IIndexProc
+{
+	fun this(IIdx js) : Float;
+}
+
+# (Boxof (-> Indexes Float))
+interface IProcBox
+{
+	fun Get() : IIndexProc;
+	fun Put(IIndexProc p) : Int;
+}
+
+# (Vectorof (-> Indexes Float))
+interface IProcVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IIndexProc;
+	fun Set(Int i, IIndexProc p) : Int;
+}
+
+# (-> Void): the strict! field of an array
+interface IThunk
+{
+	fun this() : Int;
+}
+
+# (Indexes Float -> Void): the set-proc of a settable array
+interface ISetProc
+{
+	fun this(IIdx js, Float v) : Int;
+}
+
+# (-> Indexes): make-thread-local-indexes' result
+interface IIndexesThunk
+{
+	fun this() : IIdx;
+}
+
+# Array, Settable-Array and Mutable-Array (struct subtypes: one interface, the extra fields of
+# the subtypes are only read by code that knows it has a mutable array)
+interface IArray
+{
+	fun Shape() : IIdx;
+	fun Size() : Int;
+	fun IsStrict() : IBoolBox;
+	fun StrictBang() : IThunk;
+	fun UnsafeProc() : IIndexProc;
+}
+
+# (Float -> Float) / (Float Float -> Float)
+interface IFloatFn
+{
+	fun this(Float x) : Float;
+}
+
+interface IFloat2Fn
+{
+	fun this(Float a, Float b) : Float;
+}
+
+# (-> Float (-> Indexes Float)), e.g. sawtooth-wave
+interface IWave
+{
+	fun this(Float freq) : IIndexProc;
+}
+
+# Weighted-Signal = (List Array Real)
+interface IWeightedSignal
+{
+	fun Signal() : IArray;
+	fun Weight() : Float;
+}
+
+# (Pairof (U Natural #f) Natural), an element of a sequencer pattern
+interface INote
+{
+	fun HasNote() : Bool;
+	fun Note() : Int;
+	fun Duration() : Int;
+}
+
+# (Thread-Cellof (U #f Indexes)) of make-thread-local-indexes
+interface IIdxCell
+{
+	fun IsSet() : Bool;
+	fun Get() : IIdx;
+	fun Put(IIdx v) : Int;
+}
+
+# the module-level definitions bass-drum and snare of drum.rkt
+interface IDrumSamples
+{
+	fun BassDrum() : IArray;
+	fun Snare() : IArray;
+}
+
+# the pseudo-random generator behind racket's `random`
+interface IRng
+{
+	fun Seed(Int k) : Int;
+	fun NextInt(Int n) : Int;
+	fun NextFloat() : Float;
+}
+
+# (Listof IArray)
+interface IArrayList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IArray;
+	fun Rest() : IArrayList;
+}
+
+# (Listof IIdx)
+interface IIdxList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IIdx;
+	fun Rest() : IIdxList;
+}
+
+# (Listof Int)
+interface IIntList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IIntList;
+}
+
+# (Listof Float)
+interface IFloatList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Float;
+	fun Rest() : IFloatList;
+}
+
+# (Listof IWeightedSignal)
+interface IWeightedList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IWeightedSignal;
+	fun Rest() : IWeightedList;
+}
+
+# (Listof INote)
+interface INoteList
+{
+	fun IsEmpty() : Bool;
+	fun First() : INote;
+	fun Rest() : INoteList;
+}
+

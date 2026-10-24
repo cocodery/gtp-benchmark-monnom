@@ -1,0 +1,439 @@
+# Stand-ins for Racket builtins: lists, stable sorting (racket's sort is a stable merge sort),
+# argmin, and the pseudo-random generator.
+
+class Lists
+{
+	public static fun CardsLength(ICardList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	public static fun InternalsLength(IInternalList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	# (sort cards > #:key card-face), stable
+	public static fun SortCardsByFaceDesc(ICardList l) : ICardList
+	{
+		Int n = Lists.CardsLength(l);
+		if (n <= 1)
+		{
+			return l;
+		}
+		ICardList a = Lists.TakeCards(l, n / 2);
+		ICardList b = Lists.DropCards(l, n / 2);
+		return Lists.MergeCardsDesc(Lists.SortCardsByFaceDesc(a), Lists.SortCardsByFaceDesc(b));
+	}
+
+	public static fun MergeCardsDesc(ICardList a, ICardList b) : ICardList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		if (b.IsEmpty())
+		{
+			return a;
+		}
+		# take from b only if it is strictly before a (keeps the sort stable)
+		if (b.First().Face() > a.First().Face())
+		{
+			return new CardCons(b.First(), Lists.MergeCardsDesc(a, b.Rest()));
+		}
+		return new CardCons(a.First(), Lists.MergeCardsDesc(a.Rest(), b));
+	}
+
+	public static fun TakeCards(ICardList l, Int n) : ICardList
+	{
+		if (n == 0)
+		{
+			return new CardNil();
+		}
+		return new CardCons(l.First(), Lists.TakeCards(l.Rest(), n - 1));
+	}
+
+	public static fun DropCards(ICardList l, Int n) : ICardList
+	{
+		while (n > 0)
+		{
+			l = l.Rest();
+			n = n - 1;
+		}
+		return l;
+	}
+
+	# (sort internals < #:key bulls), stable
+	public static fun SortInternalsByBulls(IInternalList l) : IInternalList
+	{
+		Int n = Lists.InternalsLength(l);
+		if (n <= 1)
+		{
+			return l;
+		}
+		IInternalList a = Lists.TakeInternals(l, n / 2);
+		IInternalList b = Lists.DropInternals(l, n / 2);
+		return Lists.MergeInternals(Lists.SortInternalsByBulls(a), Lists.SortInternalsByBulls(b));
+	}
+
+	public static fun MergeInternals(IInternalList a, IInternalList b) : IInternalList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		if (b.IsEmpty())
+		{
+			return a;
+		}
+		if (b.First().Bulls() < a.First().Bulls())
+		{
+			return new InternalCons(b.First(), Lists.MergeInternals(a, b.Rest()));
+		}
+		return new InternalCons(a.First(), Lists.MergeInternals(a.Rest(), b));
+	}
+
+	public static fun TakeInternals(IInternalList l, Int n) : IInternalList
+	{
+		if (n == 0)
+		{
+			return new InternalNil();
+		}
+		return new InternalCons(l.First(), Lists.TakeInternals(l.Rest(), n - 1));
+	}
+
+	public static fun DropInternals(IInternalList l, Int n) : IInternalList
+	{
+		while (n > 0)
+		{
+			l = l.Rest();
+			n = n - 1;
+		}
+		return l;
+	}
+
+	public static fun PlayedLength(IPlayedList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	# (sort played < #:key (lambda (x) (card-face (second x)))), stable
+	public static fun SortPlayedByFace(IPlayedList l) : IPlayedList
+	{
+		Int n = Lists.PlayedLength(l);
+		if (n <= 1)
+		{
+			return l;
+		}
+		IPlayedList a = Lists.TakePlayed(l, n / 2);
+		IPlayedList b = Lists.DropPlayed(l, n / 2);
+		return Lists.MergePlayed(Lists.SortPlayedByFace(a), Lists.SortPlayedByFace(b));
+	}
+
+	public static fun MergePlayed(IPlayedList a, IPlayedList b) : IPlayedList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		if (b.IsEmpty())
+		{
+			return a;
+		}
+		if (b.First().Card().Face() < a.First().Card().Face())
+		{
+			return new PlayedCons(b.First(), Lists.MergePlayed(a, b.Rest()));
+		}
+		return new PlayedCons(a.First(), Lists.MergePlayed(a.Rest(), b));
+	}
+
+	public static fun TakePlayed(IPlayedList l, Int n) : IPlayedList
+	{
+		if (n == 0)
+		{
+			return new PlayedNil();
+		}
+		return new PlayedCons(l.First(), Lists.TakePlayed(l.Rest(), n - 1));
+	}
+
+	public static fun DropPlayed(IPlayedList l, Int n) : IPlayedList
+	{
+		while (n > 0)
+		{
+			l = l.Rest();
+			n = n - 1;
+		}
+		return l;
+	}
+}
+
+class CardNil implements ICardList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ICard
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ICardList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class CardCons implements ICardList
+{
+	private readonly ICard first;
+	private readonly ICardList rest;
+	public constructor(ICard f, ICardList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ICard
+	{
+		return first;
+	}
+	public fun Rest() : ICardList
+	{
+		return rest;
+	}
+}
+
+class StackNil implements IStackList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ICardList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IStackList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class StackCons implements IStackList
+{
+	private readonly ICardList first;
+	private readonly IStackList rest;
+	public constructor(ICardList f, IStackList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ICardList
+	{
+		return first;
+	}
+	public fun Rest() : IStackList
+	{
+		return rest;
+	}
+}
+
+class PlayerNil implements IPlayerList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPlayer
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPlayerList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PlayerCons implements IPlayerList
+{
+	private readonly IPlayer first;
+	private readonly IPlayerList rest;
+	public constructor(IPlayer f, IPlayerList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPlayer
+	{
+		return first;
+	}
+	public fun Rest() : IPlayerList
+	{
+		return rest;
+	}
+}
+
+class InternalNil implements IInternalList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IInternal
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IInternalList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class InternalCons implements IInternalList
+{
+	private readonly IInternal first;
+	private readonly IInternalList rest;
+	public constructor(IInternal f, IInternalList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IInternal
+	{
+		return first;
+	}
+	public fun Rest() : IInternalList
+	{
+		return rest;
+	}
+}
+
+class ScoreNil implements IScoreList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IScore
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IScoreList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ScoreCons implements IScoreList
+{
+	private readonly IScore first;
+	private readonly IScoreList rest;
+	public constructor(IScore f, IScoreList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IScore
+	{
+		return first;
+	}
+	public fun Rest() : IScoreList
+	{
+		return rest;
+	}
+}
+
+class PlayedNil implements IPlayedList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPlayed
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPlayedList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PlayedCons implements IPlayedList
+{
+	private readonly IPlayed first;
+	private readonly IPlayedList rest;
+	public constructor(IPlayed f, IPlayedList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPlayed
+	{
+		return first;
+	}
+	public fun Rest() : IPlayedList
+	{
+		return rest;
+	}
+}
+

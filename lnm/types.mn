@@ -1,0 +1,83 @@
+# both/summary-adapted.rkt, both/modulegraph-adapted.rkt (both/pict-adapted.rkt's opaque Pict is
+# not needed: the plots are not drawn, see NOTES.md), plus the types of the Racket builtins used.
+
+# a string: a sequence of character codes (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# an exact non-negative rational number (Racket's exact Real)
+interface IRatio
+{
+	fun Num() : Int;
+	fun Den() : Int;
+}
+
+# ModuleGraph
+interface IModuleGraph
+{
+	fun ProjectName() : IText;
+	fun Adjlist() : ITextListList;
+}
+
+# (Vectorof (Listof Index))
+interface IDataset
+{
+	fun Length() : Int;
+	fun Row(Int i) : IIntList;
+}
+
+# Summary
+interface ISummary
+{
+	fun Source() : IText;
+	fun Dataset() : IDataset;
+	fun Modulegraph() : IModuleGraph;
+}
+
+# (-> String Boolean)
+interface IStringPred
+{
+	fun this(IText s) : Bool;
+}
+
+# (-> Real Natural), the function that lnm-plot hands to plot's `function`
+interface ICountFn
+{
+	fun this(IRatio n) : Int;
+}
+
+# Cache = (Vectorof (Listof String))
+interface ICache
+{
+	fun Length() : Int;
+	fun Ref(Int i) : ITextList;
+}
+
+# (Listof Int)
+interface IIntList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IIntList;
+}
+
+# (Listof IText)
+interface ITextList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IText;
+	fun Rest() : ITextList;
+}
+
+# (Listof ITextList)
+interface ITextListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ITextList;
+	fun Rest() : ITextListList;
+}
+

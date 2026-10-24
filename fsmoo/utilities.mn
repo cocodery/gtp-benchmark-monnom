@@ -1,0 +1,94 @@
+# utilities.rkt: utility functions.
+# Probability = Nonnegative-Real; payoffs are exact integers, so lists of payoffs are IIntList.
+
+class Utilities
+{
+	# (apply + l)
+	public static fun Sum(IIntList l) : Int
+	{
+		Int s = 0;
+		while (!l.IsEmpty())
+		{
+			s = s + l.First();
+			l = l.Rest();
+		}
+		return s;
+	}
+
+	public static fun Length(IIntList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	# (exact->inexact (/ (sum l) w (length l))): the exact quotient of two integers,
+	# rounded once to a flonum, is the IEEE quotient of the two (exactly representable) integers
+	public static fun RelativeAverage(IIntList l, Int w) : Float
+	{
+		return (Utilities.Sum(l) + 0.0) / (w * Utilities.Length(l));
+	}
+
+	public static fun ChooseRandomly(IIntList probabilities, Int speed, Bool hasQ, Float q, IRng rng) : IIntList
+	{
+		IFloatList ps = Utilities.AccumulatedPs(probabilities);
+		ArrayList<Int> picks = new ArrayList<Int>();
+		Int n = 0;
+		while (n < speed)
+		{
+			Float r = Utilities.OrRandom(hasQ, q, rng);
+			# population is non-empty so there will be some i such that ...
+			picks.Add(Utilities.FindIndex(r, ps));
+			n = n + 1;
+		}
+		IIntList res = new IntNil();
+		Int k = picks.Length() - 1;
+		while (k >= 0)
+		{
+			res = new IntCons(picks.Get(k), res);
+			k = k - 1;
+		}
+		return res;
+	}
+
+	# (or q (random))
+	public static fun OrRandom(Bool hasQ, Float q, IRng rng) : Float
+	{
+		if (hasQ)
+		{
+			return q;
+		}
+		return rng.NextFloat();
+	}
+
+	# (let loop ([%s %s]) (cond [(< r (first %s)) 0] [else (add1 (loop (rest %s)))]))
+	public static fun FindIndex(Float r, IFloatList ps) : Int
+	{
+		if (r < ps.First())
+		{
+			return 0;
+		}
+		return 1 + Utilities.FindIndex(r, ps.Rest());
+	}
+
+	# calculate the accumulated probabilities
+	public static fun AccumulatedPs(IIntList probabilities) : IFloatList
+	{
+		Int total = Utilities.Sum(probabilities);
+		return Utilities.RelativeToAbsolute(probabilities, 0.0, total);
+	}
+
+	public static fun RelativeToAbsolute(IIntList payoffs, Float soFar, Int total) : IFloatList
+	{
+		if (payoffs.IsEmpty())
+		{
+			return new FloatNil();
+		}
+		Float nxt = soFar + payoffs.First();
+		return new FloatCons(nxt / total, Utilities.RelativeToAbsolute(payoffs.Rest(), nxt, total));
+	}
+}

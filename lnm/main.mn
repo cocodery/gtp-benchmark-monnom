@@ -1,0 +1,89 @@
+# main.rkt: build the summary of snake's data and make the L-N/M plots
+# (also contains spreadsheet.rkt, merged here to keep the configuration count down).
+
+class Spreadsheet
+{
+	# (rktd->spreadsheet filename #:output ... #:format 'tab)
+	public static fun RktdToSpreadsheet() : Int
+	{
+		IDataset vec = Builtins.DatasetFromRows(SnakeData.Rows());
+		return Spreadsheet.VectorToSpreadsheet(vec);
+	}
+
+	# the original only evaluates the cells (every `printf` was replaced by `void`)
+	public static fun VectorToSpreadsheet(IDataset vec) : Int
+	{
+		Int numConfigs = vec.Length();
+		Int numRuns = Builtins.IntLength(vec.Row(0));
+		Int cells = 0;
+		Int n = 0;
+		while (n < numRuns)
+		{
+			cells = cells + 1;
+			n = n + 1;
+		}
+		Int r = 0;
+		while (r < numConfigs)
+		{
+			IText name = Bitstring.NaturalToBitstring(r, Bitstring.Log2(numConfigs));
+			IIntList row = vec.Row(r);
+			while (!row.IsEmpty())
+			{
+				cells = cells + 1;
+				row = row.Rest();
+			}
+			r = r + 1;
+		}
+		return cells;
+	}
+}
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		# Parse data from input file (also creates module graph); before the timed region
+		ISummary summary = Summaries.FromRktd();
+		IText name = Summaries.GetProjectName(summary);
+		IIntList lList = new IntCons(0, new IntCons(1, new IntCons(2, new IntCons(3, new IntNil()))));
+		Int numSamples = 100;
+		IIntList samples = new IntNil();
+		Int rep = 0;
+		Timer t = new Timer();
+		while (rep < 3)
+		{
+			samples = LnmPlot.LnmPlot(summary, lList, 3, 10, 20, numSamples);
+			Spreadsheet.RktdToSpreadsheet();
+			rep = rep + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		Int count = 0;
+		Int total = 0;
+		ArrayList<Int> perL = new ArrayList<Int>();
+		Int acc = 0;
+		IIntList s = samples;
+		while (!s.IsEmpty())
+		{
+			count = count + 1;
+			total = total + s.First();
+			acc = acc + s.First();
+			s = s.Rest();
+			if (count % numSamples == 0)
+			{
+				perL.Add(acc);
+				acc = 0;
+				continue;
+			}
+		}
+		count.ToString().Print();
+		"\n".Print();
+		total.ToString().Print();
+		"\n".Print();
+		foreach (Int v in perL)
+		{
+			v.ToString().Print();
+			"\n".Print();
+		}
+	}
+}

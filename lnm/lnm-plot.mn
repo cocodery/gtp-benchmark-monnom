@@ -1,0 +1,203 @@
+# lnm-plot.rkt: L-N/M plots.
+# The plot library (plot/typed/pict: lines, function, plot-pict, ticks) is not ported: instead
+# of rendering, lnm-plot applies the function that it gives to plot's `function` renderer at the
+# points where the renderer samples it (num-samples points evenly spaced on [0, max-overhead],
+# exact rationals, as measured in Racket) and returns the sampled values.
+
+# the closure returned by count-variations
+class CountFn implements ICountFn
+{
+	private readonly ISummary sm;
+	private readonly Int l;
+	private readonly Int lim;
+	private readonly IRatio baseline;
+	private readonly ICache cache;
+	public constructor(ISummary s, Int l0, Int lim0, IRatio b, ICache c)
+	{
+		sm = s;
+		l = l0;
+		lim = lim0;
+		baseline = b;
+		cache = c;
+	}
+	public fun this(IRatio n) : Int
+	{
+		IStringPred good = LnmPlot.MakeVariationToGood(sm, Rat.Mul(n, baseline), l);
+		if (Rat.LessEq(n, Rat.Make(lim, 1)))
+		{
+			return LnmPlot.CacheLookup(cache, n, good);
+		}
+		return Builtins.TextLength(Summaries.PredicateToVariations(sm, good));
+	}
+}
+
+# the closure returned by make-variation->good?
+class GoodPred implements IStringPred
+{
+	private readonly ISummary summary;
+	private readonly IRatio goodThreshold;
+	private readonly Int l;
+	public constructor(ISummary s, IRatio t, Int l0)
+	{
+		summary = s;
+		goodThreshold = t;
+		l = l0;
+	}
+	public fun this(IText var) : Bool
+	{
+		if (Rat.Less(Summaries.VariationToMeanRuntime(summary, var), goodThreshold))
+		{
+			return true;
+		}
+		ITextList others = Bitstring.InReach(var, l);
+		while (!others.IsEmpty())
+		{
+			if (Rat.Less(Summaries.VariationToMeanRuntime(summary, others.First()), goodThreshold))
+			{
+				return true;
+			}
+			others = others.Rest();
+		}
+		return false;
+	}
+}
+
+class LnmPlot
+{
+	public static fun DefaultN() : Int
+	{
+		return 3;
+	}
+	public static fun DefaultM() : Int
+	{
+		return 10;
+	}
+	public static fun DefaultXlimit() : Int
+	{
+		return 20;
+	}
+	public static fun DefaultSamples() : Int
+	{
+		return 20;
+	}
+
+	# lnm-plot; the keyword arguments are positional, L is a list
+	public static fun LnmPlot(ISummary summary, IIntList lList, Int n, Int m, Int xmax, Int numSamples) : IIntList
+	{
+		Int numVars = Summaries.GetNumVariations(summary);
+		ArrayList<Int> samples = new ArrayList<Int>();
+		IIntList ls = lList;
+		while (!ls.IsEmpty())
+		{
+			ICountFn f = LnmPlot.CountVariations(summary, ls.First(), xmax);
+			# the sample points of (function f 0 xmax #:samples num-samples)
+			Int i = 0;
+			while (i < numSamples)
+			{
+				samples.Add(f(Rat.Make(xmax * i, numSamples - 1)));
+				i = i + 1;
+			}
+			ls = ls.Rest();
+		}
+		IIntList res = new IntNil();
+		Int k = samples.Length() - 1;
+		while (k >= 0)
+		{
+			res = new IntCons(samples.Get(k), res);
+			k = k - 1;
+		}
+		return res;
+	}
+
+	public static fun CountVariations(ISummary sm, Int l, Int lim) : ICountFn
+	{
+		IRatio baseline = Summaries.UntypedMean(sm);
+		ICache cache = LnmPlot.CacheInit(sm, lim, l);
+		return new CountFn(sm, l, lim, baseline, cache);
+	}
+
+	public static fun MakeVariationToGood(ISummary summary, IRatio goodThreshold, Int l) : IStringPred
+	{
+		return new GoodPred(summary, goodThreshold, l);
+	}
+
+	public static fun CacheInit(ISummary summary, Int maxOverhead, Int l) : ICache
+	{
+		IRatio baseOverhead = Summaries.UntypedMean(summary);
+		ITextList unsortedVariations = Summaries.AllVariations(summary);
+		ArrayList<ITextList> slots = new ArrayList<ITextList>();
+		Int i = 0;
+		while (i < maxOverhead + 1)
+		{
+			IStringPred good = LnmPlot.MakeVariationToGood(summary, Rat.Mul(Rat.Make(i, 1), baseOverhead), l);
+			# (stream-partition good? unsorted): the good ones and the rest
+			ArrayList<IText> goodVars = new ArrayList<IText>();
+			ArrayList<IText> rest = new ArrayList<IText>();
+			ITextList u = unsortedVariations;
+			while (!u.IsEmpty())
+			{
+				IText v = u.First();
+				u = u.Rest();
+				if (good(v))
+				{
+					goodVars.Add(v);
+					continue;
+				}
+				rest.Add(v);
+			}
+			unsortedVariations = LnmPlot.ToList(rest);
+			slots.Add(LnmPlot.ToList(goodVars));
+			i = i + 1;
+		}
+		ITextListList sl = new TextListNil();
+		Int k = slots.Length() - 1;
+		while (k >= 0)
+		{
+			sl = new TextListCons(slots.Get(k), sl);
+			k = k - 1;
+		}
+		return Builtins.MakeCache(sl);
+	}
+
+	public static fun ToList(ArrayList<IText> a) : ITextList
+	{
+		ITextList l = new TextNil();
+		Int k = a.Length() - 1;
+		while (k >= 0)
+		{
+			l = new TextCons(a.Get(k), l);
+			k = k - 1;
+		}
+		return l;
+	}
+
+	public static fun CacheLookup(ICache cache, IRatio overhead, IStringPred testFun) : Int
+	{
+		Int lo = Rat.Floor(overhead);
+		Int hi = Rat.Ceiling(overhead);
+		Int numKnown = 0;
+		Int i = 0;
+		while (i < lo + 1)
+		{
+			numKnown = numKnown + Builtins.TextLength(cache.Ref(i));
+			i = i + 1;
+		}
+		if (hi == lo)
+		{
+			return numKnown;
+		}
+		Int extra = 0;
+		ITextList vars = cache.Ref(hi);
+		while (!vars.IsEmpty())
+		{
+			IText v = vars.First();
+			vars = vars.Rest();
+			if (testFun(v))
+			{
+				extra = extra + 1;
+				continue;
+			}
+		}
+		return numKnown + extra;
+	}
+}

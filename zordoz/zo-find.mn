@@ -1,0 +1,179 @@
+# zo-find.rkt: search a zo tree for structs with a given name
+# The limit (U Natural #f) is an Int, -1 for #f.
+
+class ResultS implements IResult
+{
+	private readonly IZo zo;
+	private readonly IZoList path;
+	public constructor(IZo z, IZoList p)
+	{
+		zo = z;
+		path = p;
+	}
+	public fun Zo() : IZo
+	{
+		return zo;
+	}
+	public fun Path() : IZoList
+	{
+		return path;
+	}
+}
+
+# (values title children) of parse-zo
+class TitleAndChildren
+{
+	public readonly IText Title;
+	public readonly IZoList Children;
+	public constructor(IText t, IZoList c)
+	{
+		Title = t;
+		Children = c;
+	}
+}
+
+class ZoFind
+{
+	public static fun Append(IResultList a, IResultList b) : IResultList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new ResultCons(a.First(), ZoFind.Append(a.Rest(), b));
+	}
+
+	public static fun AppendAll(IResultListList xss) : IResultList
+	{
+		if (xss.IsEmpty())
+		{
+			return new ResultNil();
+		}
+		return ZoFind.Append(xss.First(), ZoFind.AppendAll(xss.Rest()));
+	}
+
+	public static fun ZoFind(IZo z, IText str, Int lim) : IResultList
+	{
+		TitleAndChildren tc = ZoFind.ParseZo(z);
+		return ZoFind.AppendAll(ZoFind.FindInAll(tc.Children, new ZoNil(), str, 1, lim));
+	}
+
+	# (for/list ([z* children]) (zo-find-aux z* hist str i lim))
+	public static fun FindInAll(IZoList children, IZoList hist, IText str, Int i, Int lim) : IResultListList
+	{
+		if (children.IsEmpty())
+		{
+			return new ResultListNil();
+		}
+		IResultList r = ZoFind.ZoFindAux(children.First(), hist, str, i, lim);
+		return new ResultListCons(r, ZoFind.FindInAll(children.Rest(), hist, str, i, lim));
+	}
+
+	public static fun MayLoop(IText str) : Bool
+	{
+		ITextList l = new TextCons(Txt.PushWord(Txt.Empty(), 448151357748835), new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8054632333566491373), 13040), new TextCons(Txt.PushWord(Txt.Empty(), 27348693491), new TextNil())));
+		return Txt.Member(str, l);
+	}
+
+	# memq on zos
+	public static fun Memq(IZo z, IZoList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (l.First().Id() == z.Id())
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	public static fun MapResultZo(IResultList rs) : IZoList
+	{
+		if (rs.IsEmpty())
+		{
+			return new ZoNil();
+		}
+		return new ZoCons(rs.First().Zo(), ZoFind.MapResultZo(rs.Rest()));
+	}
+
+	public static fun Results(IZo z, IText title, IZoList children, IZoList hist, IText str, Int i, Int lim) : IResultList
+	{
+		if (lim >= 0)
+		{
+			if (lim <= i)
+			{
+				return new ResultNil();
+			}
+		}
+		if (ZoFind.MayLoop(title))
+		{
+			if (ZoFind.Memq(z, hist))
+			{
+				return new ResultNil();
+			}
+		}
+		IZoList histStar = new ZoCons(z, hist);
+		return ZoFind.AppendAll(ZoFind.FindInAll(children, histStar, str, i + 1, lim));
+	}
+
+	public static fun ZoFindAux(IZo z, IZoList hist, IText str, Int i, Int lim) : IResultList
+	{
+		TitleAndChildren tc = ZoFind.ParseZo(z);
+		IResultList results = ZoFind.Results(z, tc.Title, tc.Children, hist, str, i, lim);
+		if (Txt.Equal(str, tc.Title))
+		{
+			if (!ZoFind.Memq(z, ZoFind.MapResultZo(results)))
+			{
+				return new ResultCons(new ResultS(z, hist), results);
+			}
+		}
+		return results;
+	}
+
+	public static fun ParseZo(IZo z) : TitleAndChildren
+	{
+		ISpec zSpec = ZoString.ZoToSpec(z);
+		IText title = zSpec.Title();
+		ITextList childStrs = ZoFind.Names(zSpec.Fields());
+		return new TitleAndChildren(title, ZoFind.GetChildren(z, childStrs));
+	}
+
+	public static fun Names(ISpecFieldList fs) : ITextList
+	{
+		if (fs.IsEmpty())
+		{
+			return new TextNil();
+		}
+		return new TextCons(fs.First().Name(), ZoFind.Names(fs.Rest()));
+	}
+
+	public static fun AppendZos(IZoList a, IZoList b) : IZoList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new ZoCons(a.First(), ZoFind.AppendZos(a.Rest(), b));
+	}
+
+	public static fun GetChildren(IZo z, ITextList strs) : IZoList
+	{
+		if (strs.IsEmpty())
+		{
+			return new ZoNil();
+		}
+		ITransResult r = ZoTransition.ZoTransition(z, strs.First());
+		if (!r.Success())
+		{
+			return ZoFind.GetChildren(z, strs.Rest());
+		}
+		if (r.IsList())
+		{
+			# (filter zo? r)
+			return ZoFind.AppendZos(r.Many(), ZoFind.GetChildren(z, strs.Rest()));
+		}
+		return new ZoCons(r.One(), ZoFind.GetChildren(z, strs.Rest()));
+	}
+}

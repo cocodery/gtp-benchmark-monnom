@@ -1,0 +1,386 @@
+# Stand-ins for Racket builtins: strings, exact rationals, vectors, lists.
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Txt
+{
+	public static fun Empty() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+	public static fun Equal(IText a, IText b) : Bool
+	{
+		Int n = a.Length();
+		if (n != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < n)
+		{
+			if (a.CharAt(i) != b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+	public static fun Substring(IText t, Int from, Int to) : IText
+	{
+		IText r = Txt.Empty();
+		Int i = from;
+		while (i < to)
+		{
+			r.Push(t.CharAt(i));
+			i = i + 1;
+		}
+		return r;
+	}
+	public static fun Append(IText acc, IText t) : IText
+	{
+		Int i = 0;
+		while (i < t.Length())
+		{
+			acc.Push(t.CharAt(i));
+			i = i + 1;
+		}
+		return acc;
+	}
+	public static fun Member(IText s, ITextList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (Txt.Equal(s, l.First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+}
+
+# an exact rational num/den (den > 0)
+class Ratio implements IRatio
+{
+	private readonly Int num;
+	private readonly Int den;
+	public constructor(Int n, Int d)
+	{
+		num = n;
+		den = d;
+	}
+	public fun Num() : Int
+	{
+		return num;
+	}
+	public fun Den() : Int
+	{
+		return den;
+	}
+}
+
+class Rat
+{
+	public static fun Make(Int n, Int d) : IRatio
+	{
+		return new Ratio(n, d);
+	}
+	public static fun Mul(IRatio a, IRatio b) : IRatio
+	{
+		return new Ratio(a.Num() * b.Num(), a.Den() * b.Den());
+	}
+	# (< a b) on exact rationals
+	public static fun Less(IRatio a, IRatio b) : Bool
+	{
+		return a.Num() * b.Den() < b.Num() * a.Den();
+	}
+	public static fun LessEq(IRatio a, IRatio b) : Bool
+	{
+		return a.Num() * b.Den() <= b.Num() * a.Den();
+	}
+	# exact-floor / exact-ceiling of a non-negative rational
+	public static fun Floor(IRatio a) : Int
+	{
+		return a.Num() / a.Den();
+	}
+	public static fun Ceiling(IRatio a) : Int
+	{
+		if (a.Num() % a.Den() == 0)
+		{
+			return a.Num() / a.Den();
+		}
+		return a.Num() / a.Den() + 1;
+	}
+	# (mean l) of a list of naturals (math/statistics), exact
+	public static fun Mean(IIntList l) : IRatio
+	{
+		Int s = 0;
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			s = s + l.First();
+			n = n + 1;
+			l = l.Rest();
+		}
+		return new Ratio(s, n);
+	}
+}
+
+class Dataset implements IDataset
+{
+	private readonly ArrayList<IIntList> rows;
+	public constructor(ArrayList<IIntList> r)
+	{
+		rows = r;
+	}
+	public fun Length() : Int
+	{
+		return rows.Length();
+	}
+	public fun Row(Int i) : IIntList
+	{
+		return rows.Get(i);
+	}
+}
+
+class Cache implements ICache
+{
+	private readonly ArrayList<ITextList> slots;
+	public constructor(ArrayList<ITextList> s)
+	{
+		slots = s;
+	}
+	public fun Length() : Int
+	{
+		return slots.Length();
+	}
+	public fun Ref(Int i) : ITextList
+	{
+		return slots.Get(i);
+	}
+}
+
+class Builtins
+{
+	# (file->value path) for the dataset: a vector of lists
+	public static fun DatasetFromRows(ArrayList<ArrayList<Int>> rows) : IDataset
+	{
+		ArrayList<IIntList> v = new ArrayList<IIntList>();
+		foreach (ArrayList<Int> r in rows)
+		{
+			IIntList l = new IntNil();
+			Int k = r.Length() - 1;
+			while (k >= 0)
+			{
+				l = new IntCons(r.Get(k), l);
+				k = k - 1;
+			}
+			v.Add(l);
+		}
+		return new Dataset(v);
+	}
+
+	# (for/vector ...) over a list of slots
+	public static fun MakeCache(ITextListList slots) : ICache
+	{
+		ArrayList<ITextList> v = new ArrayList<ITextList>();
+		while (!slots.IsEmpty())
+		{
+			v.Add(slots.First());
+			slots = slots.Rest();
+		}
+		return new Cache(v);
+	}
+
+	public static fun IntLength(IIntList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	public static fun TextLength(ITextList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	public static fun ReverseTexts(ITextList l) : ITextList
+	{
+		ITextList r = new TextNil();
+		while (!l.IsEmpty())
+		{
+			r = new TextCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+}
+
+class IntNil implements IIntList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntCons implements IIntList
+{
+	private readonly Int first;
+	private readonly IIntList rest;
+	public constructor(Int f, IIntList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IIntList
+	{
+		return rest;
+	}
+}
+
+class TextNil implements ITextList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IText
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextCons implements ITextList
+{
+	private readonly IText first;
+	private readonly ITextList rest;
+	public constructor(IText f, ITextList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IText
+	{
+		return first;
+	}
+	public fun Rest() : ITextList
+	{
+		return rest;
+	}
+}
+
+class TextListNil implements ITextListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ITextList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextListCons implements ITextListList
+{
+	private readonly ITextList first;
+	private readonly ITextListList rest;
+	public constructor(ITextList f, ITextListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ITextList
+	{
+		return first;
+	}
+	public fun Rest() : ITextListList
+	{
+		return rest;
+	}
+}
+

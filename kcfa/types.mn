@@ -1,0 +1,240 @@
+# The adapter modules structs-adapted.rkt, benv-adapted.rkt, denotable-adapted.rkt and
+# time-adapted.rkt: Exp, Label, Var, BEnv, Addr, Time, Denotable, Store, State, Value,
+# plus the types of the Racket builtins the program uses: symbols, immutable hash tables,
+# immutable sets, lists.
+
+# a symbol (Var, Label); only its identity matters, the Id is its eq-hash code
+interface ISymbol
+{
+	fun Id() : Int;
+}
+
+# symbol interning (quoted variables) and gensym (labels)
+interface ISymTable
+{
+	fun Var(Int n) : ISymbol;
+	fun Gensym() : ISymbol;
+}
+
+# unique ids standing in for eq-hash codes of new objects
+interface IIdGen
+{
+	fun Next() : Int;
+}
+
+# Exp = (U exp Ref Lam Call); Stx-label, Ref-var, Lam-formals, Lam-call, Call-fun, Call-args
+interface IExp
+{
+	fun Label() : ISymbol;
+	fun IsRef() : Bool;
+	fun IsLam() : Bool;
+	fun IsCall() : Bool;
+	fun RefVar() : ISymbol;
+	fun LamFormals() : ISymList;
+	fun LamCall() : IExp;
+	fun CallFun() : IExp;
+	fun CallArgs() : IExpList;
+}
+
+# Value = Closure
+interface IClosure
+{
+	fun Lam() : IExp;
+	fun Benv() : IBEnv;
+}
+
+# Addr = Binding
+interface IBinding
+{
+	fun Var() : ISymbol;
+	fun Time() : ISymList;
+	fun Id() : Int;
+}
+
+# BEnv = (HashTable Var Addr), immutable, eq?-based
+interface IBEnv
+{
+	fun Lookup(ISymbol v) : IBinding;
+	fun Extend(ISymbol v, IBinding a) : IBEnv;
+}
+
+# Denotable = (Setof Value), immutable; values are compared with equal? (eq? for these structs)
+interface IDenotable
+{
+	fun Count() : Int;
+	fun Contains(IClosure c) : Bool;
+	fun Add(IClosure c) : IDenotable;
+	fun Union(IDenotable other) : IDenotable;
+	fun Elems() : IClosureList;
+}
+
+# Store = (HashTable Addr Denotable), immutable, eq?-based: hash-ref with a default, hash-set
+interface IStore
+{
+	fun Ref(IBinding a, IDenotable dflt) : IDenotable;
+	fun Set(IBinding a, IDenotable d) : IStore;
+	fun Entries() : IStoreEntryList;
+}
+
+interface IStoreEntry
+{
+	fun Key() : IBinding;
+	fun Value() : IDenotable;
+}
+
+interface IState
+{
+	fun Call() : IExp;
+	fun Benv() : IBEnv;
+	fun Store() : IStore;
+	fun Time() : ISymList;
+}
+
+# (Setof State), immutable, equal?-based (eq? for State)
+interface IStateSet
+{
+	fun Count() : Int;
+	fun Member(IState s) : Bool;
+	fun Add(IState s) : IStateSet;
+	fun Elems() : IStateList;
+}
+
+# (-> Var Addr), the result of (alloc time)
+interface IAlloc
+{
+	fun this(ISymbol v) : IBinding;
+}
+
+# (-> Exp Denotable), the result of (atom-eval benv store)
+interface IAtomEval
+{
+	fun this(IExp e) : IDenotable;
+}
+
+# (Setof Exp), immutable, equal?-based (eq? for these structs)
+interface IExpSet
+{
+	fun Count() : Int;
+	fun Contains(IExp e) : Bool;
+	fun Add(IExp e) : IExpSet;
+	fun Union(IExpSet other) : IExpSet;
+}
+
+# MonoStore = (HashTable Var (Setof Exp)), immutable, eq?-based
+interface IMonoStore
+{
+	fun Ref(ISymbol v, IExpSet dflt) : IExpSet;
+	fun Set(ISymbol v, IExpSet s) : IMonoStore;
+	fun Count() : Int;
+	fun Entries() : IMonoEntryList;
+}
+
+interface IMonoEntry
+{
+	fun Key() : ISymbol;
+	fun Value() : IExpSet;
+}
+
+# entry of a BEnv
+interface IBEnvEntry
+{
+	fun Key() : ISymbol;
+	fun Value() : IBinding;
+}
+
+# persistent 16-way trie of IBEnvEntry, keyed by an Int
+interface IBEnvTrie
+{
+	fun Get(Int id, IBEnvEntry dflt) : IBEnvEntry;
+	fun Put(Int id, IBEnvEntry e) : IBEnvTrie;
+	fun Collect(IBEnvEntryList acc) : IBEnvEntryList;
+}
+
+# persistent 16-way trie of IStoreEntry, keyed by an Int
+interface IStoreTrie
+{
+	fun Get(Int id, IStoreEntry dflt) : IStoreEntry;
+	fun Put(Int id, IStoreEntry e) : IStoreTrie;
+	fun Collect(IStoreEntryList acc) : IStoreEntryList;
+}
+
+# persistent 16-way trie of IMonoEntry, keyed by an Int
+interface IMonoTrie
+{
+	fun Get(Int id, IMonoEntry dflt) : IMonoEntry;
+	fun Put(Int id, IMonoEntry e) : IMonoTrie;
+	fun Collect(IMonoEntryList acc) : IMonoEntryList;
+}
+
+# (Listof ISymbol)
+interface ISymList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ISymbol;
+	fun Rest() : ISymList;
+}
+
+# (Listof IExp)
+interface IExpList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IExp;
+	fun Rest() : IExpList;
+}
+
+# (Listof IClosure)
+interface IClosureList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IClosure;
+	fun Rest() : IClosureList;
+}
+
+# (Listof IDenotable)
+interface IDenotableList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IDenotable;
+	fun Rest() : IDenotableList;
+}
+
+# (Listof IBinding)
+interface IBindingList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IBinding;
+	fun Rest() : IBindingList;
+}
+
+# (Listof IState)
+interface IStateList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IState;
+	fun Rest() : IStateList;
+}
+
+# (Listof IStoreEntry)
+interface IStoreEntryList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IStoreEntry;
+	fun Rest() : IStoreEntryList;
+}
+
+# (Listof IMonoEntry)
+interface IMonoEntryList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IMonoEntry;
+	fun Rest() : IMonoEntryList;
+}
+
+# (Listof IBEnvEntry)
+interface IBEnvEntryList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IBEnvEntry;
+	fun Rest() : IBEnvEntryList;
+}
+

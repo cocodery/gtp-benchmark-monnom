@@ -1,0 +1,207 @@
+# main.rkt: longest common substrings of all pairs of lines of base/prufock.txt
+# (also contains lcs.rkt, merged here to keep the configuration count down).
+
+# the local state of longest-common-sublabel (its set!-ed variables and hash tables)
+class LcsState
+{
+	public readonly INodeMarks Label1Marks;
+	public readonly INodeMarks Label2Marks;
+	public INode DeepestNode;
+	public Int DeepestDepth;
+	public readonly ILabel Label1;
+	public readonly ILabel Label2;
+	public constructor(INodeMarks m1, INodeMarks m2, INode d, ILabel l1, ILabel l2)
+	{
+		Label1Marks = m1;
+		Label2Marks = m2;
+		DeepestNode = d;
+		DeepestDepth = 0;
+		Label1 = l1;
+		Label2 = l2;
+	}
+}
+
+class Lcs
+{
+	# the sentinels come from `gensym`, a global counter in Racket, passed explicitly here
+	public static fun LongestCommonSubstring(IText s1, IText s2, IGensym gensym) : IText
+	{
+		return Labels.LabelToString(Lcs.LongestCommonSublabel(Labels.StringToLabelWithSentinel(s1, gensym), Labels.StringToLabelWithSentinel(s2, gensym)));
+	}
+
+	public static fun LongestCommonSublabel(ILabel label1, ILabel label2) : ILabel
+	{
+		IGensym hashIds = new Gensym();
+		IText noLcs = Builtins.EmptyText();
+		noLcs.Push(110);
+		noLcs.Push(111);
+		noLcs.Push(32);
+		noLcs.Push(108);
+		noLcs.Push(99);
+		noLcs.Push(115);
+		INode deepestNode = Data.MakeNode(Labels.MakeLabelFromString(noLcs), Data.False(), new NodeNil(), Data.False());
+		LcsState st = new LcsState(new NodeMarks(hashIds), new NodeMarks(hashIds), deepestNode, label1, label2);
+		if (Labels.LabelLength(label1) == 0)
+		{
+			return Labels.StringToLabel(Builtins.EmptyText());
+		}
+		if (Labels.LabelLength(label2) == 0)
+		{
+			return Labels.StringToLabel(Builtins.EmptyText());
+		}
+		return Lcs.Main(st);
+	}
+
+	public static fun Main(LcsState st) : ILabel
+	{
+		ITree tree = Structs.MakeTree();
+		Ukkonen.TreeAdd(tree, st.Label1);
+		Ukkonen.TreeAdd(tree, st.Label2);
+		Lcs.MarkUpInnerNodes(st, Structs.TreeRoot(tree), 0);
+		return Lcs.PathLabel(st.DeepestNode);
+	}
+
+	public static fun MarkUpInnerNodes(LcsState st, INode node, Int depth) : Int
+	{
+		if (node.Children().IsEmpty())
+		{
+			if (Labels.LabelSourceEq(node.UpLabel(), st.Label1))
+			{
+				st.Label1Marks.Set(node, true);
+			}
+			if (Labels.LabelSourceEq(node.UpLabel(), st.Label2))
+			{
+				st.Label2Marks.Set(node, true);
+			}
+			return 0;
+		}
+		INodeList children = node.Children();
+		while (!children.IsEmpty())
+		{
+			INode child = children.First();
+			Int i = depth + Labels.LabelLength(child.UpLabel());
+			Lcs.MarkUpInnerNodes(st, child, i);
+			children = children.Rest();
+		}
+		return Lcs.AbsorbChildrenMarks(st, node, depth);
+	}
+
+	public static fun MarkedByBoth(LcsState st, INode node) : Bool
+	{
+		if (st.Label1Marks.Ref(node))
+		{
+			return st.Label2Marks.Ref(node);
+		}
+		return false;
+	}
+
+	public static fun AbsorbChildrenMarks(LcsState st, INode node, Int depth) : Int
+	{
+		INodeList children = node.Children();
+		while (!children.IsEmpty())
+		{
+			INode child = children.First();
+			if (st.Label1Marks.Ref(child))
+			{
+				st.Label1Marks.Set(node, true);
+			}
+			if (st.Label2Marks.Ref(child))
+			{
+				st.Label2Marks.Set(node, true);
+			}
+			children = children.Rest();
+		}
+		if (Lcs.MarkedByBoth(st, node))
+		{
+			if (depth > st.DeepestDepth)
+			{
+				st.DeepestDepth = depth;
+				st.DeepestNode = node;
+			}
+		}
+		return 0;
+	}
+
+	public static fun PathLabel(INode node) : ILabel
+	{
+		# collect-loop
+		ILabelList collected = new LabelNil();
+		Int total = 0;
+		INode current = node;
+		while (!current.IsFalse())
+		{
+			collected = new LabelCons(current.UpLabel(), collected);
+			total = total + Labels.LabelLength(current.UpLabel());
+			current = current.Parent();
+		}
+		return Lcs.BuildNewLabel(collected, total);
+	}
+
+	public static fun VectorBlit(ILabel src, IVec dest, Int destOffset) : Int
+	{
+		Int i = 0;
+		while (i < Labels.LabelLength(src))
+		{
+			dest.Set(i + destOffset, Labels.LabelRef(src, i));
+			i = i + 1;
+		}
+		return 0;
+	}
+
+	public static fun BuildNewLabel(ILabelList labels, Int total) : ILabel
+	{
+		# (make-vector total-length 'X): -1 stands for the placeholder symbol
+		IVec v = Builtins.MakeVector(total, -1);
+		Int i = 0;
+		ILabelList l = labels;
+		while (!l.IsEmpty())
+		{
+			Lcs.VectorBlit(l.First(), v, i);
+			i = i + Labels.LabelLength(l.First());
+			l = l.Rest();
+		}
+		return Labels.VectorToLabel(v);
+	}
+}
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		# (file->lines "../base/prufock.txt")
+		ArrayList<ArrayList<Int>> raw = Prufock.Lines();
+		ArrayList<IText> lines = new ArrayList<IText>();
+		foreach (ArrayList<Int> r in raw)
+		{
+			lines.Add(Builtins.FromCodes(r));
+		}
+		IGensym gensym = new Gensym();
+		Int n = 0;
+		Int len = 0;
+		Int codes = 0;
+		Timer t = new Timer();
+		foreach (IText a in lines)
+		{
+			foreach (IText b in lines)
+			{
+				IText r = Lcs.LongestCommonSubstring(a, b, gensym);
+				n = n + 1;
+				len = len + r.Length();
+				Int k = 0;
+				while (k < r.Length())
+				{
+					codes = codes + r.CharAt(k);
+					k = k + 1;
+				}
+			}
+		}
+		t.PrintDifference();
+		"\n".Print();
+		n.ToString().Print();
+		"\n".Print();
+		len.ToString().Print();
+		"\n".Print();
+		codes.ToString().Print();
+		"\n".Print();
+	}
+}

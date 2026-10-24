@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><project name="GtpLnm" mainclass="Main" major="1" minor="0" revision="0" build="0"><files><file name="types.mn" /><file name="lib.mn" /><file name="bitstring.mn" /><file name="summary.mn" /><file name="lnm-plot.mn" /><file name="main.mn" /></files><libraryfiles><file name="snake-data.mn" /></libraryfiles></project>

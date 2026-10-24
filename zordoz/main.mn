@@ -1,0 +1,31 @@
+# main.rkt: search the parsed bytecode of typed-zo-find_rkt.zo for "branch" structs
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		# (parse-data TYPED-DATA), outside the timed region as in the original
+		IZo zo = ZoShell.ZoRead();
+		Timer t = new Timer();
+		IResultList rs = ZoShell.Init(Builtins.MakeInitArgs(zo, Txt.PushWord(Txt.Empty(), 3600220191074)));
+		t.PrintDifference();
+		"\n".Print();
+		Int n = 0;
+		Int paths = 0;
+		while (!rs.IsEmpty())
+		{
+			n = n + 1;
+			IZoList p = rs.First().Path();
+			while (!p.IsEmpty())
+			{
+				paths = paths + 1;
+				p = p.Rest();
+			}
+			rs = rs.Rest();
+		}
+		n.ToString().Print();
+		"\n".Print();
+		paths.ToString().Print();
+		"\n".Print();
+	}
+}

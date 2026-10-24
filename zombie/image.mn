@@ -1,0 +1,91 @@
+# image.rkt: placeholder for images; pretends to render data.
+# The image's impl is Any in Racket (a pair or a list); here the three shapes are classes.
+
+class Image implements IImage
+{
+	private readonly dyn impl;
+	public constructor(dyn i)
+	{
+		impl = i;
+	}
+	public fun Impl() : dyn
+	{
+		return impl;
+	}
+}
+
+# (cons w h)
+class SceneImpl
+{
+	public readonly Float W;
+	public readonly Float H;
+	public constructor(Float w, Float h)
+	{
+		W = w;
+		H = h;
+	}
+	public fun Kind() : Int
+	{
+		return 0;
+	}
+}
+
+# (list i1 w h i2)
+class PlaceImpl
+{
+	public readonly IImage I1;
+	public readonly Float W;
+	public readonly Float H;
+	public readonly IImage I2;
+	public constructor(IImage i1, Float w, Float h, IImage i2)
+	{
+		I1 = i1;
+		W = w;
+		H = h;
+		I2 = i2;
+	}
+	public fun Kind() : Int
+	{
+		return 1;
+	}
+}
+
+# (list radius style color)
+class CircleImpl
+{
+	public readonly Float Radius;
+	public readonly String Style;
+	public readonly String Color;
+	public constructor(Float r, String s, String c)
+	{
+		Radius = r;
+		Style = s;
+		Color = c;
+	}
+	public fun Kind() : Int
+	{
+		return 2;
+	}
+}
+
+class Images
+{
+	public static fun EmptyScene(Float w, Float h) : IImage
+	{
+		if (w < 0.0 || h < 0.0)
+		{
+			ERROR("image: Arguments must be non-negative real numbers");
+		}
+		return new Image(new SceneImpl(w, h));
+	}
+
+	public static fun PlaceImage(IImage i1, Float w, Float h, IImage i2) : IImage
+	{
+		return new Image(new PlaceImpl(i1, w, h, i2));
+	}
+
+	public static fun Circle(Float radius, String style, String color) : IImage
+	{
+		return new Image(new CircleImpl(radius, style, color));
+	}
+}

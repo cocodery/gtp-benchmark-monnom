@@ -1,0 +1,37 @@
+# math.rkt
+
+class MathRkt
+{
+	public static fun Min(Float x, Float y) : Float
+	{
+		if (x <= y)
+		{
+			return x;
+		}
+		return y;
+	}
+	public static fun Max(Float x, Float y) : Float
+	{
+		if (x >= y)
+		{
+			return x;
+		}
+		return y;
+	}
+	public static fun Abs(Float x) : Float
+	{
+		if (x >= 0.0)
+		{
+			return x;
+		}
+		return 0.0 - x;
+	}
+	public static fun Sqr(Float x) : Float
+	{
+		return x * x;
+	}
+	public static fun Msqrt(Float x) : Float
+	{
+		return Math.Sqrt(x);
+	}
+}

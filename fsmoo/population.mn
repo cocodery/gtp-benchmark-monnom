@@ -1,0 +1,137 @@
+# population.rkt: populations of automata, as a class.
+# Racket's global random generator is a field here (no global state in MonNom).
+
+# population%
+class Population implements IPopulation
+{
+	private ArrayList<IAutomaton> a;
+	private ArrayList<IAutomaton> b;
+	private readonly IRng rng;
+	public constructor(ArrayList<IAutomaton> a0, ArrayList<IAutomaton> b0, IRng r)
+	{
+		a = a0;
+		b = b0;
+		rng = r;
+	}
+
+	public fun Payoffs() : IIntList
+	{
+		IIntList res = new IntNil();
+		Int i = a.Length() - 1;
+		while (i >= 0)
+		{
+			res = new IntCons(a.Get(i).Pay(), res);
+			i = i - 1;
+		}
+		return res;
+	}
+
+	public fun MatchUpStar(Int roundsPerMatch) : Int
+	{
+		# comment out this line if you want cummulative payoff histories
+		this.Reset();
+		Int i = 0;
+		while (i < a.Length() - 1)
+		{
+			IAutomaton p1 = a.Get(i);
+			IAutomaton p2 = a.Get(i + 1);
+			IAutomatonPair r = p1.MatchPair(p2, roundsPerMatch);
+			a.Set(i, r.Fst());
+			a.Set(i + 1, r.Snd());
+			i = i + 2;
+		}
+		return i;
+	}
+
+	public fun DeathBirth(Int rate, Float q) : Int
+	{
+		IIntList payoffs = this.Payoffs();
+		IIntList substitutes = Populations.ChooseRandomly(payoffs, rate, q, rng);
+		Int i = 0;
+		while (i < rate)
+		{
+			if (substitutes.IsEmpty())
+			{
+				break;
+			}
+			a.Set(i, b.Get(substitutes.First()).Clone());
+			substitutes = substitutes.Rest();
+			i = i + 1;
+		}
+		return this.ShuffleVector();
+	}
+
+	# private: effect: reset all automata in a*
+	public fun Reset() : Int
+	{
+		Int i = 0;
+		while (i < a.Length())
+		{
+			a.Set(i, a.Get(i).Reset());
+			i = i + 1;
+		}
+		return i;
+	}
+
+	# private: effect: shuffle vector b into vector a (Fisher-Yates), then swap a* and b*
+	public fun ShuffleVector() : Int
+	{
+		# copy a into b
+		Int i = 0;
+		while (i < a.Length())
+		{
+			b.Set(i, a.Get(i));
+			i = i + 1;
+		}
+		# now shuffle
+		i = 0;
+		while (i < a.Length())
+		{
+			IAutomaton x = a.Get(i);
+			Int j = rng.NextInt(i + 1);
+			if (j != i)
+			{
+				b.Set(i, b.Get(j));
+			}
+			b.Set(j, x);
+			i = i + 1;
+		}
+		ArrayList<IAutomaton> tmp = a;
+		a = b;
+		b = tmp;
+		return i;
+	}
+}
+
+class Populations
+{
+	# (choose-randomly payoffs* rate #:random q) with q < 0.0 standing for #f
+	# (a comparison result cannot be passed as a Bool argument: the runtime rejects the call)
+	public static fun ChooseRandomly(IIntList payoffs, Int rate, Float q, IRng rng) : IIntList
+	{
+		if (q >= 0.0)
+		{
+			return Utilities.ChooseRandomly(payoffs, rate, true, q, rng);
+		}
+		return Utilities.ChooseRandomly(payoffs, rate, false, q, rng);
+	}
+
+	public static fun DefCoo() : Int
+	{
+		return 2;
+	}
+
+	# (build-population n) for even n, build a population of size n
+	public static fun BuildRandomPopulation(Int n, IRng rng) : IPopulation
+	{
+		ArrayList<IAutomaton> v = new ArrayList<IAutomaton>();
+		Int i = 0;
+		while (i < n)
+		{
+			v.Add(Automata.MakeRandomAutomaton(Populations.DefCoo(), rng));
+			i = i + 1;
+		}
+		# (init-field a* (b* a*))
+		return new Population(v, v, rng);
+	}
+}

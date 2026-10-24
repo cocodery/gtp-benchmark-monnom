@@ -1,0 +1,2173 @@
+# Stand-ins for the Racket builtins and base libraries: strings, symbols, the s-expression values
+# of quads (lists, pairs, flonums, ...), vectors, flonum rounding, string-keyed hash tables,
+# base/csp (the backtracking solver, for the single-variable problems of lines->columns),
+# racket/draw (the text measurements, embedded in measdata.mn, and a recording drawing context
+# instead of pdf-dc%), lists.
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Txt
+{
+	public static fun Empty() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+
+	# up to 3 code points packed base 2^21, first in the lowest digit
+	public static fun PushWide(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 2097152);
+			packed = packed / 2097152;
+		}
+		return t;
+	}
+
+	public static fun Char(Int c) : IText
+	{
+		return Txt.Empty().Push(c);
+	}
+
+	public static fun FromCodes(ArrayList<Int> cs) : IText
+	{
+		IText t = Txt.Empty();
+		foreach (Int c in cs)
+		{
+			t.Push(c);
+		}
+		return t;
+	}
+
+	public static fun Append(IText a, IText b) : IText
+	{
+		IText t = Txt.Empty();
+		Int i = 0;
+		while (i < a.Length())
+		{
+			t.Push(a.CharAt(i));
+			i = i + 1;
+		}
+		Int j = 0;
+		while (j < b.Length())
+		{
+			t.Push(b.CharAt(j));
+			j = j + 1;
+		}
+		return t;
+	}
+
+	public static fun Substring(IText a, Int start, Int end) : IText
+	{
+		IText t = Txt.Empty();
+		Int i = start;
+		while (i < end)
+		{
+			t.Push(a.CharAt(i));
+			i = i + 1;
+		}
+		return t;
+	}
+
+	public static fun Equal(IText a, IText b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (a.CharAt(i) != b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	public static fun Member(IText s, ITextList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (Txt.Equal(s, l.First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	# char-downcase (Basic Latin and Latin-1)
+	public static fun CharDowncase(Int c) : Int
+	{
+		if (c >= 65)
+		{
+			if (c <= 90)
+			{
+				return c + 32;
+			}
+		}
+		if (c >= 192)
+		{
+			if (c <= 222)
+			{
+				if (c != 215)
+				{
+					return c + 32;
+				}
+			}
+		}
+		return c;
+	}
+
+	public static fun Downcase(IText a) : IText
+	{
+		IText t = Txt.Empty();
+		Int i = 0;
+		while (i < a.Length())
+		{
+			t.Push(Txt.CharDowncase(a.CharAt(i)));
+			i = i + 1;
+		}
+		return t;
+	}
+
+	# \w of Racket regexps: [a-zA-Z0-9_]
+	public static fun IsWordChar(Int c) : Bool
+	{
+		if (c >= 97)
+		{
+			return c <= 122;
+		}
+		if (c >= 65)
+		{
+			if (c <= 90)
+			{
+				return true;
+			}
+			return c == 95;
+		}
+		if (c >= 48)
+		{
+			return c <= 57;
+		}
+		return false;
+	}
+
+	# \p{Zs}: the Unicode space separators
+	public static fun IsZs(Int c) : Bool
+	{
+		if (c == 32)
+		{
+			return true;
+		}
+		if (c == 160)
+		{
+			return true;
+		}
+		if (c == 5760)
+		{
+			return true;
+		}
+		if (c >= 8192)
+		{
+			if (c <= 8202)
+			{
+				return true;
+			}
+		}
+		if (c == 8239)
+		{
+			return true;
+		}
+		if (c == 8287)
+		{
+			return true;
+		}
+		return c == 12288;
+	}
+
+	# (regexp-match #px"\\p{Zs}" x)
+	public static fun HasZs(IText x) : Bool
+	{
+		Int i = 0;
+		while (i < x.Length())
+		{
+			if (Txt.IsZs(x.CharAt(i)))
+			{
+				return true;
+			}
+			i = i + 1;
+		}
+		return false;
+	}
+
+	public static fun HasChar(IText x, Int c) : Bool
+	{
+		Int i = 0;
+		while (i < x.Length())
+		{
+			if (x.CharAt(i) == c)
+			{
+				return true;
+			}
+			i = i + 1;
+		}
+		return false;
+	}
+
+	# string-join
+	public static fun Join(ITextList l, IText sep) : IText
+	{
+		IText t = Txt.Empty();
+		Bool first = true;
+		while (!l.IsEmpty())
+		{
+			if (first)
+			{
+				t = Txt.Append(t, l.First());
+				first = false;
+				l = l.Rest();
+				continue;
+			}
+			t = Txt.Append(Txt.Append(t, sep), l.First());
+			l = l.Rest();
+		}
+		return t;
+	}
+}
+
+# interned symbols: one id per symbol of the program (0 box, 1 run, 2 spacer, 3 doc, 4 optical-kern, 5 piece, 6 word, 7 word-break, 8 page, 9 page-break, 10 column, 11 column-break, 12 line, 13 block, 14 block-break, 15 null, 16 char, 17 size, 18 font, 19 weight, 20 style, 21 color, 22 background, 23 leading, 24 measure, 25 x-align, 26 x-align-last-line, 27 column-count, 28 column-gutter, 29 quality, 30 paper-width, 31 looseness, 32 width, 33 nb, 34 bb, 35 ascent, 36 height, 37 no-break, 38 line-idx, 39 lines, 40 column-idx, 41 x, 42 y, 43 vmeasure, 44 normal, 45 bold, 46 light, 47 italic, 48 slant, 49 left, 50 right, 51 center, 52 justified, 53 justify, 54 none, 55 debug, 56 attr-missing)
+class Sym
+{
+	public static fun Box() : Int
+	{
+		return 0;
+	}
+	public static fun Run() : Int
+	{
+		return 1;
+	}
+	public static fun Spacer() : Int
+	{
+		return 2;
+	}
+	public static fun Doc() : Int
+	{
+		return 3;
+	}
+	public static fun OpticalKern() : Int
+	{
+		return 4;
+	}
+	public static fun Piece() : Int
+	{
+		return 5;
+	}
+	public static fun Word() : Int
+	{
+		return 6;
+	}
+	public static fun WordBreak() : Int
+	{
+		return 7;
+	}
+	public static fun Page() : Int
+	{
+		return 8;
+	}
+	public static fun PageBreak() : Int
+	{
+		return 9;
+	}
+	public static fun Column() : Int
+	{
+		return 10;
+	}
+	public static fun ColumnBreak() : Int
+	{
+		return 11;
+	}
+	public static fun Line() : Int
+	{
+		return 12;
+	}
+	public static fun Block() : Int
+	{
+		return 13;
+	}
+	public static fun BlockBreak() : Int
+	{
+		return 14;
+	}
+	public static fun Null() : Int
+	{
+		return 15;
+	}
+	public static fun Char() : Int
+	{
+		return 16;
+	}
+	public static fun Size() : Int
+	{
+		return 17;
+	}
+	public static fun Font() : Int
+	{
+		return 18;
+	}
+	public static fun Weight() : Int
+	{
+		return 19;
+	}
+	public static fun Style() : Int
+	{
+		return 20;
+	}
+	public static fun Color() : Int
+	{
+		return 21;
+	}
+	public static fun Background() : Int
+	{
+		return 22;
+	}
+	public static fun Leading() : Int
+	{
+		return 23;
+	}
+	public static fun Measure() : Int
+	{
+		return 24;
+	}
+	public static fun XAlign() : Int
+	{
+		return 25;
+	}
+	public static fun XAlignLastLine() : Int
+	{
+		return 26;
+	}
+	public static fun ColumnCount() : Int
+	{
+		return 27;
+	}
+	public static fun ColumnGutter() : Int
+	{
+		return 28;
+	}
+	public static fun Quality() : Int
+	{
+		return 29;
+	}
+	public static fun PaperWidth() : Int
+	{
+		return 30;
+	}
+	public static fun Looseness() : Int
+	{
+		return 31;
+	}
+	public static fun Width() : Int
+	{
+		return 32;
+	}
+	public static fun Nb() : Int
+	{
+		return 33;
+	}
+	public static fun Bb() : Int
+	{
+		return 34;
+	}
+	public static fun Ascent() : Int
+	{
+		return 35;
+	}
+	public static fun Height() : Int
+	{
+		return 36;
+	}
+	public static fun NoBreak() : Int
+	{
+		return 37;
+	}
+	public static fun LineIdx() : Int
+	{
+		return 38;
+	}
+	public static fun Lines() : Int
+	{
+		return 39;
+	}
+	public static fun ColumnIdx() : Int
+	{
+		return 40;
+	}
+	public static fun X() : Int
+	{
+		return 41;
+	}
+	public static fun Y() : Int
+	{
+		return 42;
+	}
+	public static fun Vmeasure() : Int
+	{
+		return 43;
+	}
+	public static fun Normal() : Int
+	{
+		return 44;
+	}
+	public static fun Bold() : Int
+	{
+		return 45;
+	}
+	public static fun Light() : Int
+	{
+		return 46;
+	}
+	public static fun Italic() : Int
+	{
+		return 47;
+	}
+	public static fun Slant() : Int
+	{
+		return 48;
+	}
+	public static fun Left() : Int
+	{
+		return 49;
+	}
+	public static fun Right() : Int
+	{
+		return 50;
+	}
+	public static fun Center() : Int
+	{
+		return 51;
+	}
+	public static fun Justified() : Int
+	{
+		return 52;
+	}
+	public static fun Justify() : Int
+	{
+		return 53;
+	}
+	public static fun None() : Int
+	{
+		return 54;
+	}
+	public static fun Debug() : Int
+	{
+		return 55;
+	}
+	public static fun AttrMissing() : Int
+	{
+		return 56;
+	}
+}
+
+# ---- s-expression values ----
+
+class ValS implements IVal
+{
+	private readonly Int kind;
+	private readonly Float f;
+	private readonly Int i;
+	private readonly IText s;
+	private readonly Int sym;
+	private readonly Bool b;
+	private readonly IQuad q;
+	private readonly IAttrList attrs;
+	private readonly IItemList items;
+	public constructor(Int k, Float ff, Int ii, IText ss, Int sy, Bool bb, IQuad qq, IAttrList a, IItemList it)
+	{
+		kind = k;
+		f = ff;
+		i = ii;
+		s = ss;
+		sym = sy;
+		b = bb;
+		q = qq;
+		attrs = a;
+		items = it;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun F() : Float
+	{
+		if (kind != 0)
+		{
+			ERROR("assert: flonum?");
+		}
+		return f;
+	}
+	public fun I() : Int
+	{
+		if (kind != 1)
+		{
+			ERROR("assert: exact-integer?");
+		}
+		return i;
+	}
+	public fun S() : IText
+	{
+		if (kind != 2)
+		{
+			ERROR("assert: string?");
+		}
+		return s;
+	}
+	public fun Sym() : Int
+	{
+		if (kind != 3)
+		{
+			ERROR("assert: symbol?");
+		}
+		return sym;
+	}
+	public fun B() : Bool
+	{
+		if (kind != 4)
+		{
+			ERROR("assert: boolean?");
+		}
+		return b;
+	}
+	public fun Q() : IQuad
+	{
+		if (kind != 5)
+		{
+			ERROR("assert: quad?");
+		}
+		return q;
+	}
+	public fun Attrs() : IAttrList
+	{
+		if (kind != 6)
+		{
+			ERROR("assert: quad-attrs?");
+		}
+		return attrs;
+	}
+	public fun Items() : IItemList
+	{
+		if (kind != 7)
+		{
+			ERROR("assert: QuadList?");
+		}
+		return items;
+	}
+}
+
+class QuadS implements IQuad
+{
+	private readonly Int name;
+	private readonly IAttrList attrs;
+	private readonly IItemList items;
+	public constructor(Int n, IAttrList a, IItemList it)
+	{
+		name = n;
+		attrs = a;
+		items = it;
+	}
+	public fun Name() : Int
+	{
+		return name;
+	}
+	public fun Attrs() : IAttrList
+	{
+		return attrs;
+	}
+	public fun Items() : IItemList
+	{
+		return items;
+	}
+}
+
+class AttrS implements IAttr
+{
+	private readonly Int key;
+	private readonly IVal value;
+	public constructor(Int k, IVal v)
+	{
+		key = k;
+		value = v;
+	}
+	public fun Key() : Int
+	{
+		return key;
+	}
+	public fun Value() : IVal
+	{
+		return value;
+	}
+}
+
+class ItemS implements IItem
+{
+	private readonly Bool isString;
+	private readonly IText str;
+	private readonly IQuad q;
+	public constructor(Bool s, IText t, IQuad qq)
+	{
+		isString = s;
+		str = t;
+		q = qq;
+	}
+	public fun IsString() : Bool
+	{
+		return isString;
+	}
+	public fun Str() : IText
+	{
+		if (!isString)
+		{
+			ERROR("assert: string?");
+		}
+		return str;
+	}
+	public fun Q() : IQuad
+	{
+		if (isString)
+		{
+			ERROR("assert: quad?");
+		}
+		return q;
+	}
+}
+
+class Vals
+{
+	public static fun NoQuad() : IQuad
+	{
+		return new QuadS(Sym.Null(), new AttrNil(), new ItemNil());
+	}
+	public static fun Make(Int k, Float f, Int i, IText s, Int sy, Bool b, IQuad q, IAttrList a, IItemList it) : IVal
+	{
+		return new ValS(k, f, i, s, sy, b, q, a, it);
+	}
+	public static fun F(Float x) : IVal
+	{
+		return Vals.Make(0, x, 0, Txt.Empty(), 0, false, Vals.NoQuad(), new AttrNil(), new ItemNil());
+	}
+	public static fun I(Int x) : IVal
+	{
+		return Vals.Make(1, 0.0, x, Txt.Empty(), 0, false, Vals.NoQuad(), new AttrNil(), new ItemNil());
+	}
+	public static fun S(IText x) : IVal
+	{
+		return Vals.Make(2, 0.0, 0, x, 0, false, Vals.NoQuad(), new AttrNil(), new ItemNil());
+	}
+	public static fun Sym(Int x) : IVal
+	{
+		return Vals.Make(3, 0.0, 0, Txt.Empty(), x, false, Vals.NoQuad(), new AttrNil(), new ItemNil());
+	}
+	public static fun B(Bool x) : IVal
+	{
+		return Vals.Make(4, 0.0, 0, Txt.Empty(), 0, x, Vals.NoQuad(), new AttrNil(), new ItemNil());
+	}
+	public static fun Q(IQuad x) : IVal
+	{
+		return Vals.Make(5, 0.0, 0, Txt.Empty(), 0, false, x, new AttrNil(), new ItemNil());
+	}
+	public static fun Attrs(IAttrList x) : IVal
+	{
+		return Vals.Make(6, 0.0, 0, Txt.Empty(), 0, false, Vals.NoQuad(), x, new ItemNil());
+	}
+	public static fun Items(IItemList x) : IVal
+	{
+		return Vals.Make(7, 0.0, 0, Txt.Empty(), 0, false, Vals.NoQuad(), new AttrNil(), x);
+	}
+	# (gensym): attr-missing
+	public static fun Missing() : IVal
+	{
+		return Vals.Make(8, 0.0, 0, Txt.Empty(), Sym.AttrMissing(), false, Vals.NoQuad(), new AttrNil(), new ItemNil());
+	}
+
+	public static fun IsFalse(IVal v) : Bool
+	{
+		if (v.Kind() == 4)
+		{
+			return !v.B();
+		}
+		return false;
+	}
+
+	# '() as a QuadAttrs or a QuadList
+	public static fun IsNull(IVal v) : Bool
+	{
+		if (v.Kind() == 6)
+		{
+			return v.Attrs().IsEmpty();
+		}
+		if (v.Kind() == 7)
+		{
+			return v.Items().IsEmpty();
+		}
+		return false;
+	}
+
+	# equal?
+	public static fun Equal(IVal a, IVal b) : Bool
+	{
+		if (Vals.IsNull(a))
+		{
+			return Vals.IsNull(b);
+		}
+		if (Vals.IsNull(b))
+		{
+			return false;
+		}
+		if (a.Kind() != b.Kind())
+		{
+			return false;
+		}
+		Int k = a.Kind();
+		if (k == 0)
+		{
+			return Vals.FlEq(a.F(), b.F());
+		}
+		if (k == 1)
+		{
+			return a.I() == b.I();
+		}
+		if (k == 2)
+		{
+			return Txt.Equal(a.S(), b.S());
+		}
+		if (k == 3)
+		{
+			return a.Sym() == b.Sym();
+		}
+		if (k == 4)
+		{
+			return a.B() == b.B();
+		}
+		if (k == 5)
+		{
+			return Vals.QuadEqual(a.Q(), b.Q());
+		}
+		if (k == 6)
+		{
+			return Vals.AttrsEqual(a.Attrs(), b.Attrs());
+		}
+		if (k == 7)
+		{
+			return Vals.ItemsEqual(a.Items(), b.Items());
+		}
+		return true;
+	}
+
+	public static fun FlEq(Float a, Float b) : Bool
+	{
+		if (a == b)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public static fun QuadEqual(IQuad a, IQuad b) : Bool
+	{
+		if (a.Name() != b.Name())
+		{
+			return false;
+		}
+		if (!Vals.AttrsEqual(a.Attrs(), b.Attrs()))
+		{
+			return false;
+		}
+		return Vals.ItemsEqual(a.Items(), b.Items());
+	}
+
+	public static fun AttrEqual(IAttr a, IAttr b) : Bool
+	{
+		if (a.Key() != b.Key())
+		{
+			return false;
+		}
+		return Vals.Equal(a.Value(), b.Value());
+	}
+
+	public static fun AttrsEqual(IAttrList a, IAttrList b) : Bool
+	{
+		while (!a.IsEmpty())
+		{
+			if (b.IsEmpty())
+			{
+				return false;
+			}
+			if (!Vals.AttrEqual(a.First(), b.First()))
+			{
+				return false;
+			}
+			a = a.Rest();
+			b = b.Rest();
+		}
+		return b.IsEmpty();
+	}
+
+	public static fun ItemEqual(IItem a, IItem b) : Bool
+	{
+		if (a.IsString() != b.IsString())
+		{
+			return false;
+		}
+		if (a.IsString())
+		{
+			return Txt.Equal(a.Str(), b.Str());
+		}
+		return Vals.QuadEqual(a.Q(), b.Q());
+	}
+
+	public static fun ItemsEqual(IItemList a, IItemList b) : Bool
+	{
+		while (!a.IsEmpty())
+		{
+			if (b.IsEmpty())
+			{
+				return false;
+			}
+			if (!Vals.ItemEqual(a.First(), b.First()))
+			{
+				return false;
+			}
+			a = a.Rest();
+			b = b.Rest();
+		}
+		return b.IsEmpty();
+	}
+
+	public static fun MakeQuad(Int n, IAttrList a, IItemList it) : IQuad
+	{
+		return new QuadS(n, a, it);
+	}
+
+	public static fun Attr(Int k, IVal v) : IAttr
+	{
+		return new AttrS(k, v);
+	}
+
+	public static fun StrItem(IText t) : IItem
+	{
+		return new ItemS(true, t, Vals.NoQuad());
+	}
+
+	public static fun QuadItem(IQuad q) : IItem
+	{
+		return new ItemS(false, Txt.Empty(), q);
+	}
+}
+
+# ---- vectors ----
+
+class IntVecS implements IIntVec
+{
+	private readonly ArrayList<Int> e;
+	public constructor(ArrayList<Int> x)
+	{
+		e = x;
+	}
+	public fun Length() : Int
+	{
+		return e.Length();
+	}
+	public fun Ref(Int i) : Int
+	{
+		return e.Get(i);
+	}
+	public fun Set(Int i, Int v) : Int
+	{
+		e.Set(i, v);
+		return v;
+	}
+}
+
+class FloatVecS implements IFloatVec
+{
+	private readonly ArrayList<Float> e;
+	public constructor(ArrayList<Float> x)
+	{
+		e = x;
+	}
+	public fun Length() : Int
+	{
+		return e.Length();
+	}
+	public fun Ref(Int i) : Float
+	{
+		return e.Get(i);
+	}
+	public fun Set(Int i, Float v) : Int
+	{
+		e.Set(i, v);
+		return i;
+	}
+}
+
+class BoolVecS implements IBoolVec
+{
+	private readonly ArrayList<Bool> e;
+	public constructor(ArrayList<Bool> x)
+	{
+		e = x;
+	}
+	public fun Length() : Int
+	{
+		return e.Length();
+	}
+	public fun Ref(Int i) : Bool
+	{
+		return e.Get(i);
+	}
+	public fun Set(Int i, Bool v) : Int
+	{
+		e.Set(i, v);
+		return i;
+	}
+}
+
+class PenaltyVecS implements IPenaltyVec
+{
+	private readonly ArrayList<IPenalty> e;
+	public constructor(ArrayList<IPenalty> x)
+	{
+		e = x;
+	}
+	public fun Length() : Int
+	{
+		return e.Length();
+	}
+	public fun Ref(Int i) : IPenalty
+	{
+		return e.Get(i);
+	}
+	public fun Set(Int i, IPenalty p) : Int
+	{
+		e.Set(i, p);
+		return i;
+	}
+}
+
+class QuadVecS implements IQuadVec
+{
+	private readonly ArrayList<IQuad> e;
+	public constructor(ArrayList<IQuad> x)
+	{
+		e = x;
+	}
+	public fun Length() : Int
+	{
+		return e.Length();
+	}
+	public fun Ref(Int i) : IQuad
+	{
+		return e.Get(i);
+	}
+}
+
+class Vecs
+{
+	public static fun MakeInt(Int n, Int v) : IIntVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new IntVecS(e);
+	}
+	public static fun MakeFloat(Int n, Float v) : IFloatVec
+	{
+		ArrayList<Float> e = new ArrayList<Float>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new FloatVecS(e);
+	}
+	public static fun MakeBool(Int n, Bool v) : IBoolVec
+	{
+		ArrayList<Bool> e = new ArrayList<Bool>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new BoolVecS(e);
+	}
+	public static fun MakePenalty(Int n, IPenalty v) : IPenaltyVec
+	{
+		ArrayList<IPenalty> e = new ArrayList<IPenalty>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new PenaltyVecS(e);
+	}
+	# (list->vector qs)
+	public static fun QuadsToVector(IQuadList l) : IQuadVec
+	{
+		ArrayList<IQuad> e = new ArrayList<IQuad>();
+		while (!l.IsEmpty())
+		{
+			e.Add(l.First());
+			l = l.Rest();
+		}
+		return new QuadVecS(e);
+	}
+	# vector-append of one element
+	public static fun IntAppend1(IIntVec v, Int x) : IIntVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < v.Length())
+		{
+			e.Add(v.Ref(i));
+			i = i + 1;
+		}
+		e.Add(x);
+		return new IntVecS(e);
+	}
+	public static fun PenaltyAppend1(IPenaltyVec v, IPenalty x) : IPenaltyVec
+	{
+		ArrayList<IPenalty> e = new ArrayList<IPenalty>();
+		Int i = 0;
+		while (i < v.Length())
+		{
+			e.Add(v.Ref(i));
+			i = i + 1;
+		}
+		e.Add(x);
+		return new PenaltyVecS(e);
+	}
+	# (vector-copy v i j)
+	public static fun FloatCopy(IFloatVec v, Int i, Int j) : IFloatVec
+	{
+		ArrayList<Float> e = new ArrayList<Float>();
+		Int k = i;
+		while (k < j)
+		{
+			e.Add(v.Ref(k));
+			k = k + 1;
+		}
+		return new FloatVecS(e);
+	}
+	public static fun BoolCopy(IBoolVec v, Int i, Int j) : IBoolVec
+	{
+		ArrayList<Bool> e = new ArrayList<Bool>();
+		Int k = i;
+		while (k < j)
+		{
+			e.Add(v.Ref(k));
+			k = k + 1;
+		}
+		return new BoolVecS(e);
+	}
+	# (vector-drop v 1)
+	public static fun IntCdr(IIntVec v) : IIntVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int k = 1;
+		while (k < v.Length())
+		{
+			e.Add(v.Ref(k));
+			k = k + 1;
+		}
+		return new IntVecS(e);
+	}
+	public static fun IntRange(Int from, Int to) : IIntVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int k = from;
+		while (k < to)
+		{
+			e.Add(k);
+			k = k + 1;
+		}
+		return new IntVecS(e);
+	}
+	public static fun IntsToVector(IIntList l) : IIntVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		while (!l.IsEmpty())
+		{
+			e.Add(l.First());
+			l = l.Rest();
+		}
+		return new IntVecS(e);
+	}
+}
+
+# ---- flonums ----
+
+class Fl
+{
+	# exact-floor of a flonum (MonNom has no conversion from Float to Int: binary search)
+	public static fun ExactFloor(Float x) : Int
+	{
+		if (x >= 0.0)
+		{
+			return Fl.FloorBetween(x, 0, 4611686018427387904);
+		}
+		return Fl.FloorBetween(x, 0 - 4611686018427387904, 0);
+	}
+
+	public static fun FloorBetween(Float x, Int lo, Int hi) : Int
+	{
+		while (hi - lo > 1)
+		{
+			Int mid = lo + (hi - lo) / 2;
+			if (mid + 0.0 <= x)
+			{
+				lo = mid;
+				continue;
+			}
+			hi = mid;
+		}
+		return lo;
+	}
+
+	# exact-round: to nearest, ties to even
+	public static fun ExactRound(Float x) : Int
+	{
+		Int f = Fl.ExactFloor(x);
+		Float d = x - (f + 0.0);
+		if (d > 0.5)
+		{
+			return f + 1;
+		}
+		if (d < 0.5)
+		{
+			return f;
+		}
+		if (f % 2 == 0)
+		{
+			return f;
+		}
+		return f + 1;
+	}
+
+	# (round x) on a flonum (keeps the sign of a zero result)
+	public static fun Round(Float x) : Float
+	{
+		Int r = Fl.ExactRound(x);
+		if (r == 0)
+		{
+			if (x < 0.0)
+			{
+				return 0.0 * (0.0 - 1.0);
+			}
+		}
+		return r + 0.0;
+	}
+
+	public static fun Floor(Float x) : Float
+	{
+		return Fl.ExactFloor(x) + 0.0;
+	}
+
+	public static fun Max(Float a, Float b) : Float
+	{
+		if (a > b)
+		{
+			return a;
+		}
+		return b;
+	}
+}
+
+# ---- hash tables keyed by strings ----
+
+class TextMap
+{
+	private readonly ArrayList<ArrayList<Int>> buckets;
+	private readonly ArrayList<IText> keys;
+	private readonly ArrayList<Int> values;
+	public constructor()
+	{
+		buckets = new ArrayList<ArrayList<Int>>();
+		keys = new ArrayList<IText>();
+		values = new ArrayList<Int>();
+	}
+	public fun Init() : Int
+	{
+		Int i = 0;
+		while (i < 4096)
+		{
+			buckets.Add(new ArrayList<Int>());
+			i = i + 1;
+		}
+		return 0;
+	}
+	public fun HashOf(IText t) : Int
+	{
+		Int h = 0;
+		Int i = 0;
+		while (i < t.Length())
+		{
+			h = (h * 31 + t.CharAt(i)) % 4096;
+			i = i + 1;
+		}
+		return h;
+	}
+	# -1 when absent
+	public fun Get(IText t) : Int
+	{
+		ArrayList<Int> b = buckets.Get(this.HashOf(t));
+		foreach (Int k in b)
+		{
+			if (Txt.Equal(keys.Get(k), t))
+			{
+				return values.Get(k);
+			}
+		}
+		return 0 - 1;
+	}
+	public fun Put(IText t, Int v) : Int
+	{
+		ArrayList<Int> b = buckets.Get(this.HashOf(t));
+		foreach (Int k in b)
+		{
+			if (Txt.Equal(keys.Get(k), t))
+			{
+				values.Set(k, v);
+				return v;
+			}
+		}
+		b.Add(keys.Length());
+		keys.Add(t);
+		values.Add(v);
+		return v;
+	}
+	public fun Count() : Int
+	{
+		return keys.Length();
+	}
+}
+
+# (HashTable String (Listof Index))
+class PatternTable implements IPatterns
+{
+	private readonly TextMap map;
+	private readonly ArrayList<IIntList> values;
+	public constructor(TextMap m)
+	{
+		map = m;
+		values = new ArrayList<IIntList>();
+	}
+	public fun Has(IText key) : Bool
+	{
+		return map.Get(key) >= 0;
+	}
+	public fun Ref(IText key) : IIntList
+	{
+		Int k = map.Get(key);
+		if (k < 0)
+		{
+			ERROR("hash-ref: no value found for key");
+		}
+		return values.Get(k);
+	}
+	public fun Set(IText key, IIntList value) : Int
+	{
+		Int k = map.Get(key);
+		if (k >= 0)
+		{
+			values.Set(k, value);
+			return k;
+		}
+		map.Put(key, values.Length());
+		values.Add(value);
+		return 0;
+	}
+	public fun Count() : Int
+	{
+		return map.Count();
+	}
+}
+
+class MeasureTableS implements IMeasureTable
+{
+	private readonly TextMap map;
+	private readonly ArrayList<Float> widths;
+	private readonly ArrayList<Float> heights;
+	private readonly ArrayList<Float> descents;
+	public constructor(TextMap m)
+	{
+		map = m;
+		widths = new ArrayList<Float>();
+		heights = new ArrayList<Float>();
+		descents = new ArrayList<Float>();
+	}
+	# whd: width, height, descent
+	public fun Add(IText key, IFloatVec whd) : Int
+	{
+		map.Put(key, widths.Length());
+		widths.Add(whd.Ref(0));
+		heights.Add(whd.Ref(1));
+		descents.Add(whd.Ref(2));
+		return 0;
+	}
+	public fun Lookup(IText key) : Int
+	{
+		return map.Get(key);
+	}
+	public fun Width(Int e) : Float
+	{
+		return widths.Get(e);
+	}
+	public fun Height(Int e) : Float
+	{
+		return heights.Get(e);
+	}
+	public fun Descent(Int e) : Float
+	{
+		return descents.Get(e);
+	}
+}
+
+class Measures
+{
+	# the key (list text font weight style)
+	public static fun Key(IText text, IText font, Int weight, Int style) : IText
+	{
+		IText k = Txt.Append(Txt.Append(text, Txt.Char(1114112)), font);
+		k.Push(1114112);
+		k.Push(weight);
+		k.Push(style);
+		return k;
+	}
+
+	public static fun WeightSym(Int w) : Int
+	{
+		if (w == 1)
+		{
+			return Sym.Bold();
+		}
+		if (w == 2)
+		{
+			return Sym.Light();
+		}
+		if (w == 3)
+		{
+			return Sym.Italic();
+		}
+		if (w == 4)
+		{
+			return Sym.Slant();
+		}
+		return Sym.Normal();
+	}
+
+	# the measurements of the reference run (measdata.mn)
+	public static fun Load() : IMeasureTable
+	{
+		TextMap m = new TextMap();
+		m.Init();
+		MeasureTableS t = new MeasureTableS(m);
+		ArrayList<Int> e = MeasureData.Entries();
+		Int p = 0;
+		while (p < e.Length())
+		{
+			Int n = e.Get(p);
+			IText text = Txt.Empty();
+			Int i = 0;
+			while (i < n)
+			{
+				text.Push(e.Get(p + 1 + i));
+				i = i + 1;
+			}
+			Int q = p + 1 + n;
+			IText font = Txt.FromCodes(MeasureData.FontName(e.Get(q)));
+			IText key = Measures.Key(text, font, Measures.WeightSym(e.Get(q + 1)), Measures.WeightSym(e.Get(q + 2)));
+			IFloatVec whd = Vecs.MakeFloat(3, 0.0);
+			whd.Set(0, e.Get(q + 3) + 0.0);
+			whd.Set(1, e.Get(q + 4) + 0.0);
+			whd.Set(2, e.Get(q + 5) + 0.0);
+			t.Add(key, whd);
+			p = q + 7;
+		}
+		return t;
+	}
+}
+
+class EnvS implements IEnv
+{
+	private readonly IMeasureTable measures;
+	private IPatterns patterns;
+	private readonly IPatterns patternCache;
+	private readonly IPatterns hashed;
+	public constructor(IMeasureTable m, IPatterns p, IPatterns c, IPatterns h)
+	{
+		measures = m;
+		patterns = p;
+		patternCache = c;
+		hashed = h;
+	}
+	public fun Measures() : IMeasureTable
+	{
+		return measures;
+	}
+	public fun Patterns() : IPatterns
+	{
+		return patterns;
+	}
+	public fun SetPatterns(IPatterns p) : Int
+	{
+		patterns = p;
+		return 0;
+	}
+	public fun PatternCache() : IPatterns
+	{
+		return patternCache;
+	}
+	public fun HashedPatterns() : IPatterns
+	{
+		return hashed;
+	}
+}
+
+class Builtins
+{
+	# the state of hyphenate.rkt and measure.rkt when they are instantiated
+	public static fun MakeEnv() : IEnv
+	{
+		return new EnvS(Measures.Load(), Builtins.MakePatterns(), Builtins.MakePatterns(), Builtins.HashedPatterns());
+	}
+
+	public static fun MakePatterns() : IPatterns
+	{
+		TextMap m = new TextMap();
+		m.Init();
+		return new PatternTable(m);
+	}
+
+	# the hashed-patterns literal of hyphenate.rkt (hyphdata.mn)
+	public static fun HashedPatterns() : IPatterns
+	{
+		IPatterns t = Builtins.MakePatterns();
+		ArrayList<Int> words = HyphData.Words();
+		ArrayList<Int> ints = new ArrayList<Int>();
+		foreach (Int w in words)
+		{
+			Int k = 0;
+			while (k < 9)
+			{
+				if (ints.Length() < HyphData.IntCount())
+				{
+					ints.Add(w % 128);
+				}
+				w = w / 128;
+				k = k + 1;
+			}
+		}
+		Int p = 0;
+		while (p < ints.Length())
+		{
+			Int n = ints.Get(p);
+			IText key = Txt.Empty();
+			Int i = 0;
+			while (i < n)
+			{
+				key.Push(ints.Get(p + 1 + i));
+				i = i + 1;
+			}
+			Int q = p + 1 + n;
+			Int m = ints.Get(q);
+			IIntList vs = new IntNil();
+			Int j = m - 1;
+			while (j >= 0)
+			{
+				vs = new IntCons(ints.Get(q + 1 + j), vs);
+				j = j - 1;
+			}
+			t.Set(key, vs);
+			p = q + 1 + m;
+		}
+		return t;
+	}
+
+	public static fun MakeDc() : IDc
+	{
+		return new RecordingDc();
+	}
+
+	public static fun MakeProblem() : IProblem
+	{
+		return new Problem();
+	}
+}
+
+# pdf-dc% of racket/draw, replaced by a recorder of the drawing calls: it counts the drawn
+# texts and keeps a checksum of their characters, positions (x 100, rounded) and font sizes
+class RecordingDc implements IDc
+{
+	private Int count;
+	private Int hash;
+	private Float x;
+	private Float y;
+	private Float size;
+	public constructor()
+	{
+		count = 0;
+		hash = 0;
+		x = 0.0;
+		y = 0.0;
+		size = 0.0;
+	}
+	public fun StartDoc(IText name) : Int
+	{
+		return 0;
+	}
+	public fun StartPage() : Int
+	{
+		return 0;
+	}
+	public fun EndPage() : Int
+	{
+		return 0;
+	}
+	public fun EndDoc() : Int
+	{
+		return 0;
+	}
+	public fun SetFont(IText face, IVal sz) : Int
+	{
+		size = sz.F();
+		return 0;
+	}
+	public fun MoveTo(Float xx, Float yy) : Int
+	{
+		x = xx;
+		y = yy;
+		return 0;
+	}
+	public fun DrawText(IText text) : Int
+	{
+		count = count + 1;
+		Int h = hash;
+		Int i = 0;
+		while (i < text.Length())
+		{
+			h = (h * 31 + text.CharAt(i)) % 1000000007;
+			i = i + 1;
+		}
+		h = Fl.ExactRound(x * 100.0) + h * 31;
+		h = h % 1000000007;
+		h = (h * 31 + Fl.ExactRound(y * 100.0)) % 1000000007;
+		h = (h * 31 + Fl.ExactRound(size * 100.0)) % 1000000007;
+		hash = h;
+		return 0;
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+	public fun Hash() : Int
+	{
+		return hash;
+	}
+}
+
+# problem% of base/csp with its backtracking-solver% (forward checking), for the problems that
+# lines->columns builds: one variable with unary function constraints. The solution generator
+# (racket/generator) is replaced by returning the first solution.
+class Problem implements IProblem
+{
+	private IText variable;
+	private IIntList domain;
+	private Bool hasVariable;
+	private ArrayList<IConstraintFn> constraints;
+	public constructor()
+	{
+		variable = Txt.Empty();
+		domain = new IntNil();
+		hasVariable = false;
+		constraints = new ArrayList<IConstraintFn>();
+	}
+	public fun Reset() : Int
+	{
+		constraints = new ArrayList<IConstraintFn>();
+		hasVariable = false;
+		domain = new IntNil();
+		return 0;
+	}
+	public fun AddVariable(IText v, IIntList values) : Int
+	{
+		if (hasVariable)
+		{
+			ERROR("add-variable: Tried to insert duplicated variable");
+		}
+		if (values.IsEmpty())
+		{
+			ERROR("add-variable: domain value is null");
+		}
+		variable = v;
+		domain = values;
+		hasVariable = true;
+		return 0;
+	}
+	public fun AddConstraint(IConstraintFn f, ITextList variables) : Int
+	{
+		constraints.Add(f);
+		return 0;
+	}
+	public fun GetSolution(IText v) : Int
+	{
+		# get-args: preprocess removes, for each single-variable constraint in order, the
+		# values of the domain for which it is false
+		IIntList d = domain;
+		foreach (IConstraintFn c in constraints)
+		{
+			d = ProblemOps.Filter(c, d, d);
+		}
+		if (d.IsEmpty())
+		{
+			ERROR("get-solution: no solution");
+		}
+		# the solver assigns the first remaining value (no constraint is left to check)
+		return d.First();
+	}
+
+}
+
+class ProblemOps
+{
+	# (for/fold ([domain-values (domain)]) ([value (domain)] #:unless (is-true? ...)) (remove value domain-values))
+	public static fun Filter(IConstraintFn c, IIntList values, IIntList acc) : IIntList
+	{
+		if (values.IsEmpty())
+		{
+			return acc;
+		}
+		Int value = values.First();
+		if (c(value))
+		{
+			return ProblemOps.Filter(c, values.Rest(), acc);
+		}
+		return ProblemOps.Filter(c, values.Rest(), ProblemOps.Remove(value, acc));
+	}
+	public static fun Remove(Int x, IIntList l) : IIntList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		if (l.First() == x)
+		{
+			return l.Rest();
+		}
+		return new IntCons(l.First(), ProblemOps.Remove(x, l.Rest()));
+	}
+}
+
+class AttrNil implements IAttrList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IAttr
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IAttrList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class AttrCons implements IAttrList
+{
+	private readonly IAttr first;
+	private readonly IAttrList rest;
+	public constructor(IAttr f, IAttrList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IAttr
+	{
+		return first;
+	}
+	public fun Rest() : IAttrList
+	{
+		return rest;
+	}
+}
+
+class ItemNil implements IItemList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IItem
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IItemList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ItemCons implements IItemList
+{
+	private readonly IItem first;
+	private readonly IItemList rest;
+	public constructor(IItem f, IItemList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IItem
+	{
+		return first;
+	}
+	public fun Rest() : IItemList
+	{
+		return rest;
+	}
+}
+
+class QuadNil implements IQuadList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IQuad
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IQuadList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class QuadCons implements IQuadList
+{
+	private readonly IQuad first;
+	private readonly IQuadList rest;
+	public constructor(IQuad f, IQuadList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IQuad
+	{
+		return first;
+	}
+	public fun Rest() : IQuadList
+	{
+		return rest;
+	}
+}
+
+class QuadListNil implements IQuadListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IQuadList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IQuadListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class QuadListCons implements IQuadListList
+{
+	private readonly IQuadList first;
+	private readonly IQuadListList rest;
+	public constructor(IQuadList f, IQuadListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IQuadList
+	{
+		return first;
+	}
+	public fun Rest() : IQuadListList
+	{
+		return rest;
+	}
+}
+
+class QuadListListNil implements IQuadListListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IQuadListList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IQuadListListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class QuadListListCons implements IQuadListListList
+{
+	private readonly IQuadListList first;
+	private readonly IQuadListListList rest;
+	public constructor(IQuadListList f, IQuadListListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IQuadListList
+	{
+		return first;
+	}
+	public fun Rest() : IQuadListListList
+	{
+		return rest;
+	}
+}
+
+class ValNil implements IValList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IVal
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IValList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ValCons implements IValList
+{
+	private readonly IVal first;
+	private readonly IValList rest;
+	public constructor(IVal f, IValList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IVal
+	{
+		return first;
+	}
+	public fun Rest() : IValList
+	{
+		return rest;
+	}
+}
+
+class IntNil implements IIntList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntCons implements IIntList
+{
+	private readonly Int first;
+	private readonly IIntList rest;
+	public constructor(Int f, IIntList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IIntList
+	{
+		return rest;
+	}
+}
+
+class FloatNil implements IFloatList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Float
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IFloatList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class FloatCons implements IFloatList
+{
+	private readonly Float first;
+	private readonly IFloatList rest;
+	public constructor(Float f, IFloatList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Float
+	{
+		return first;
+	}
+	public fun Rest() : IFloatList
+	{
+		return rest;
+	}
+}
+
+class TextNil implements ITextList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IText
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextCons implements ITextList
+{
+	private readonly IText first;
+	private readonly ITextList rest;
+	public constructor(IText f, ITextList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IText
+	{
+		return first;
+	}
+	public fun Rest() : ITextList
+	{
+		return rest;
+	}
+}
+
+class IntListNil implements IIntListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IIntList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntListCons implements IIntListList
+{
+	private readonly IIntList first;
+	private readonly IIntListList rest;
+	public constructor(IIntList f, IIntListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IIntList
+	{
+		return first;
+	}
+	public fun Rest() : IIntListList
+	{
+		return rest;
+	}
+}
+
+class QuadL4Nil implements IQuadL4
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IQuadListListList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IQuadL4
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class QuadL4Cons implements IQuadL4
+{
+	private readonly IQuadListListList first;
+	private readonly IQuadL4 rest;
+	public constructor(IQuadListListList f, IQuadL4 r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IQuadListListList
+	{
+		return first;
+	}
+	public fun Rest() : IQuadL4
+	{
+		return rest;
+	}
+}
+

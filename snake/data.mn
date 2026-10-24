@@ -1,0 +1,138 @@
+# data.rkt: structs posn, snake, world and posn=?
+# (also contains const.rkt, merged here to keep the configuration count down)
+
+class Posn implements IPosn
+{
+	private readonly Int x;
+	private readonly Int y;
+	public constructor(Int x0, Int y0)
+	{
+		x = x0;
+		y = y0;
+	}
+	public fun X() : Int
+	{
+		return x;
+	}
+	public fun Y() : Int
+	{
+		return y;
+	}
+}
+
+class PosnEmpty implements IPosnList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPosn
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPosnList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PosnCons implements IPosnList
+{
+	private readonly IPosn first;
+	private readonly IPosnList rest;
+	public constructor(IPosn f, IPosnList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPosn
+	{
+		return first;
+	}
+	public fun Rest() : IPosnList
+	{
+		return rest;
+	}
+}
+
+class Snake implements ISnake
+{
+	private readonly Int dir;
+	private readonly IPosnList segs;
+	public constructor(Int d, IPosnList s)
+	{
+		dir = d;
+		segs = s;
+	}
+	public fun Dir() : Int
+	{
+		return dir;
+	}
+	public fun Segs() : IPosnList
+	{
+		return segs;
+	}
+}
+
+class World implements IWorld
+{
+	private readonly ISnake snake;
+	private readonly IPosn food;
+	public constructor(ISnake s, IPosn f)
+	{
+		snake = s;
+		food = f;
+	}
+	public fun GetSnake() : ISnake
+	{
+		return snake;
+	}
+	public fun Food() : IPosn
+	{
+		return food;
+	}
+}
+
+class Data
+{
+	public static fun PosnEq(IPosn p1, IPosn p2) : Bool
+	{
+		return p1.X() == p2.X() && p1.Y() == p2.Y();
+	}
+}
+
+# const.rkt
+class Const
+{
+	public static fun GridSize() : Int
+	{
+		return 30;
+	}
+	public static fun BoardHeight() : Int
+	{
+		return 20;
+	}
+	public static fun BoardWidth() : Int
+	{
+		return 30;
+	}
+	public static fun BoardHeightPixels() : Int
+	{
+		return Const.GridSize() * Const.BoardHeight();
+	}
+	public static fun BoardWidthPixels() : Int
+	{
+		return Const.GridSize() * Const.BoardWidth();
+	}
+	public static fun World() : IWorld
+	{
+		return new World(new Snake(3, new PosnCons(new Posn(5, 3), new PosnEmpty())), new Posn(8, 12));
+	}
+}

@@ -1,0 +1,585 @@
+# t-graph.rkt: the model of the T path finder (reads the line files, builds the graph, mbta%).
+
+class StationLine implements IStationLine
+{
+	private readonly IText station;
+	private readonly Int lines;
+	public constructor(IText s, Int l)
+	{
+		station = s;
+		lines = l;
+	}
+	public fun Station() : IText
+	{
+		return station;
+	}
+	public fun Lines() : Int
+	{
+		return lines;
+	}
+}
+
+class ColorLines implements IColorLines
+{
+	private readonly IText color;
+	private readonly Int lines;
+	public constructor(IText c, Int l)
+	{
+		color = c;
+		lines = l;
+	}
+	public fun Color() : IText
+	{
+		return color;
+	}
+	public fun Lines() : Int
+	{
+		return lines;
+	}
+}
+
+class Connection implements IConnection
+{
+	private readonly IText from;
+	private readonly IText to;
+	public constructor(IText f, IText t)
+	{
+		from = f;
+		to = t;
+	}
+	public fun From() : IText
+	{
+		return from;
+	}
+	public fun To() : IText
+	{
+		return to;
+	}
+}
+
+class LineConnections implements ILineConnections
+{
+	private readonly Int line;
+	private readonly IConnectionList connections;
+	public constructor(Int l, IConnectionList c)
+	{
+		line = l;
+		connections = c;
+	}
+	public fun Line() : Int
+	{
+		return line;
+	}
+	public fun Connections() : IConnectionList
+	{
+		return connections;
+	}
+}
+
+class StationChoice implements IStationChoice
+{
+	private readonly Bool isStation;
+	private readonly ITextList candidates;
+	public constructor(Bool s, ITextList c)
+	{
+		isStation = s;
+		candidates = c;
+	}
+	public fun IsStation() : Bool
+	{
+		return isStation;
+	}
+	public fun Station() : IText
+	{
+		return candidates.First();
+	}
+	public fun Candidates() : ITextList
+	{
+		return candidates;
+	}
+}
+
+# (struct partial-line ({pred : Station} {connections : Connection*}))
+class PartialLine
+{
+	public readonly IText Pred;
+	public readonly IConnectionList Connections;
+	public constructor(IText p, IConnectionList c)
+	{
+		Pred = p;
+		Connections = c;
+	}
+}
+
+# H-Line->Connection* = (HashTable Line PartialLine), immutable; lines are 0..9
+class Hlc
+{
+	public readonly ArrayList<PartialLine> Slots;
+	public readonly ArrayList<Bool> Present;
+	public constructor(ArrayList<PartialLine> s, ArrayList<Bool> p)
+	{
+		Slots = s;
+		Present = p;
+	}
+}
+
+# the two values of read-t-line-from-file
+class LineFile
+{
+	public readonly ITextList Stations;
+	public readonly ILineConnectionsList LineConnections;
+	public constructor(ITextList s, ILineConnectionsList l)
+	{
+		Stations = s;
+		LineConnections = l;
+	}
+}
+
+# mbta%
+class Mbta implements IMBTA
+{
+	private readonly IGraph g;
+	private readonly ITextList stations;
+	private readonly IEdgeProperty connectionOn;
+	private readonly IColorLinesList bundles;
+	private readonly ITextSet stationsSet;
+	public constructor(IGraph g0, ITextList s, IEdgeProperty c, IColorLinesList b)
+	{
+		g = g0;
+		stations = s;
+		connectionOn = c;
+		bundles = b;
+		stationsSet = Builtins.MakeTextSet(s);
+	}
+
+	public fun Render(Int b) : IText
+	{
+		IColorLinesList r = bundles;
+		while (!r.IsEmpty())
+		{
+			if (Builtins.Subset(r.First().Lines(), b))
+			{
+				return r.First().Color();
+			}
+			r = r.Rest();
+		}
+		return Txt.Join(Builtins.SetMapNames(b), Txt.PushWord(Txt.Empty(), 32));
+	}
+
+	public fun Station(IText word) : IStationChoice
+	{
+		ITextList candidates = new TextNil();
+		ITextList l = Txt.Reverse(stationsSet.Elems());
+		while (!l.IsEmpty())
+		{
+			IText st = l.First();
+			l = l.Rest();
+			if (Txt.Contains(st, word))
+			{
+				candidates = new TextCons(st, candidates);
+				continue;
+			}
+		}
+		if (!candidates.IsEmpty())
+		{
+			if (candidates.Rest().IsEmpty())
+			{
+				return new StationChoice(true, candidates);
+			}
+		}
+		return new StationChoice(false, candidates);
+	}
+
+	public fun IsStation(IText s) : Bool
+	{
+		return stationsSet.Member(s);
+	}
+
+	public fun FindPath(IText from0, IText to) : IPathList
+	{
+		return TGraph.ToPaths(TGraph.FindPathAux(g, from0, to), connectionOn);
+	}
+}
+
+class TGraph
+{
+	# COLORS = '("blue" "orange" "green" "red"), as indices of the data files
+	public static fun Color(Int i) : IText
+	{
+		if (i == 0)
+		{
+			return Txt.PushWord(Txt.Empty(), 213743202);
+		}
+		if (i == 1)
+		{
+			return Txt.PushWord(Txt.Empty(), 3498214717807);
+		}
+		if (i == 2)
+		{
+			return Txt.PushWord(Txt.Empty(), 29741381991);
+		}
+		return Txt.PushWord(Txt.Empty(), 1651442);
+	}
+
+	# (assert-line x): the index of the line name, or an error
+	public static fun AssertLine(IText x) : Int
+	{
+		Int i = 0;
+		while (i < 10)
+		{
+			if (Txt.Equal(x, Builtins.LineName(i)))
+			{
+				return i;
+			}
+			i = i + 1;
+		}
+		ERROR("assert-line");
+	}
+
+	# (line-specification? line): (regexp-match #px"--* (.*)" line), then the lines as a bit set;
+	# -1 stands for #f
+	public static fun LineSpecification(IText line) : Int
+	{
+		Int start = 0;
+		while (start < line.Length())
+		{
+			Int j = TGraph.DashesThenSpace(line, start);
+			if (j >= 0)
+			{
+				ITextList names = Txt.SplitWhitespace(Txt.Substring(line, j, line.Length()));
+				Int s = 0;
+				while (!names.IsEmpty())
+				{
+					s = Builtins.SetAdd(s, TGraph.AssertLine(names.First()));
+					names = names.Rest();
+				}
+				return s;
+			}
+			start = start + 1;
+		}
+		return -1;
+	}
+
+	# if "--* " matches at i, the position after it, else -1
+	public static fun DashesThenSpace(IText line, Int i) : Int
+	{
+		if (line.CharAt(i) != 45)
+		{
+			return -1;
+		}
+		Int j = i + 1;
+		while (j < line.Length())
+		{
+			if (line.CharAt(j) != 45)
+			{
+				break;
+			}
+			j = j + 1;
+		}
+		if (j < line.Length())
+		{
+			if (line.CharAt(j) == 32)
+			{
+				return j + 1;
+			}
+		}
+		return -1;
+	}
+
+	public static fun ReadTGraph() : IMBTA
+	{
+		# read-parse-organize
+		ITextList stations = new TextNil();
+		IConnectionList connections = new ConnectionNil();
+		ILineConnectionsList lines = new LineConnectionsNil();
+		IColorLinesList colorToLines = new ColorLinesNil();
+		Int c = 0;
+		while (c < 4)
+		{
+			LineFile lf = TGraph.ReadTLineFromFile(c);
+			ITextList newS = lf.Stations;
+			ILineConnectionsList newLc = lf.LineConnections;
+			stations = TGraph.AppendTexts(newS, stations);
+			connections = TGraph.AppendConnections(connections, TGraph.AllConnections(newLc));
+			lines = TGraph.AppendLineConnections(newLc, lines);
+			colorToLines = new ColorLinesCons(new ColorLines(TGraph.Color(c), TGraph.LinesOf(newLc)), colorToLines);
+			c = c + 1;
+		}
+		IGraph graph = Builtins.UnweightedGraphDirected(connections);
+		IEdgeProperty connectionOn = Builtins.AttachEdgeProperty(graph, 0);
+		ILineConnectionsList l = lines;
+		while (!l.IsEmpty())
+		{
+			Int name = l.First().Line();
+			IConnectionList cs = l.First().Connections();
+			while (!cs.IsEmpty())
+			{
+				IConnection cn = cs.First();
+				connectionOn.Set(cn, Builtins.SetAdd(connectionOn.Get(cn.From(), cn.To()), name));
+				cs = cs.Rest();
+			}
+			l = l.Rest();
+		}
+		return new Mbta(graph, stations, connectionOn, colorToLines);
+	}
+
+	public static fun AppendTexts(ITextList a, ITextList b) : ITextList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new TextCons(a.First(), TGraph.AppendTexts(a.Rest(), b));
+	}
+
+	public static fun AppendConnections(IConnectionList a, IConnectionList b) : IConnectionList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new ConnectionCons(a.First(), TGraph.AppendConnections(a.Rest(), b));
+	}
+
+	public static fun AppendLineConnections(ILineConnectionsList a, ILineConnectionsList b) : ILineConnectionsList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new LineConnectionsCons(a.First(), TGraph.AppendLineConnections(a.Rest(), b));
+	}
+
+	# (apply append (map second new-lc))
+	public static fun AllConnections(ILineConnectionsList l) : IConnectionList
+	{
+		if (l.IsEmpty())
+		{
+			return new ConnectionNil();
+		}
+		return TGraph.AppendConnections(l.First().Connections(), TGraph.AllConnections(l.Rest()));
+	}
+
+	# (apply set (map first new-lc))
+	public static fun LinesOf(ILineConnectionsList l) : Int
+	{
+		Int s = 0;
+		while (!l.IsEmpty())
+		{
+			s = Builtins.SetAdd(s, l.First().Line());
+			l = l.Rest();
+		}
+		return s;
+	}
+
+	public static fun FileLines(Int color) : ITextList
+	{
+		ArrayList<ArrayList<Int>> raw = DatFiles.Lines(color);
+		ITextList l = new TextNil();
+		Int k = raw.Length() - 1;
+		while (k >= 0)
+		{
+			l = new TextCons(Txt.FromCodes(raw.Get(k)), l);
+			k = k - 1;
+		}
+		return l;
+	}
+
+	public static fun ReadTLineFromFile(Int color) : LineFile
+	{
+		ITextList file0 = TGraph.FileLines(color);
+		Int lines0 = TGraph.LineSpecification(file0.First());
+		if (lines0 < 0)
+		{
+			ERROR("KNOWLEDGE: we know that the file is properly formatted");
+		}
+		return TGraph.LinesToHash(file0, lines0);
+	}
+
+	public static fun LinesToHash(ITextList file0, Int lines0) : LineFile
+	{
+		IText firstStation = file0.Rest().First();
+		Hlc hlc0 = TGraph.EmptyHlc();
+		Int i = 0;
+		while (i < 10)
+		{
+			Int line = i;
+			i = i + 1;
+			if (Builtins.Has(lines0, line))
+			{
+				hlc0 = TGraph.HlcSet(hlc0, line, new PartialLine(firstStation, new ConnectionNil()));
+				continue;
+			}
+		}
+		ITextList stations = new TextCons(firstStation, new TextNil());
+		ITextList body = file0.Rest().Rest();
+		Int lines = lines0;
+		Hlc hlc = hlc0;
+		# process-file-body (tail-recursive in Racket)
+		while (!body.IsEmpty())
+		{
+			IText station = Txt.Trim(body.First());
+			body = body.Rest();
+			Int spec = TGraph.LineSpecification(station);
+			if (spec >= 0)
+			{
+				lines = spec;
+				continue;
+			}
+			hlc = TGraph.AddStationToLines(hlc, lines, station);
+			stations = new TextCons(station, stations);
+		}
+		ILineConnectionsList lc = new LineConnectionsNil();
+		Int k = 9;
+		while (k >= 0)
+		{
+			Int kk = k;
+			k = k - 1;
+			if (hlc.Present.Get(kk))
+			{
+				lc = new LineConnectionsCons(new LineConnections(kk, hlc.Slots.Get(kk).Connections), lc);
+				continue;
+			}
+		}
+		return new LineFile(Txt.Reverse(stations), lc);
+	}
+
+	public static fun EmptyHlc() : Hlc
+	{
+		ArrayList<PartialLine> s = new ArrayList<PartialLine>();
+		ArrayList<Bool> p = new ArrayList<Bool>();
+		Int i = 0;
+		while (i < 10)
+		{
+			s.Add(new PartialLine(Txt.Empty(), new ConnectionNil()));
+			p.Add(false);
+			i = i + 1;
+		}
+		return new Hlc(s, p);
+	}
+
+	# hash-set on the immutable table
+	public static fun HlcSet(Hlc h, Int line, PartialLine p) : Hlc
+	{
+		ArrayList<PartialLine> s = new ArrayList<PartialLine>();
+		ArrayList<Bool> pr = new ArrayList<Bool>();
+		Int i = 0;
+		while (i < 10)
+		{
+			s.Add(h.Slots.Get(i));
+			pr.Add(h.Present.Get(i));
+			i = i + 1;
+		}
+		s.Set(line, p);
+		pr.Set(line, true);
+		return new Hlc(s, pr);
+	}
+
+	public static fun AddStationToLines(Hlc hlc, Int lines, IText station) : Hlc
+	{
+		Hlc hlc1 = hlc;
+		Int i = 0;
+		while (i < 10)
+		{
+			if (!Builtins.Has(lines, i))
+			{
+				i = i + 1;
+				continue;
+			}
+			if (!hlc1.Present.Get(i))
+			{
+				ERROR("KNOLWEDGE: impossible");
+			}
+			PartialLine p = hlc1.Slots.Get(i);
+			IText predecessor = p.Pred;
+			IConnectionList connections = new ConnectionCons(new Connection(predecessor, station), new ConnectionCons(new Connection(station, predecessor), p.Connections));
+			hlc1 = TGraph.HlcSet(hlc1, i, new PartialLine(station, connections));
+			i = i + 1;
+		}
+		return hlc1;
+	}
+
+	# find-path/aux
+	public static fun FindPathAux(IGraph g, IText from0, IText to) : ITextListList
+	{
+		return TGraph.Search(g, from0, new TextNil(), to);
+	}
+
+	public static fun Search(IGraph g, IText from, ITextList visited, IText to) : ITextListList
+	{
+		if (Txt.Equal(from, to))
+		{
+			return new TextListCons(new TextCons(from, new TextNil()), new TextListNil());
+		}
+		if (Txt.Member(from, visited))
+		{
+			return new TextListNil();
+		}
+		ITextList visitedStar = new TextCons(from, visited);
+		ITextListList allPaths = new TextListNil();
+		ITextList ns = g.InNeighbors(from);
+		while (!ns.IsEmpty())
+		{
+			ITextListList sub = TGraph.Search(g, ns.First(), visitedStar, to);
+			allPaths = TGraph.AppendPaths(allPaths, TGraph.ConsAll(from, sub));
+			ns = ns.Rest();
+		}
+		return allPaths;
+	}
+
+	# (map (lambda (p) (cons from p)) paths)
+	public static fun ConsAll(IText from, ITextListList ps) : ITextListList
+	{
+		if (ps.IsEmpty())
+		{
+			return ps;
+		}
+		return new TextListCons(new TextCons(from, ps.First()), TGraph.ConsAll(from, ps.Rest()));
+	}
+
+	public static fun AppendPaths(ITextListList a, ITextListList b) : ITextListList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new TextListCons(a.First(), TGraph.AppendPaths(a.Rest(), b));
+	}
+
+	# the for/list of find-path
+	public static fun ToPaths(ITextListList pathsStar, IEdgeProperty connectionOn) : IPathList
+	{
+		if (pathsStar.IsEmpty())
+		{
+			return new PathNil();
+		}
+		return new PathCons(TGraph.ToPath(pathsStar.First(), connectionOn), TGraph.ToPaths(pathsStar.Rest(), connectionOn));
+	}
+
+	public static fun ToPath(ITextList path, IEdgeProperty connectionOn) : IPath
+	{
+		IText start = path.First();
+		if (path.Rest().IsEmpty())
+		{
+			return new StationLineCons(new StationLine(start, 0), new StationLineNil());
+		}
+		Int next = connectionOn.Get(start, path.Rest().First());
+		IText predecessor = start;
+		IPath r = new StationLineCons(new StationLine(start, next), new StationLineNil());
+		ITextList l = path.Rest();
+		while (!l.IsEmpty())
+		{
+			IText station = l.First();
+			r = new StationLineCons(new StationLine(station, connectionOn.Get(station, predecessor)), r);
+			predecessor = station;
+			l = l.Rest();
+		}
+		IPath rev = new StationLineNil();
+		while (!r.IsEmpty())
+		{
+			rev = new StationLineCons(r.First(), rev);
+			r = r.Rest();
+		}
+		return rev;
+	}
+}

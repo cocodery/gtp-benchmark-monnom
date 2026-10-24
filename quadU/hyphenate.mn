@@ -1,0 +1,387 @@
+# hyphenate.rkt and measure.rkt (merged to keep the configuration count down; see NOTES.md).
+# The module-level hash tables (patterns, pattern-cache) and the text measurements are in an
+# IEnv. Keyword arguments are explicit; #px"\\w+" is matched by hand (\w = [a-zA-Z0-9_]).
+
+class Hyphenate
+{
+	public static fun MinIndex(Int a, Int b) : Int
+	{
+		if (a <= b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun MaxIndex(Int a, Int b) : Int
+	{
+		if (a <= b)
+		{
+			return b;
+		}
+		return a;
+	}
+
+	public static fun AssertIndex(Int i) : Int
+	{
+		if (i < 0)
+		{
+			ERROR("assert-index: not an index");
+		}
+		return i;
+	}
+
+	# default-exceptions (as strings)
+	public static fun DefaultExceptions() : ITextList
+	{
+		ITextList l = new TextNil();
+		l = new TextCons(Txt.PushWord(Txt.Empty(), 3499530875124), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8486109148436312818), 29762419245), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7051150025597498098), 29762419245), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7628173350009533170), 3497140976941), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7196694492479025906), 1997417), l);
+		l = new TextCons(Txt.PushWord(Txt.Empty(), 65252846988949872), l);
+		l = new TextCons(Txt.PushWord(Txt.Empty(), 513602345498992), l);
+		l = new TextCons(Txt.PushWord(Txt.Empty(), 65253224964782448), l);
+		l = new TextCons(Txt.PushWord(Txt.Empty(), 513980321331568), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8384500786622264432), 3430036535656), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8384441840874238319), 1997167), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7051712665507918564), 29762419245), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7049133349619333601), 1897204), l);
+		l = new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7049133349619333601), 13044), l);
+		return l;
+	}
+
+	public static fun InitializePatterns(IEnv env) : Int
+	{
+		if (env.PatternCache().Count() == 0)
+		{
+			ITextList l = Hyphenate.DefaultExceptions();
+			while (!l.IsEmpty())
+			{
+				Hyphenate.AddException(l.First(), env);
+				l = l.Rest();
+			}
+		}
+		if (env.Patterns().Count() == 0)
+		{
+			env.SetPatterns(env.HashedPatterns());
+		}
+		return 0;
+	}
+
+	public static fun AddException(IText exception, IEnv env) : Int
+	{
+		# (format ".~a." (string-replace x "-" ""))
+		IText key = Txt.Char(46);
+		Int i = 0;
+		while (i < exception.Length())
+		{
+			if (exception.CharAt(i) != 45)
+			{
+				key.Push(exception.CharAt(i));
+			}
+			i = i + 1;
+		}
+		key.Push(46);
+		# `(0 ,@(map (λ (x) (if (equal? x "-") 1 0)) (regexp-split #px"[a-z]" x)) 0)
+		IIntList pieces = Hyphenate.SplitAtLetters(exception);
+		IIntList value = new IntCons(0, Hyphenate.AppendInts(pieces, new IntCons(0, new IntNil())));
+		env.PatternCache().Set(key, value);
+		return 0;
+	}
+
+	public static fun IsLowerLetter(Int c) : Bool
+	{
+		if (c >= 97)
+		{
+			return c <= 122;
+		}
+		return false;
+	}
+
+	# (map (λ (x) (if (equal? x "-") 1 0)) (regexp-split #px"[a-z]" x))
+	public static fun SplitAtLetters(IText x) : IIntList
+	{
+		IIntList r = new IntNil();
+		IText piece = Txt.Empty();
+		Int i = x.Length() - 1;
+		# build from the right: pieces are the texts between letters
+		while (i >= 0)
+		{
+			Int c = x.CharAt(i);
+			i = i - 1;
+			if (Hyphenate.IsLowerLetter(c))
+			{
+				r = new IntCons(Hyphenate.HyphenFlag(piece), r);
+				piece = Txt.Empty();
+				continue;
+			}
+			piece = Txt.Append(Txt.Char(c), piece);
+		}
+		return new IntCons(Hyphenate.HyphenFlag(piece), r);
+	}
+
+	public static fun HyphenFlag(IText piece) : Int
+	{
+		if (Txt.Equal(piece, Txt.Char(45)))
+		{
+			return 1;
+		}
+		return 0;
+	}
+
+	public static fun AppendInts(IIntList a, IIntList b) : IIntList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new IntCons(a.First(), Hyphenate.AppendInts(a.Rest(), b));
+	}
+
+	public static fun Zeros(Int n) : IIntList
+	{
+		IIntList l = new IntNil();
+		Int i = 0;
+		while (i < n)
+		{
+			l = new IntCons(0, l);
+			i = i + 1;
+		}
+		return l;
+	}
+
+	public static fun IntsLength(IIntList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	public static fun DropInts(IIntList l, Int n) : IIntList
+	{
+		Int i = 0;
+		while (i < n)
+		{
+			l = l.Rest();
+			i = i + 1;
+		}
+		return l;
+	}
+
+	public static fun DropRightInts(IIntList l, Int n) : IIntList
+	{
+		return Hyphenate.TakeInts(l, Hyphenate.IntsLength(l) - n);
+	}
+
+	public static fun TakeInts(IIntList l, Int n) : IIntList
+	{
+		if (n == 0)
+		{
+			return new IntNil();
+		}
+		return new IntCons(l.First(), Hyphenate.TakeInts(l.Rest(), n - 1));
+	}
+
+	# (apply-map-max xss)
+	public static fun ApplyMapMax(IIntListList xss) : IIntList
+	{
+		if (xss.IsEmpty())
+		{
+			return new IntNil();
+		}
+		if (xss.First().IsEmpty())
+		{
+			return new IntNil();
+		}
+		Int m = xss.First().First();
+		IIntListList l = xss.Rest();
+		while (!l.IsEmpty())
+		{
+			m = Hyphenate.MaxIndex(m, l.First().First());
+			l = l.Rest();
+		}
+		return new IntCons(m, Hyphenate.ApplyMapMax(Hyphenate.Cdrs(xss)));
+	}
+
+	public static fun Cdrs(IIntListList xss) : IIntListList
+	{
+		if (xss.IsEmpty())
+		{
+			return xss;
+		}
+		return new IntListCons(xss.First().Rest(), Hyphenate.Cdrs(xss.Rest()));
+	}
+
+	public static fun MakePoints(IText word, IEnv env) : IIntList
+	{
+		IText wordWithDots = Txt.Append(Txt.Append(Txt.Char(46), Txt.Downcase(word)), Txt.Char(46));
+		IIntListList matching = Hyphenate.MatchingPatterns(wordWithDots, env);
+		IIntList maxValuePattern = Hyphenate.ApplyMapMax(matching);
+		env.PatternCache().Set(wordWithDots, maxValuePattern);
+		return Hyphenate.DropRightInts(Hyphenate.DropInts(maxValuePattern, 2), 1);
+	}
+
+	public static fun MatchingPatterns(IText wordWithDots, IEnv env) : IIntListList
+	{
+		if (env.PatternCache().Has(wordWithDots))
+		{
+			return new IntListCons(env.PatternCache().Ref(wordWithDots), new IntListNil());
+		}
+		Int n = wordWithDots.Length();
+		IIntList hd = Hyphenate.Zeros(Hyphenate.AssertIndex(n + 1));
+		IIntListList tl = new IntListNil();
+		IPatterns patterns = env.Patterns();
+		Int len = 0;
+		while (len < n)
+		{
+			Int index = 0;
+			while (index < n - len)
+			{
+				IText sub = Txt.Substring(wordWithDots, index, index + len + 1);
+				if (patterns.Has(sub))
+				{
+					IIntList value = patterns.Ref(sub);
+					IIntList row = Hyphenate.AppendInts(Hyphenate.Zeros(index), Hyphenate.AppendInts(value, Hyphenate.Zeros(Hyphenate.AssertIndex(n + 1 - Hyphenate.IntsLength(value) - index))));
+					tl = new IntListCons(row, tl);
+					index = index + 1;
+					continue;
+				}
+				index = index + 1;
+			}
+			len = len + 1;
+		}
+		return new IntListCons(hd, tl);
+	}
+
+	public static fun AddNoHyphenZone(IIntList points, Int minLl, Int minRl) : IIntList
+	{
+		Int minLeftLength = Hyphenate.MinIndex(minLl, Hyphenate.IntsLength(points));
+		Int minRightLength = Hyphenate.MinIndex(minRl, Hyphenate.IntsLength(points));
+		IIntList left = Hyphenate.AppendInts(Hyphenate.Zeros(minLeftLength - 1), Hyphenate.DropInts(points, minLeftLength - 1));
+		return Hyphenate.AppendInts(Hyphenate.DropRightInts(left, minRightLength), Hyphenate.Zeros(minRightLength));
+	}
+
+	# make-pieces of word->hyphenation-points
+	public static fun MakePieces(IText word, Int minLl, Int minRl, IEnv env) : ITextList
+	{
+		IIntList points = Hyphenate.AddNoHyphenZone(Hyphenate.MakePoints(word, env), minLl, minRl);
+		ITextList done = new TextNil();
+		IText tmp = Txt.Empty();
+		Int i = 0;
+		IIntList p = points;
+		while (i < word.Length())
+		{
+			if (p.IsEmpty())
+			{
+				break;
+			}
+			Int c = word.CharAt(i);
+			Int point = p.First();
+			i = i + 1;
+			p = p.Rest();
+			if (point % 2 == 0)
+			{
+				tmp.Push(c);
+				continue;
+			}
+			tmp.Push(c);
+			done = new TextCons(tmp, done);
+			tmp = Txt.Empty();
+		}
+		ITextList all = new TextCons(tmp, done);
+		ITextList r = new TextNil();
+		while (!all.IsEmpty())
+		{
+			r = new TextCons(all.First(), r);
+			all = all.Rest();
+		}
+		return r;
+	}
+
+	public static fun WordToHyphenationPoints(IText word, Int minL, Int minLl, Int minRl, IEnv env) : ITextList
+	{
+		if (word.Length() < minL)
+		{
+			return new TextCons(word, new TextNil());
+		}
+		return Hyphenate.MakePieces(word, minLl, minRl, env);
+	}
+
+	# (hyphenate x #:min-length min-length #:min-left-length ... #:min-right-length ...)
+	public static fun Hyphenate(IText x, Int minLength, Int minLeftLength, Int minRightLength, IEnv env) : IText
+	{
+		Hyphenate.InitializePatterns(env);
+		IText joinerString = Txt.Char(173);
+		# (regexp-replace* #px"\\w+" text lam)
+		IText res = Txt.Empty();
+		Int i = 0;
+		while (i < x.Length())
+		{
+			if (!Txt.IsWordChar(x.CharAt(i)))
+			{
+				res.Push(x.CharAt(i));
+				i = i + 1;
+				continue;
+			}
+			Int j = i;
+			while (j < x.Length())
+			{
+				if (!Txt.IsWordChar(x.CharAt(j)))
+				{
+					break;
+				}
+				j = j + 1;
+			}
+			IText word = Txt.Substring(x, i, j);
+			res = Txt.Append(res, Txt.Join(Hyphenate.WordToHyphenationPoints(word, minLength, minLeftLength, minRightLength, env), joinerString));
+			i = j;
+		}
+		return res;
+	}
+}
+
+# ---- measure.rkt ----
+
+class Measure
+{
+	public static fun MaxSize() : Float
+	{
+		return 1024.0;
+	}
+
+	public static fun RoundFloat(Float x) : Float
+	{
+		return Fl.Round(10000.0 * x) / 10000.0;
+	}
+
+	public static fun FontKey(IText text, IText font, Int weight, Int style, IEnv env) : Int
+	{
+		Int e = env.Measures().Lookup(Measures.Key(text, font, weight, style));
+		if (e < 0)
+		{
+			ERROR("measure-max-size: text not measured in the reference run");
+		}
+		return e;
+	}
+
+	# (measure-text text size font weight style)
+	public static fun MeasureText(IText text, Float size, IText font, Int weight, Int style, IEnv env) : Float
+	{
+		Int e = Measure.FontKey(text, font, weight, style, env);
+		Float rawWidth = env.Measures().Width(e);
+		return Measure.RoundFloat(rawWidth * size / Measure.MaxSize());
+	}
+
+	public static fun MeasureAscent(IText text, Float size, IText font, Int weight, Int style, IEnv env) : Float
+	{
+		Int e = Measure.FontKey(text, font, weight, style, env);
+		Float rawBaselineDistance = env.Measures().Height(e) - env.Measures().Descent(e);
+		return Measure.RoundFloat(rawBaselineDistance * size / Measure.MaxSize());
+	}
+}

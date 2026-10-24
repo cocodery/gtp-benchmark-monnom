@@ -1,0 +1,91 @@
+# main.rkt: sieve of Eratosthenes over streams.
+
+# (lambda () (count-from (add1 n)))
+class CountFromThunk implements IStreamThunk
+{
+	private readonly Int n;
+	public constructor(Int n0)
+	{
+		n = n0;
+	}
+	public fun this() : IStream
+	{
+		return Main.CountFrom(n + 1);
+	}
+}
+
+# (lambda () (sift n tl))
+class SiftThunk implements IStreamThunk
+{
+	private readonly Int n;
+	private readonly IStream tl;
+	public constructor(Int n0, IStream tl0)
+	{
+		n = n0;
+		tl = tl0;
+	}
+	public fun this() : IStream
+	{
+		return Main.Sift(n, tl);
+	}
+}
+
+# (lambda () (sieve (sift hd tl)))
+class SieveThunk implements IStreamThunk
+{
+	private readonly Int hd;
+	private readonly IStream tl;
+	public constructor(Int hd0, IStream tl0)
+	{
+		hd = hd0;
+		tl = tl0;
+	}
+	public fun this() : IStream
+	{
+		return Main.Sieve(Main.Sift(hd, tl));
+	}
+}
+
+class Main
+{
+	# `count-from n` Build a stream of integers starting from `n` and iteratively adding 1
+	public static fun CountFrom(Int n) : IStream
+	{
+		return Streams.MakeStream(n, new CountFromThunk(n));
+	}
+
+	# `sift n st` Filter all elements in `st` that are equal to `n`.
+	public static fun Sift(Int n, IStream st) : IStream
+	{
+		IUnfold u = Streams.StreamUnfold(st);
+		Int hd = u.Hd();
+		IStream tl = u.Tl();
+		if (hd % n == 0)
+		{
+			return Main.Sift(n, tl);
+		}
+		return Streams.MakeStream(hd, new SiftThunk(n, tl));
+	}
+
+	# `sieve st` Sieve of Eratosthenes
+	public static fun Sieve(IStream st) : IStream
+	{
+		IUnfold u = Streams.StreamUnfold(st);
+		Int hd = u.Hd();
+		IStream tl = u.Tl();
+		return Streams.MakeStream(hd, new SieveThunk(hd, tl));
+	}
+
+	public static fun Main() : Void
+	{
+		# stream of prime numbers (a module-level definition in Racket)
+		IStream primes = Main.Sieve(Main.CountFrom(2));
+		Int n1 = 6666;
+		Timer t = new Timer();
+		Int p = Streams.StreamGet(primes, n1);
+		t.PrintDifference();
+		"\n".Print();
+		p.ToString().Print();
+		"\n".Print();
+	}
+}

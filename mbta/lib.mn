@@ -1,0 +1,1126 @@
+# Stand-ins for the Racket builtins used by mbta (strings, string-trim / string-split /
+# string-join / format, regexp-quote matching, hash sets and tables of strings) and for the
+# graph library of base/my-graph.rkt (unweighted-graph/directed, in-neighbors, edge properties).
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+# #f
+class NoText implements IOptText
+{
+	public constructor()
+	{
+	}
+	public fun IsFalse() : Bool
+	{
+		return true;
+	}
+	public fun Text() : IText
+	{
+		ERROR("not a string");
+	}
+}
+
+class SomeText implements IOptText
+{
+	private readonly IText text;
+	public constructor(IText t)
+	{
+		text = t;
+	}
+	public fun IsFalse() : Bool
+	{
+		return false;
+	}
+	public fun Text() : IText
+	{
+		return text;
+	}
+}
+
+class Txt
+{
+	public static fun Empty() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+	public static fun FromCodes(ArrayList<Int> cs) : IText
+	{
+		IText t = Txt.Empty();
+		foreach (Int c in cs)
+		{
+			t.Push(c);
+		}
+		return t;
+	}
+	# string=? / equal?
+	public static fun Equal(IText a, IText b) : Bool
+	{
+		Int n = a.Length();
+		if (n != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < n)
+		{
+			if (a.CharAt(i) != b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+	# string<?
+	public static fun Less(IText a, IText b) : Bool
+	{
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (i >= b.Length())
+			{
+				return false;
+			}
+			Int ca = a.CharAt(i);
+			Int cb = b.CharAt(i);
+			if (ca < cb)
+			{
+				return true;
+			}
+			if (ca > cb)
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return a.Length() < b.Length();
+	}
+	public static fun Hash(IText t) : Int
+	{
+		Int h = 7;
+		Int i = 0;
+		while (i < t.Length())
+		{
+			h = (h * 31 + t.CharAt(i)) % 1000003;
+			i = i + 1;
+		}
+		return h;
+	}
+	public static fun Append(IText acc, IText t) : IText
+	{
+		Int i = 0;
+		while (i < t.Length())
+		{
+			acc.Push(t.CharAt(i));
+			i = i + 1;
+		}
+		return acc;
+	}
+	# (string-append a b)
+	public static fun Concat(IText a, IText b) : IText
+	{
+		return Txt.Append(Txt.Append(Txt.Empty(), a), b);
+	}
+	public static fun Substring(IText t, Int from, Int to) : IText
+	{
+		IText r = Txt.Empty();
+		Int i = from;
+		while (i < to)
+		{
+			r.Push(t.CharAt(i));
+			i = i + 1;
+		}
+		return r;
+	}
+	public static fun IsSpace(Int c) : Bool
+	{
+		if (c == 32)
+		{
+			return true;
+		}
+		if (c == 9)
+		{
+			return true;
+		}
+		if (c == 10)
+		{
+			return true;
+		}
+		return c == 13;
+	}
+	# string-trim (whitespace on both ends)
+	public static fun Trim(IText t) : IText
+	{
+		Int a = 0;
+		Int b = t.Length();
+		while (a < b)
+		{
+			if (!Txt.IsSpace(t.CharAt(a)))
+			{
+				break;
+			}
+			a = a + 1;
+		}
+		while (b > a)
+		{
+			if (!Txt.IsSpace(t.CharAt(b - 1)))
+			{
+				break;
+			}
+			b = b - 1;
+		}
+		return Txt.Substring(t, a, b);
+	}
+	# the first position at or after from where pat occurs in t, or -1
+	public static fun IndexOf(IText t, IText pat, Int from) : Int
+	{
+		Int i = from;
+		while (i + pat.Length() <= t.Length())
+		{
+			if (Txt.MatchesAt(t, pat, i))
+			{
+				return i;
+			}
+			i = i + 1;
+		}
+		return -1;
+	}
+	# the last position at or after from where pat occurs in t, or -1
+	public static fun LastIndexOf(IText t, IText pat, Int from) : Int
+	{
+		Int i = t.Length() - pat.Length();
+		while (i >= from)
+		{
+			if (Txt.MatchesAt(t, pat, i))
+			{
+				return i;
+			}
+			i = i - 1;
+		}
+		return -1;
+	}
+	public static fun MatchesAt(IText t, IText pat, Int i) : Bool
+	{
+		Int j = 0;
+		while (j < pat.Length())
+		{
+			if (t.CharAt(i + j) != pat.CharAt(j))
+			{
+				return false;
+			}
+			j = j + 1;
+		}
+		return true;
+	}
+	# (regexp-match (regexp-quote word) s) as a boolean
+	public static fun Contains(IText s, IText word) : Bool
+	{
+		return Txt.IndexOf(s, word, 0) >= 0;
+	}
+	# (string-split s) on whitespace
+	public static fun SplitWhitespace(IText s) : ITextList
+	{
+		ArrayList<IText> parts = new ArrayList<IText>();
+		Int i = 0;
+		Int n = s.Length();
+		while (i < n)
+		{
+			if (Txt.IsSpace(s.CharAt(i)))
+			{
+				i = i + 1;
+				continue;
+			}
+			Int j = i;
+			while (j < n)
+			{
+				if (Txt.IsSpace(s.CharAt(j)))
+				{
+					break;
+				}
+				j = j + 1;
+			}
+			parts.Add(Txt.Substring(s, i, j));
+			i = j;
+		}
+		ITextList l = new TextNil();
+		Int k = parts.Length() - 1;
+		while (k >= 0)
+		{
+			l = new TextCons(parts.Get(k), l);
+			k = k - 1;
+		}
+		return l;
+	}
+	# (length (string-split s "\n"))
+	public static fun CountLines(IText s) : Int
+	{
+		Int a = 0;
+		Int b = s.Length();
+		while (a < b)
+		{
+			if (s.CharAt(a) != 10)
+			{
+				break;
+			}
+			a = a + 1;
+		}
+		while (b > a)
+		{
+			if (s.CharAt(b - 1) != 10)
+			{
+				break;
+			}
+			b = b - 1;
+		}
+		if (a == b)
+		{
+			return 0;
+		}
+		Int n = 1;
+		Int i = a;
+		while (i < b)
+		{
+			Int c = s.CharAt(i);
+			i = i + 1;
+			if (c == 10)
+			{
+				n = n + 1;
+				continue;
+			}
+		}
+		return n;
+	}
+	# (string-join strs sep)
+	public static fun Join(ITextList strs, IText sep) : IText
+	{
+		IText r = Txt.Empty();
+		Bool first = true;
+		while (!strs.IsEmpty())
+		{
+			if (!first)
+			{
+				Txt.Append(r, sep);
+			}
+			first = false;
+			Txt.Append(r, strs.First());
+			strs = strs.Rest();
+		}
+		return r;
+	}
+	# (format fmt arg ...) where fmt only contains ~a directives
+	public static fun Format(IText fmt, ITextList args) : IText
+	{
+		IText r = Txt.Empty();
+		Int i = 0;
+		while (i < fmt.Length())
+		{
+			Int c = fmt.CharAt(i);
+			if (c == 126)
+			{
+				if (i + 1 < fmt.Length())
+				{
+					if (fmt.CharAt(i + 1) == 97)
+					{
+						Txt.Append(r, args.First());
+						args = args.Rest();
+						i = i + 2;
+						continue;
+					}
+				}
+			}
+			r.Push(c);
+			i = i + 1;
+		}
+		return r;
+	}
+	public static fun List1(IText a) : ITextList
+	{
+		return new TextCons(a, new TextNil());
+	}
+	public static fun List2(IText a, IText b) : ITextList
+	{
+		return new TextCons(a, new TextCons(b, new TextNil()));
+	}
+	# (member s l) for strings
+	public static fun Member(IText s, ITextList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (Txt.Equal(s, l.First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+	# (remove* (list s) l)
+	public static fun RemoveAll(IText s, ITextList l) : ITextList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		if (Txt.Equal(s, l.First()))
+		{
+			return Txt.RemoveAll(s, l.Rest());
+		}
+		return new TextCons(l.First(), Txt.RemoveAll(s, l.Rest()));
+	}
+	public static fun Reverse(ITextList l) : ITextList
+	{
+		ITextList r = new TextNil();
+		while (!l.IsEmpty())
+		{
+			r = new TextCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+	# insert s into a list sorted by string<? (no duplicates)
+	public static fun InsertSorted(IText s, ITextList l) : ITextList
+	{
+		if (l.IsEmpty())
+		{
+			return new TextCons(s, l);
+		}
+		if (Txt.Equal(s, l.First()))
+		{
+			return l;
+		}
+		if (Txt.Less(s, l.First()))
+		{
+			return new TextCons(s, l);
+		}
+		return new TextCons(l.First(), Txt.InsertSorted(s, l.Rest()));
+	}
+}
+
+# ---------------------------------------------------------------- hash sets / tables of strings
+
+# (Setof Station): a hash set with 256 buckets of lists
+class TextSet implements ITextSet
+{
+	private readonly ArrayList<ITextList> buckets;
+	private readonly ITextList elems;
+	public constructor(ArrayList<ITextList> b, ITextList e)
+	{
+		buckets = b;
+		elems = e;
+	}
+	public fun Member(IText s) : Bool
+	{
+		return Txt.Member(s, buckets.Get(Txt.Hash(s) % 256));
+	}
+	public fun Elems() : ITextList
+	{
+		return elems;
+	}
+}
+
+# one adjacency entry of the graph
+class AdjEntry
+{
+	public readonly IText Vertex;
+	public ITextList Neighbors;
+	public constructor(IText v, ITextList n)
+	{
+		Vertex = v;
+		Neighbors = n;
+	}
+}
+
+# unweighted-graph/directed: a mutable hash from vertices to their neighbors. The neighbors are
+# kept sorted by string<? (Racket iterates an immutable hash set, whose order depends on string
+# hash codes; the reference output was computed with the same sorted order, see NOTES.md)
+class Graph implements IGraph
+{
+	private readonly ArrayList<ArrayList<AdjEntry>> buckets;
+	public constructor(ArrayList<ArrayList<AdjEntry>> b)
+	{
+		buckets = b;
+	}
+	public fun Entry(IText v) : AdjEntry
+	{
+		ArrayList<AdjEntry> bucket = buckets.Get(Txt.Hash(v) % 256);
+		foreach (AdjEntry e in bucket)
+		{
+			if (Txt.Equal(e.Vertex, v))
+			{
+				return e;
+			}
+		}
+		AdjEntry n = new AdjEntry(v, new TextNil());
+		bucket.Add(n);
+		return n;
+	}
+	# add-directed-edge!
+	public fun AddEdge(IText u, IText v) : Int
+	{
+		AdjEntry e = this.Entry(u);
+		e.Neighbors = Txt.InsertSorted(v, e.Neighbors);
+		this.Entry(v);
+		return 0;
+	}
+	public fun InNeighbors(IText v) : ITextList
+	{
+		return this.Entry(v).Neighbors;
+	}
+}
+
+class EdgeEntry
+{
+	public readonly IText From;
+	public readonly IText To;
+	public Int Value;
+	public constructor(IText f, IText t, Int v)
+	{
+		From = f;
+		To = t;
+		Value = v;
+	}
+}
+
+# (define-edge-property graph connection-on #:init (set)): a hash on (from, to)
+class EdgeProperty implements IEdgeProperty
+{
+	private readonly ArrayList<ArrayList<EdgeEntry>> buckets;
+	private readonly Int init;
+	public constructor(ArrayList<ArrayList<EdgeEntry>> b, Int i)
+	{
+		buckets = b;
+		init = i;
+	}
+	public fun Get(IText from, IText to) : Int
+	{
+		ArrayList<EdgeEntry> bucket = buckets.Get((Txt.Hash(from) * 7 + Txt.Hash(to)) % 256);
+		foreach (EdgeEntry e in bucket)
+		{
+			if (Txt.Equal(e.From, from))
+			{
+				if (Txt.Equal(e.To, to))
+				{
+					return e.Value;
+				}
+			}
+		}
+		return init;
+	}
+	public fun Set(IConnection edge, Int lines) : Int
+	{
+		IText from = edge.From();
+		IText to = edge.To();
+		ArrayList<EdgeEntry> bucket = buckets.Get((Txt.Hash(from) * 7 + Txt.Hash(to)) % 256);
+		foreach (EdgeEntry e in bucket)
+		{
+			if (Txt.Equal(e.From, from))
+			{
+				if (Txt.Equal(e.To, to))
+				{
+					e.Value = lines;
+					return lines;
+				}
+			}
+		}
+		bucket.Add(new EdgeEntry(from, to, lines));
+		return lines;
+	}
+}
+
+class Builtins
+{
+	# (apply set strs)
+	public static fun MakeTextSet(ITextList strs) : ITextSet
+	{
+		ArrayList<ITextList> b = new ArrayList<ITextList>();
+		Int i = 0;
+		while (i < 256)
+		{
+			b.Add(new TextNil());
+			i = i + 1;
+		}
+		ITextList elems = new TextNil();
+		ITextList l = strs;
+		while (!l.IsEmpty())
+		{
+			IText s = l.First();
+			Int h = Txt.Hash(s) % 256;
+			l = l.Rest();
+			if (!Txt.Member(s, b.Get(h)))
+			{
+				b.Set(h, new TextCons(s, b.Get(h)));
+				elems = new TextCons(s, elems);
+				continue;
+			}
+		}
+		return new TextSet(b, elems);
+	}
+
+	# unweighted-graph/directed
+	public static fun UnweightedGraphDirected(IConnectionList connections) : IGraph
+	{
+		ArrayList<ArrayList<AdjEntry>> b = new ArrayList<ArrayList<AdjEntry>>();
+		Int i = 0;
+		while (i < 256)
+		{
+			b.Add(new ArrayList<AdjEntry>());
+			i = i + 1;
+		}
+		Graph g = new Graph(b);
+		IConnectionList l = connections;
+		while (!l.IsEmpty())
+		{
+			g.AddEdge(l.First().From(), l.First().To());
+			l = l.Rest();
+		}
+		return g;
+	}
+
+	# (attach-edge-property graph #:init init)
+	public static fun AttachEdgeProperty(IGraph g, Int init) : IEdgeProperty
+	{
+		ArrayList<ArrayList<EdgeEntry>> b = new ArrayList<ArrayList<EdgeEntry>>();
+		Int i = 0;
+		while (i < 256)
+		{
+			b.Add(new ArrayList<EdgeEntry>());
+			i = i + 1;
+		}
+		return new EdgeProperty(b, init);
+	}
+
+	# Line names: "green" "E" "D" "C" "B" "red" "Mattapan" "Braintree" "orange" "blue"
+	public static fun LineName(Int i) : IText
+	{
+		if (i == 0)
+		{
+			return Txt.PushWord(Txt.Empty(), 29741381991);
+		}
+		if (i == 1)
+		{
+			return Txt.PushWord(Txt.Empty(), 69);
+		}
+		if (i == 2)
+		{
+			return Txt.PushWord(Txt.Empty(), 68);
+		}
+		if (i == 3)
+		{
+			return Txt.PushWord(Txt.Empty(), 67);
+		}
+		if (i == 4)
+		{
+			return Txt.PushWord(Txt.Empty(), 66);
+		}
+		if (i == 5)
+		{
+			return Txt.PushWord(Txt.Empty(), 1651442);
+		}
+		if (i == 6)
+		{
+			return Txt.PushWord(Txt.Empty(), 62354979962040525);
+		}
+		if (i == 7)
+		{
+			return Txt.PushWord(Txt.Empty(), 7335180335907895618);
+		}
+		if (i == 8)
+		{
+			return Txt.PushWord(Txt.Empty(), 3498214717807);
+		}
+		return Txt.PushWord(Txt.Empty(), 213743202);
+	}
+
+	# set operations on (Setof Line) bit sets (MonNom's runtime does not implement & | ^,
+	# so bits are read with division)
+	public static fun Has(Int s, Int line) : Bool
+	{
+		return (s / Builtins.Bit(line)) % 2 == 1;
+	}
+	public static fun Subset(Int a, Int b) : Bool
+	{
+		Int i = 0;
+		while (i < 10)
+		{
+			if (Builtins.Has(a, i))
+			{
+				if (!Builtins.Has(b, i))
+				{
+					return false;
+				}
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+	public static fun ProperSubset(Int a, Int b) : Bool
+	{
+		if (Builtins.Subset(a, b))
+		{
+			return a != b;
+		}
+		return false;
+	}
+	# (set-empty? (set-intersect a b))
+	public static fun Disjoint(Int a, Int b) : Bool
+	{
+		Int i = 0;
+		while (i < 10)
+		{
+			if (Builtins.Has(a, i))
+			{
+				if (Builtins.Has(b, i))
+				{
+					return false;
+				}
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+	public static fun Bit(Int line) : Int
+	{
+		Int b = 1;
+		Int i = 0;
+		while (i < line)
+		{
+			b = b * 2;
+			i = i + 1;
+		}
+		return b;
+	}
+	public static fun SetAdd(Int s, Int line) : Int
+	{
+		if (Builtins.Has(s, line))
+		{
+			return s;
+		}
+		return s + Builtins.Bit(line);
+	}
+	# (set-map b values): the line names of a set
+	public static fun SetMapNames(Int s) : ITextList
+	{
+		ITextList r = new TextNil();
+		Int i = 9;
+		while (i >= 0)
+		{
+			Int line = i;
+			i = i - 1;
+			if (Builtins.Has(s, line))
+			{
+				r = new TextCons(Builtins.LineName(line), r);
+				continue;
+			}
+		}
+		return r;
+	}
+}
+
+class TextNil implements ITextList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IText
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextCons implements ITextList
+{
+	private readonly IText first;
+	private readonly ITextList rest;
+	public constructor(IText f, ITextList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IText
+	{
+		return first;
+	}
+	public fun Rest() : ITextList
+	{
+		return rest;
+	}
+}
+
+class StationLineNil implements IPath
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IStationLine
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPath
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class StationLineCons implements IPath
+{
+	private readonly IStationLine first;
+	private readonly IPath rest;
+	public constructor(IStationLine f, IPath r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IStationLine
+	{
+		return first;
+	}
+	public fun Rest() : IPath
+	{
+		return rest;
+	}
+}
+
+class PathNil implements IPathList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPath
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPathList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PathCons implements IPathList
+{
+	private readonly IPath first;
+	private readonly IPathList rest;
+	public constructor(IPath f, IPathList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPath
+	{
+		return first;
+	}
+	public fun Rest() : IPathList
+	{
+		return rest;
+	}
+}
+
+class PathElemNil implements IPathStar
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPathElem
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPathStar
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PathElemCons implements IPathStar
+{
+	private readonly IPathElem first;
+	private readonly IPathStar rest;
+	public constructor(IPathElem f, IPathStar r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPathElem
+	{
+		return first;
+	}
+	public fun Rest() : IPathStar
+	{
+		return rest;
+	}
+}
+
+class PathStarNil implements IPathStarList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPathStar
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPathStarList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PathStarCons implements IPathStarList
+{
+	private readonly IPathStar first;
+	private readonly IPathStarList rest;
+	public constructor(IPathStar f, IPathStarList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPathStar
+	{
+		return first;
+	}
+	public fun Rest() : IPathStarList
+	{
+		return rest;
+	}
+}
+
+class ColorLinesNil implements IColorLinesList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IColorLines
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IColorLinesList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ColorLinesCons implements IColorLinesList
+{
+	private readonly IColorLines first;
+	private readonly IColorLinesList rest;
+	public constructor(IColorLines f, IColorLinesList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IColorLines
+	{
+		return first;
+	}
+	public fun Rest() : IColorLinesList
+	{
+		return rest;
+	}
+}
+
+class ConnectionNil implements IConnectionList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IConnection
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IConnectionList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ConnectionCons implements IConnectionList
+{
+	private readonly IConnection first;
+	private readonly IConnectionList rest;
+	public constructor(IConnection f, IConnectionList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IConnection
+	{
+		return first;
+	}
+	public fun Rest() : IConnectionList
+	{
+		return rest;
+	}
+}
+
+class LineConnectionsNil implements ILineConnectionsList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ILineConnections
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ILineConnectionsList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class LineConnectionsCons implements ILineConnectionsList
+{
+	private readonly ILineConnections first;
+	private readonly ILineConnectionsList rest;
+	public constructor(ILineConnections f, ILineConnectionsList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ILineConnections
+	{
+		return first;
+	}
+	public fun Rest() : ILineConnectionsList
+	{
+		return rest;
+	}
+}
+
+class TextListNil implements ITextListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ITextList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextListCons implements ITextListList
+{
+	private readonly ITextList first;
+	private readonly ITextListList rest;
+	public constructor(ITextList f, ITextListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ITextList
+	{
+		return first;
+	}
+	public fun Rest() : ITextListList
+	{
+		return rest;
+	}
+}
+

@@ -1,0 +1,1256 @@
+# quads.rkt, world.rkt, sugar-list.rkt and utils.rkt of quadU (merged to keep the configuration
+# count down; see NOTES.md). Derived from the quadT port; the differences of the quadU originals
+# are marked "quadU:". Flat key/value lists (an IValList) are converted with make-quadattrs.
+
+# ---- world.rkt ----
+
+class World
+{
+	public static fun DraftQuality() : Int
+	{
+		return 20;
+	}
+	public static fun MaxQuality() : Int
+	{
+		return 100;
+	}
+	public static fun QualityKeyDefault() : Int
+	{
+		return World.MaxQuality();
+	}
+	public static fun FontSizeDefault() : Float
+	{
+		return 13.0;
+	}
+	# "Triplicate T4"
+	public static fun FontNameDefault() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.Empty(), 8413726097486281044), 110432357);
+	}
+	public static fun FontWeightDefault() : Int
+	{
+		return Sym.Normal();
+	}
+	public static fun FontStyleDefault() : Int
+	{
+		return Sym.Normal();
+	}
+	# "black"
+	public static fun FontColorDefault() : IText
+	{
+		return Txt.PushWord(Txt.Empty(), 28931815010);
+	}
+	# "none"
+	public static fun FontBackgroundDefault() : IText
+	{
+		return Txt.PushWord(Txt.Empty(), 213628910);
+	}
+	# (floor (* (font-size-default) 1.4))
+	public static fun LeadingKeyDefault() : Float
+	{
+		return Fl.Floor(World.FontSizeDefault() * 1.4);
+	}
+	public static fun MeasureDefault() : IVal
+	{
+		return Vals.F(300.0);
+	}
+	public static fun HorizAlignmentDefault() : Int
+	{
+		return Sym.Left();
+	}
+	public static fun OpticalOverhang() : Float
+	{
+		return 0.8;
+	}
+	public static fun ColumnCountKeyDefault() : Int
+	{
+		return 2;
+	}
+	public static fun ColumnGutterKeyDefault() : Float
+	{
+		return 30.0;
+	}
+	public static fun PaperWidthDefault() : Float
+	{
+		return 8.5 * 72.0;
+	}
+	public static fun PaperHeightDefault() : Float
+	{
+		return 11.0 * 72.0;
+	}
+	public static fun SoftHyphen() : Int
+	{
+		return 173;
+	}
+	# (list "-" "–" "—" (format "~a" soft-hyphen))
+	public static fun HyphensAndDashes() : ITextList
+	{
+		return new TextCons(Txt.Char(45), new TextCons(Txt.Char(8211), new TextCons(Txt.Char(8212), new TextCons(Txt.Char(173), new TextNil()))));
+	}
+	public static fun Spaces() : ITextList
+	{
+		return new TextCons(Txt.Char(32), new TextNil());
+	}
+	public static fun EmptyString() : IText
+	{
+		return Txt.Empty();
+	}
+	# '(char run word)
+	public static fun IsMergeableQuadType(Int name) : Bool
+	{
+		if (name == Sym.Char())
+		{
+			return true;
+		}
+		if (name == Sym.Run())
+		{
+			return true;
+		}
+		return name == Sym.Word();
+	}
+	# '(nb "" bb "-")
+	public static fun DefaultWordBreakList() : IValList
+	{
+		return new ValCons(Vals.Sym(Sym.Nb()), new ValCons(Vals.S(Txt.Empty()), new ValCons(Vals.Sym(Sym.Bb()), new ValCons(Vals.S(Txt.Char(45)), new ValNil()))));
+	}
+	public static fun LineLoosenessTolerance() : Float
+	{
+		return 0.05;
+	}
+	public static fun HyphenLimit() : Int
+	{
+		return 1;
+	}
+	public static fun MinimumLastLineChars() : Int
+	{
+		return 5;
+	}
+	public static fun AllowHyphenatedLastWordInParagraph() : Bool
+	{
+		return true;
+	}
+	public static fun AllowedOverfullRatio() : Float
+	{
+		return 1.015;
+	}
+	public static fun LastLineCanBeShort() : Bool
+	{
+		return true;
+	}
+	public static fun UseOpticalKerns() : Bool
+	{
+		return true;
+	}
+	public static fun UseHyphenation() : Bool
+	{
+		return true;
+	}
+	public static fun NewLinePenalty() : Int
+	{
+		return 5000;
+	}
+	public static fun HyphenPenalty() : Int
+	{
+		return 5000;
+	}
+	# (regexp-match* #rx"." ".-,‘’“”'\"()[]{}:;")
+	public static fun HangingChars() : ITextList
+	{
+		ArrayList<Int> cs = new ArrayList<Int>();
+		cs.Add(46);
+		cs.Add(45);
+		cs.Add(44);
+		cs.Add(8216);
+		cs.Add(8217);
+		cs.Add(8220);
+		cs.Add(8221);
+		cs.Add(39);
+		cs.Add(34);
+		cs.Add(40);
+		cs.Add(41);
+		cs.Add(91);
+		cs.Add(93);
+		cs.Add(123);
+		cs.Add(125);
+		cs.Add(58);
+		cs.Add(59);
+		ITextList l = new TextNil();
+		Int i = cs.Length() - 1;
+		while (i >= 0)
+		{
+			l = new TextCons(Txt.Char(cs.Get(i)), l);
+			i = i - 1;
+		}
+		return l;
+	}
+	public static fun MinimumLinesPerColumn() : Int
+	{
+		return 4;
+	}
+	public static fun MinFirstLines() : Int
+	{
+		return 2;
+	}
+	public static fun MinLastLines() : Int
+	{
+		return 2;
+	}
+	public static fun DefaultLinesPerColumn() : Int
+	{
+		return 36;
+	}
+}
+
+# ---- quads.rkt ----
+
+class Quads
+{
+	public static fun QuadName(IQuad q) : Int
+	{
+		return q.Name();
+	}
+
+	public static fun QuadAttrs(IQuad q) : IAttrList
+	{
+		return q.Attrs();
+	}
+
+	public static fun QuadList(IQuad q) : IItemList
+	{
+		return q.Items();
+	}
+
+	public static fun Make(Int name, IAttrList attrs, IItemList items) : IQuad
+	{
+		return Vals.MakeQuad(name, attrs, items);
+	}
+
+	# (quad-attr-ref q key [default attr-missing]) on a quad / on attributes
+	public static fun AttrRef(IQuad q, Int key, IVal dflt) : IVal
+	{
+		return Quads.AttrsRef(q.Attrs(), key, dflt);
+	}
+
+	public static fun AttrsRef(IAttrList qas, Int key, IVal dflt) : IVal
+	{
+		# quadU: (for/fold ([v #f]) ([qap qas]) (or v (and (equal? key (car qap)) (cdr qap)))):
+		# the first matching attribute whose value is not #f
+		IAttrList l = qas;
+		while (!l.IsEmpty())
+		{
+			if (l.First().Key() == key)
+			{
+				if (!Vals.IsFalse(l.First().Value()))
+				{
+					return l.First().Value();
+				}
+			}
+			l = l.Rest();
+		}
+		if (dflt.Kind() != 8)
+		{
+			return dflt;
+		}
+		ERROR("quad-attr-ref: Key not found in quad attributes");
+	}
+
+	public static fun AttrRefMissing(IQuad q, Int key) : IVal
+	{
+		return Quads.AttrRef(q, key, Vals.Missing());
+	}
+
+	public static fun IsCannotBeCommon(Int k) : Bool
+	{
+		if (k == Sym.Width())
+		{
+			return true;
+		}
+		if (k == Sym.X())
+		{
+			return true;
+		}
+		if (k == Sym.Y())
+		{
+			return true;
+		}
+		return k == Sym.Page();
+	}
+
+	public static fun QuadToString(IQuad x) : IText
+	{
+		IText t = Txt.Empty();
+		IItemList l = x.Items();
+		while (!l.IsEmpty())
+		{
+			t = Txt.Append(t, Quads.ItemToString(l.First()));
+			l = l.Rest();
+		}
+		return t;
+	}
+
+	public static fun ItemToString(IItem x) : IText
+	{
+		if (x.IsString())
+		{
+			return x.Str();
+		}
+		return Quads.QuadToString(x.Q());
+	}
+
+	public static fun AttrMember(IAttr a, IAttrList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (Vals.AttrEqual(a, l.First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	public static fun FilterMembers(IAttrList caps, IAttrList attrs) : IAttrList
+	{
+		if (caps.IsEmpty())
+		{
+			return caps;
+		}
+		if (Quads.AttrMember(caps.First(), attrs))
+		{
+			return new AttrCons(caps.First(), Quads.FilterMembers(caps.Rest(), attrs));
+		}
+		return Quads.FilterMembers(caps.Rest(), attrs);
+	}
+
+	public static fun GatherCommonAttrs(IQuadList qs0) : IAttrList
+	{
+		if (qs0.IsEmpty())
+		{
+			return new AttrNil();
+		}
+		# (for/fold ([caps null]) ([cap first-attrs]) (if (member ...) caps (cons cap caps)))
+		IAttrList caps = new AttrNil();
+		IAttrList l = qs0.First().Attrs();
+		while (!l.IsEmpty())
+		{
+			IAttr cap = l.First();
+			l = l.Rest();
+			if (Quads.IsCannotBeCommon(cap.Key()))
+			{
+				continue;
+			}
+			caps = new AttrCons(cap, caps);
+		}
+		IQuadList qs = qs0;
+		while (true)
+		{
+			if (caps.IsEmpty())
+			{
+				return new AttrNil();
+			}
+			if (qs.IsEmpty())
+			{
+				return caps;
+			}
+			caps = Quads.FilterMembers(caps, qs.First().Attrs());
+			qs = qs.Rest();
+		}
+		return caps;
+	}
+
+	# make-quadattrs on a HashableList
+	public static fun MakeQuadattrs(IValList xs) : IAttrList
+	{
+		IIntList ks = new IntNil();
+		IValList vs = new ValNil();
+		Bool even = true;
+		IValList l = xs;
+		while (!l.IsEmpty())
+		{
+			IVal x = l.First();
+			l = l.Rest();
+			if (even)
+			{
+				if (x.Kind() == 3)
+				{
+					ks = new IntCons(x.Sym(), ks);
+					even = false;
+					continue;
+				}
+			}
+			vs = new ValCons(x, vs);
+			even = true;
+		}
+		if (!even)
+		{
+			ERROR("quadattrs: odd number of elements");
+		}
+		IAttrList qas = new AttrNil();
+		while (!ks.IsEmpty())
+		{
+			qas = new AttrCons(Vals.Attr(ks.First(), vs.First()), qas);
+			ks = ks.Rest();
+			vs = vs.Rest();
+		}
+		return qas;
+	}
+
+	# (whitespace? x [nbsp? #f]) on a string, a quad and a quad list
+	public static fun StringWhitespace(IText x, Bool nbsp) : Bool
+	{
+		if (!Txt.HasZs(x))
+		{
+			return false;
+		}
+		if (nbsp)
+		{
+			return true;
+		}
+		return !Txt.HasChar(x, 160);
+	}
+
+	public static fun ItemWhitespace(IItem x, Bool nbsp) : Bool
+	{
+		if (x.IsString())
+		{
+			return Quads.StringWhitespace(x.Str(), nbsp);
+		}
+		return Quads.QuadWhitespace(x.Q(), nbsp);
+	}
+
+	public static fun QuadWhitespace(IQuad x, Bool nbsp) : Bool
+	{
+		IItemList l = x.Items();
+		if (l.IsEmpty())
+		{
+			return false;
+		}
+		while (!l.IsEmpty())
+		{
+			if (!Quads.ItemWhitespace(l.First(), nbsp))
+			{
+				return false;
+			}
+			l = l.Rest();
+		}
+		return true;
+	}
+
+	public static fun IsWhitespace(IQuad x) : Bool
+	{
+		return Quads.QuadWhitespace(x, false);
+	}
+
+	public static fun IsWhitespaceNbsp(IQuad x) : Bool
+	{
+		return Quads.QuadWhitespace(x, true);
+	}
+
+	# whitespace? on a quad-attr value (a string)
+	public static fun ValWhitespace(IVal v) : Bool
+	{
+		if (v.Kind() == 2)
+		{
+			return Quads.StringWhitespace(v.S(), false);
+		}
+		if (v.Kind() == 5)
+		{
+			return Quads.QuadWhitespace(v.Q(), false);
+		}
+		return false;
+	}
+
+	public static fun QuadCar(IQuad q) : IItem
+	{
+		if (q.Items().IsEmpty())
+		{
+			ERROR("quad-car: quad-list empty");
+		}
+		return q.Items().First();
+	}
+
+	public static fun HasAttr(IQuad q, Int key) : Bool
+	{
+		IAttrList l = q.Attrs();
+		while (!l.IsEmpty())
+		{
+			if (l.First().Key() == key)
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	public static fun QuadsToItems(IQuadList qs) : IItemList
+	{
+		if (qs.IsEmpty())
+		{
+			return new ItemNil();
+		}
+		return new ItemCons(Vals.QuadItem(qs.First()), Quads.QuadsToItems(qs.Rest()));
+	}
+
+	# the items of a GroupQuad
+	public static fun GroupQuadList(IQuad q) : IQuadList
+	{
+		return Quads.ItemsToQuads(q.Items());
+	}
+
+	public static fun ItemsToQuads(IItemList l) : IQuadList
+	{
+		if (l.IsEmpty())
+		{
+			return new QuadNil();
+		}
+		return new QuadCons(l.First().Q(), Quads.ItemsToQuads(l.Rest()));
+	}
+
+	# the constructors (box attrs . xs) etc. with QuadAttrs
+	public static fun Box(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Box(), a, xs);
+	}
+	public static fun Spacer(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Spacer(), a, xs);
+	}
+	public static fun Doc(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Doc(), a, xs);
+	}
+	public static fun OpticalKern(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.OpticalKern(), a, xs);
+	}
+	public static fun Piece(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Piece(), a, xs);
+	}
+	public static fun Word(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Word(), a, xs);
+	}
+	public static fun WordBreak(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.WordBreak(), a, xs);
+	}
+	public static fun Page(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Page(), a, xs);
+	}
+	public static fun Column(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Column(), a, xs);
+	}
+	public static fun Line(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Line(), a, xs);
+	}
+	public static fun Block(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.Block(), a, xs);
+	}
+	public static fun BlockBreak(IAttrList a, IItemList xs) : IQuad
+	{
+		return Quads.Make(Sym.BlockBreak(), a, xs);
+	}
+	public static fun PageBreak() : IQuad
+	{
+		return Quads.Make(Sym.PageBreak(), new AttrNil(), new ItemNil());
+	}
+	public static fun ColumnBreak() : IQuad
+	{
+		return Quads.Make(Sym.ColumnBreak(), new AttrNil(), new ItemNil());
+	}
+
+	public static fun QuadsToDoc(IQuadList qs) : IQuad
+	{
+		return Quads.Doc(Quads.GatherCommonAttrs(qs), Quads.QuadsToItems(qs));
+	}
+	public static fun QuadsToPage(IQuadList qs) : IQuad
+	{
+		return Quads.Page(Quads.GatherCommonAttrs(qs), Quads.QuadsToItems(qs));
+	}
+	public static fun QuadsToColumn(IQuadList qs) : IQuad
+	{
+		return Quads.Column(Quads.GatherCommonAttrs(qs), Quads.QuadsToItems(qs));
+	}
+	public static fun QuadsToLine(IQuadList qs) : IQuad
+	{
+		return Quads.Line(Quads.GatherCommonAttrs(qs), Quads.QuadsToItems(qs));
+	}
+	public static fun QuadsToBlock(IQuadList qs) : IQuad
+	{
+		return Quads.Block(Quads.GatherCommonAttrs(qs), Quads.QuadsToItems(qs));
+	}
+
+	# quadU: (assert (car (quad-list c)) string?)
+	public static fun WordString(IQuad c) : IText
+	{
+		IItemList ql = c.Items();
+		if (ql.IsEmpty())
+		{
+			ERROR("car: contract violation, expected pair?");
+		}
+		return ql.First().Str();
+	}
+
+	# the predicates of quad-types.rkt (make-quad-list-pred / make-group-list-pred)
+	public static fun Is(IQuad q, Int name) : Bool
+	{
+		return q.Name() == name;
+	}
+
+	public static fun AllQuads(IItemList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (l.First().IsString())
+			{
+				return false;
+			}
+			l = l.Rest();
+		}
+		return true;
+	}
+
+	public static fun IsGroup(IQuad q, Int name) : Bool
+	{
+		if (q.Name() != name)
+		{
+			return false;
+		}
+		return Quads.AllQuads(q.Items());
+	}
+
+	public static fun IsPageBreak(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.PageBreak());
+	}
+	public static fun IsColumnBreak(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.ColumnBreak());
+	}
+	public static fun IsBlockBreak(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.BlockBreak());
+	}
+	public static fun IsWordBreak(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.WordBreak());
+	}
+	public static fun IsColumn(IQuad q) : Bool
+	{
+		return Quads.IsGroup(q, Sym.Column());
+	}
+	public static fun IsLine(IQuad q) : Bool
+	{
+		return Quads.IsGroup(q, Sym.Line());
+	}
+	public static fun IsWord(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.Word());
+	}
+	public static fun IsRun(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.Run());
+	}
+	public static fun IsSpacer(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.Spacer());
+	}
+	public static fun IsOpticalKern(IQuad q) : Bool
+	{
+		return Quads.Is(q, Sym.OpticalKern());
+	}
+}
+
+# ---- sugar-list.rkt ----
+
+class SugarList
+{
+	# (slice-at xs len) on quads
+	public static fun SliceAt(IQuadList xs, Int len) : IQuadListList
+	{
+		IQuadList current = new QuadNil();
+		IQuadListList lists = new QuadListNil();
+		Int i = 0;
+		IQuadList l = xs;
+		while (!l.IsEmpty())
+		{
+			IQuad x = l.First();
+			l = l.Rest();
+			i = i + 1;
+			if (i % len == 0)
+			{
+				lists = new QuadListCons(SugarList.Reverse(new QuadCons(x, current)), lists);
+				current = new QuadNil();
+				continue;
+			}
+			current = new QuadCons(x, current);
+		}
+		if (current.IsEmpty())
+		{
+			return SugarList.ReverseLists(lists);
+		}
+		return SugarList.ReverseLists(new QuadListCons(SugarList.Reverse(current), lists));
+	}
+
+	public static fun Reverse(IQuadList l) : IQuadList
+	{
+		IQuadList r = new QuadNil();
+		while (!l.IsEmpty())
+		{
+			r = new QuadCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun ReverseLists(IQuadListList l) : IQuadListList
+	{
+		IQuadListList r = new QuadListNil();
+		while (!l.IsEmpty())
+		{
+			r = new QuadListCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun Length(IQuadList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	public static fun Take(IQuadList l, Int n) : IQuadList
+	{
+		if (n == 0)
+		{
+			return new QuadNil();
+		}
+		return new QuadCons(l.First(), SugarList.Take(l.Rest(), n - 1));
+	}
+
+	public static fun Drop(IQuadList l, Int n) : IQuadList
+	{
+		Int i = 0;
+		while (i < n)
+		{
+			l = l.Rest();
+			i = i + 1;
+		}
+		return l;
+	}
+
+	public static fun Append(IQuadList a, IQuadList b) : IQuadList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new QuadCons(a.First(), SugarList.Append(a.Rest(), b));
+	}
+
+	# (break-at xs bps)
+	public static fun BreakAt(IQuadList xs, IIntList bps0) : IQuadListList
+	{
+		IIntList c = bps0;
+		while (!c.IsEmpty())
+		{
+			if (c.First() >= SugarList.Length(xs))
+			{
+				ERROR("break-at: breakpoint is greater than or equal to input list length");
+			}
+			c = c.Rest();
+		}
+		# (reverse (cons 0 bps)) and the loop that splits from the right
+		IIntList bps = new IntNil();
+		IIntList b = new IntCons(0, bps0);
+		while (!b.IsEmpty())
+		{
+			bps = new IntCons(b.First(), bps);
+			b = b.Rest();
+		}
+		IQuadListList acc = new QuadListNil();
+		IQuadList rest = xs;
+		while (bps.First() != 0)
+		{
+			acc = new QuadListCons(SugarList.Drop(rest, bps.First()), acc);
+			rest = SugarList.Take(rest, bps.First());
+			bps = bps.Rest();
+		}
+		# (reverse (cons tail ... (cons xs null))) in the original order
+		return new QuadListCons(rest, acc);
+	}
+
+	# (shifts xs '(1 -1)) with #f fill: the left and right neighbours (NoQuad for #f)
+	public static fun ShiftRight(IQuadList xs) : IQuadList
+	{
+		if (xs.IsEmpty())
+		{
+			return xs;
+		}
+		return new QuadCons(Vals.NoQuad(), SugarList.DropRight1(xs));
+	}
+
+	public static fun ShiftLeft(IQuadList xs) : IQuadList
+	{
+		if (xs.IsEmpty())
+		{
+			return xs;
+		}
+		return SugarList.Append(xs.Rest(), new QuadCons(Vals.NoQuad(), new QuadNil()));
+	}
+
+	public static fun DropRight1(IQuadList xs) : IQuadList
+	{
+		if (xs.Rest().IsEmpty())
+		{
+			return new QuadNil();
+		}
+		return new QuadCons(xs.First(), SugarList.DropRight1(xs.Rest()));
+	}
+}
+
+# ---- utils.rkt ----
+
+class Utils
+{
+	# round-float of measure.rkt: (/ (round (* base x)) base)
+	public static fun RoundFloat(Float x) : Float
+	{
+		return Fl.Round(10000.0 * x) / 10000.0;
+	}
+
+	public static fun QuadMapHyphenate(IQuad q, IEnv env) : IQuad
+	{
+		return Quads.Make(q.Name(), q.Attrs(), Utils.HyphenateItems(q.Items(), env));
+	}
+
+	public static fun HyphenateItems(IItemList l, IEnv env) : IItemList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		IItem h = Utils.HyphenateQuad(l.First(), env);
+		return new ItemCons(h, Utils.HyphenateItems(l.Rest(), env));
+	}
+
+	# hyphenate-quad
+	public static fun HyphenateQuad(IItem x, IEnv env) : IItem
+	{
+		if (x.IsString())
+		{
+			return Vals.StrItem(Hyphenate.Hyphenate(x.Str(), 6, 3, 3, env));
+		}
+		return Vals.QuadItem(Utils.QuadMapHyphenate(x.Q(), env));
+	}
+
+	public static fun AttrAppend(IAttrList a, IAttrList b) : IAttrList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new AttrCons(a.First(), Utils.AttrAppend(a.Rest(), b));
+	}
+
+	public static fun KeyMember(Int k, IIntList ks) : Bool
+	{
+		while (!ks.IsEmpty())
+		{
+			if (ks.First() == k)
+			{
+				return true;
+			}
+			ks = ks.Rest();
+		}
+		return false;
+	}
+
+	# (hash->list (make-hash attrs)): one attribute per key with its last value. The order of
+	# Racket's hash table is replaced by the order of first occurrence (the benchmark's result
+	# does not depend on it; checked with the Racket version).
+	public static fun Dedupe(IAttrList all) : IAttrList
+	{
+		IIntList seen = new IntNil();
+		IAttrList keysInOrder = new AttrNil();
+		IAttrList l = all;
+		while (!l.IsEmpty())
+		{
+			IAttr a = l.First();
+			l = l.Rest();
+			if (Utils.KeyMember(a.Key(), seen))
+			{
+				continue;
+			}
+			seen = new IntCons(a.Key(), seen);
+			keysInOrder = new AttrCons(a, keysInOrder);
+		}
+		IAttrList r = new AttrNil();
+		IAttrList k = keysInOrder;
+		while (!k.IsEmpty())
+		{
+			r = new AttrCons(Vals.Attr(k.First().Key(), Utils.LastValue(all, k.First().Key())), r);
+			k = k.Rest();
+		}
+		return r;
+	}
+
+	public static fun LastValue(IAttrList all, Int key) : IVal
+	{
+		IVal v = Vals.Missing();
+		IAttrList l = all;
+		while (!l.IsEmpty())
+		{
+			if (l.First().Key() == key)
+			{
+				v = l.First().Value();
+				l = l.Rest();
+				continue;
+			}
+			l = l.Rest();
+		}
+		return v;
+	}
+
+	# quadU: (merge-attrs a b) conses every attribute onto the accumulator (its duplicate? test
+	# compares a key with whole attributes and is never true): the reversed concatenation
+	public static fun MergeAttrs(IAttrList a, IAttrList b) : IAttrList
+	{
+		return Utils.ReverseAttrs(Utils.AttrAppend(a, b));
+	}
+
+	# (flatten-attrs parent x)
+	public static fun FlattenAttrs(IAttrList parent, IAttrList x) : IAttrList
+	{
+		IAttrList all = Utils.AttrAppend(parent, x);
+		IFloatList xas = new FloatNil();
+		IFloatList yas = new FloatNil();
+		IAttrList oas = new AttrNil();
+		IAttrList l = all;
+		while (!l.IsEmpty())
+		{
+			IAttr a = l.First();
+			l = l.Rest();
+			if (a.Key() == Sym.X())
+			{
+				if (a.Value().Kind() == 0)
+				{
+					xas = new FloatCons(a.Value().F(), xas);
+					continue;
+				}
+			}
+			if (a.Key() == Sym.Y())
+			{
+				if (a.Value().Kind() == 0)
+				{
+					yas = new FloatCons(a.Value().F(), yas);
+					continue;
+				}
+			}
+			oas = new AttrCons(a, oas);
+		}
+		# quadU: all the other attributes, in their original order
+		IAttrList others = Utils.ReverseAttrs(oas);
+		IAttrList withY = Utils.CartesianAttr(Sym.Y(), yas, others);
+		return Utils.CartesianAttr(Sym.X(), xas, withY);
+	}
+
+	# (make-cartesian-attr key attrs) prepended to rest
+	public static fun CartesianAttr(Int key, IFloatList vs, IAttrList rest) : IAttrList
+	{
+		if (vs.IsEmpty())
+		{
+			return rest;
+		}
+		Float acc = 0.0;
+		IFloatList l = vs;
+		while (!l.IsEmpty())
+		{
+			acc = l.First() + acc;
+			l = l.Rest();
+		}
+		return new AttrCons(Vals.Attr(key, Vals.F(acc)), rest);
+	}
+
+	public static fun ReverseAttrs(IAttrList l) : IAttrList
+	{
+		IAttrList r = new AttrNil();
+		while (!l.IsEmpty())
+		{
+			r = new AttrCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	# (flatten-quad q): the leaves, in order, with the attributes of their ancestors
+	public static fun FlattenQuad(IQuad q) : IQuadList
+	{
+		return Utils.FlattenItem(Vals.QuadItem(q), Quads.Make(Sym.Null(), new AttrNil(), new ItemNil()), new QuadNil());
+	}
+
+	# the leaves of item x (with parent) prepended to acc
+	public static fun FlattenItem(IItem x, IQuad parent, IQuadList acc) : IQuadList
+	{
+		if (!x.IsString())
+		{
+			IQuad xq = x.Q();
+			IQuad withParent = Quads.Make(xq.Name(), Utils.FlattenAttrs(parent.Attrs(), xq.Attrs()), xq.Items());
+			if (xq.Items().IsEmpty())
+			{
+				return new QuadCons(withParent, acc);
+			}
+			return Utils.FlattenItems(xq.Items(), withParent, acc);
+		}
+		return new QuadCons(Quads.Make(parent.Name(), parent.Attrs(), new ItemCons(x, new ItemNil())), acc);
+	}
+
+	public static fun FlattenItems(IItemList l, IQuad parent, IQuadList acc) : IQuadList
+	{
+		if (l.IsEmpty())
+		{
+			return acc;
+		}
+		return Utils.FlattenItem(l.First(), parent, Utils.FlattenItems(l.Rest(), parent, acc));
+	}
+
+	# (split-quad q)
+	public static fun SplitQuad(IQuad q) : IQuadList
+	{
+		return Utils.Explode(Utils.FlattenQuad(q), new QuadNil());
+	}
+
+	public static fun Explode(IQuadList qs, IQuadList acc) : IQuadList
+	{
+		if (qs.IsEmpty())
+		{
+			return acc;
+		}
+		return Utils.DoExplode(Vals.QuadItem(qs.First()), Quads.Box(new AttrNil(), new ItemNil()), Utils.Explode(qs.Rest(), acc));
+	}
+
+	public static fun DoExplode(IItem x, IQuad parent, IQuadList acc) : IQuadList
+	{
+		if (!x.IsString())
+		{
+			IQuad xq = x.Q();
+			if (xq.Items().IsEmpty())
+			{
+				return new QuadCons(xq, acc);
+			}
+			return Utils.DoExplodeItems(xq.Items(), xq, acc);
+		}
+		# (regexp-match* #px"." x): one 'word quad per character
+		IText s = x.Str();
+		IQuadList r = acc;
+		Int i = s.Length() - 1;
+		while (i >= 0)
+		{
+			r = new QuadCons(Quads.Make(Sym.Word(), parent.Attrs(), new ItemCons(Vals.StrItem(Txt.Char(s.CharAt(i))), new ItemNil())), r);
+			i = i - 1;
+		}
+		return r;
+	}
+
+	public static fun DoExplodeItems(IItemList l, IQuad parent, IQuadList acc) : IQuadList
+	{
+		if (l.IsEmpty())
+		{
+			return acc;
+		}
+		return Utils.DoExplode(l.First(), parent, Utils.DoExplodeItems(l.Rest(), parent, acc));
+	}
+
+	# the predicate made by join-quads' make-matcher
+	public static fun Matches(IQuad baseQ, IQuad q) : Bool
+	{
+		if (!World.IsMergeableQuadType(q.Name()))
+		{
+			return false;
+		}
+		if (Quads.IsWhitespaceNbsp(q))
+		{
+			return false;
+		}
+		if (!Vals.Equal(Quads.AttrRef(baseQ, Sym.Font(), Vals.S(World.FontNameDefault())), Quads.AttrRef(q, Sym.Font(), Vals.S(World.FontNameDefault()))))
+		{
+			return false;
+		}
+		if (!Vals.Equal(Quads.AttrRef(baseQ, Sym.Size(), Vals.F(World.FontSizeDefault())), Quads.AttrRef(q, Sym.Size(), Vals.F(World.FontSizeDefault()))))
+		{
+			return false;
+		}
+		if (!Vals.Equal(Quads.AttrRef(baseQ, Sym.Weight(), Vals.Sym(World.FontWeightDefault())), Quads.AttrRef(q, Sym.Weight(), Vals.Sym(World.FontWeightDefault()))))
+		{
+			return false;
+		}
+		return Vals.Equal(Quads.AttrRef(baseQ, Sym.Style(), Vals.Sym(World.FontStyleDefault())), Quads.AttrRef(q, Sym.Style(), Vals.Sym(World.FontStyleDefault())));
+	}
+
+	public static fun JoinQuads(IQuadList qsIn) : IQuadList
+	{
+		IQuadList qs = qsIn;
+		IQuadList acc = new QuadNil();
+		while (!qs.IsEmpty())
+		{
+			IQuad baseQ = qs.First();
+			if (Utils.Matches(baseQ, baseQ))
+			{
+				# (splitf-at (cdr qs) matcher)
+				IText str = Utils.StringsOf(baseQ);
+				IQuadList rest = qs.Rest();
+				while (!rest.IsEmpty())
+				{
+					if (!Utils.Matches(baseQ, rest.First()))
+					{
+						break;
+					}
+					str = Txt.Append(str, Utils.StringsOf(rest.First()));
+					rest = rest.Rest();
+				}
+				acc = new QuadCons(Quads.Word(baseQ.Attrs(), new ItemCons(Vals.StrItem(str), new ItemNil())), acc);
+				qs = rest;
+				continue;
+			}
+			acc = new QuadCons(baseQ, acc);
+			qs = qs.Rest();
+		}
+		return SugarList.Reverse(acc);
+	}
+
+	# (string-append* (quad-list q)), erroring on non-strings
+	public static fun StringsOf(IQuad q) : IText
+	{
+		IText t = Txt.Empty();
+		IItemList l = q.Items();
+		while (!l.IsEmpty())
+		{
+			if (!l.First().IsString())
+			{
+				ERROR("join-quads: expected string");
+			}
+			t = Txt.Append(t, l.First().Str());
+			l = l.Rest();
+		}
+		return t;
+	}
+
+	# (attr-change qas kvs)
+	public static fun AttrChange(IAttrList qas, IValList kvs) : IAttrList
+	{
+		return Utils.MergeAttrs(qas, Quads.MakeQuadattrs(kvs));
+	}
+
+	public static fun AttrDelete(IAttrList qas, IIntList ks) : IAttrList
+	{
+		if (qas.IsEmpty())
+		{
+			return qas;
+		}
+		if (Utils.KeyMember(qas.First().Key(), ks))
+		{
+			return Utils.AttrDelete(qas.Rest(), ks);
+		}
+		return new AttrCons(qas.First(), Utils.AttrDelete(qas.Rest(), ks));
+	}
+
+	public static fun QuadAttrSet(IQuad q, Int k, IVal v) : IQuad
+	{
+		return Utils.QuadAttrSetStar(q, new ValCons(Vals.Sym(k), new ValCons(v, new ValNil())));
+	}
+
+	public static fun QuadAttrSetStar(IQuad q, IValList kvs) : IQuad
+	{
+		return Quads.Make(q.Name(), Utils.AttrChange(q.Attrs(), kvs), q.Items());
+	}
+
+	public static fun QuadAttrRemoveStar(IQuad q, IIntList ks) : IQuad
+	{
+		if (q.Attrs().IsEmpty())
+		{
+			return q;
+		}
+		return Quads.Make(q.Name(), Utils.AttrDelete(q.Attrs(), ks), q.Items());
+	}
+
+	public static fun ComputeLineHeight(IQuad line) : IQuad
+	{
+		return Utils.QuadAttrSet(line, Sym.Height(), Quads.AttrRef(line, Sym.Leading(), Vals.F(World.LeadingKeyDefault())));
+	}
+
+	# quadU: (let ([r (quad-attr-ref q height 0.0)]) (if (flonum? r) r 0.0))
+	public static fun QuadHeight(IQuad q) : Float
+	{
+		IVal r = Quads.AttrRef(q, Sym.Height(), Vals.F(0.0));
+		if (r.Kind() == 0)
+		{
+			return r.F();
+		}
+		return 0.0;
+	}
+
+	public static fun AddVertPositions(IQuad startingQuad) : IQuad
+	{
+		IQuadList newQuads = new QuadNil();
+		Float heightSoFar = 0.0;
+		IItemList l = startingQuad.Items();
+		while (!l.IsEmpty())
+		{
+			IQuad q = l.First().Q();
+			newQuads = new QuadCons(Utils.QuadAttrSet(q, Sym.Y(), Vals.F(heightSoFar)), newQuads);
+			heightSoFar = Utils.RoundFloat(heightSoFar + Utils.QuadHeight(q));
+			l = l.Rest();
+		}
+		return Quads.Make(startingQuad.Name(), startingQuad.Attrs(), Quads.QuadsToItems(SugarList.Reverse(newQuads)));
+	}
+
+	# (split-last xs) on items: everything but the last
+	public static fun ItemsButLast(IItemList l) : IItemList
+	{
+		if (l.Rest().IsEmpty())
+		{
+			return new ItemNil();
+		}
+		return new ItemCons(l.First(), Utils.ItemsButLast(l.Rest()));
+	}
+
+	public static fun ItemsLast(IItemList l) : IItem
+	{
+		while (!l.Rest().IsEmpty())
+		{
+			l = l.Rest();
+		}
+		return l.First();
+	}
+
+	public static fun QuadsButLast(IQuadList l) : IQuadList
+	{
+		if (l.Rest().IsEmpty())
+		{
+			return new QuadNil();
+		}
+		return new QuadCons(l.First(), Utils.QuadsButLast(l.Rest()));
+	}
+
+	public static fun QuadsLast(IQuadList l) : IQuad
+	{
+		while (!l.Rest().IsEmpty())
+		{
+			l = l.Rest();
+		}
+		return l.First();
+	}
+}

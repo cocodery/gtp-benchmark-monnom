@@ -1,0 +1,317 @@
+# date.rkt, time.rkt and datetime.rkt (merged to keep the configuration count down; see NOTES.md)
+# Optional arguments are explicit; multiple return values are small result objects.
+
+# ---- date.rkt ----
+
+# (Pairof Natural Natural) of date->iso-week+wyear
+class WeekYear
+{
+	public readonly Int Week;
+	public readonly Int Year;
+	public constructor(Int w, Int y)
+	{
+		Week = w;
+		Year = y;
+	}
+}
+
+class GDate
+{
+	public static fun DateEqualProc(IDate x, IDate y) : Bool
+	{
+		return x.Jdn() == y.Jdn();
+	}
+
+	# (date y [m 1] [d 1])
+	public static fun Date(Int y, Int m, Int d) : IDate
+	{
+		IYMD ymd = new YMDS(y, m, d);
+		return new DateS(ymd, Ymd.YmdToJdn(ymd));
+	}
+
+	public static fun DateToYmd(IDate d) : IYMD
+	{
+		return d.Ymd();
+	}
+
+	public static fun DateToJdn(IDate d) : Int
+	{
+		return d.Jdn();
+	}
+
+	public static fun YmdToDate(IYMD ymd) : IDate
+	{
+		return GDate.Date(ymd.Y(), ymd.M(), ymd.D());
+	}
+
+	public static fun JdnToDate(Int jdn) : IDate
+	{
+		return new DateS(Ymd.JdnToYmd(jdn), jdn);
+	}
+
+	public static fun DateToIsoWeek(IDate d) : Int
+	{
+		return GDate.DateToIsoWeekWyear(d).Week;
+	}
+
+	public static fun DateToIsoWyear(IDate d) : Int
+	{
+		return GDate.DateToIsoWeekWyear(d).Year;
+	}
+
+	public static fun DateToIsoWeekWyear(IDate d) : WeekYear
+	{
+		IYMD ymd = GDate.DateToYmd(d);
+		Int yday = Ymd.YmdToYday(ymd);
+		Int isoWday = Ymd.JdnToIsoWday(GDate.DateToJdn(d));
+		Int y = ymd.Y();
+		Int w = (yday - isoWday + 10) / 7;
+		if (w == 0)
+		{
+			Int y1 = y - 1;
+			if (y1 < 0)
+			{
+				ERROR("date->iso-week+year");
+			}
+			return new WeekYear(Ymd.IsoWeeksInYear(y1), y1);
+		}
+		if (w == 53)
+		{
+			if (w > Ymd.IsoWeeksInYear(y))
+			{
+				return new WeekYear(1, y + 1);
+			}
+		}
+		if (w >= 0)
+		{
+			return new WeekYear(w, y);
+		}
+		ERROR("date->iso-week+year");
+	}
+
+	public static fun DateToIso8601(IDate d) : IText
+	{
+		IYMD ymd = d.Ymd();
+		IText t = Txt.Append(Txt.Pad(ymd.Y(), 4), Txt.Char(45));
+		IText t2 = Txt.Append(Txt.Append(t, Txt.Pad(ymd.M(), 2)), Txt.Char(45));
+		return Txt.Append(t2, Txt.Pad(ymd.D(), 2));
+	}
+
+	public static fun DateEq(IDate d1, IDate d2) : Bool
+	{
+		return GDate.DateToJdn(d1) == GDate.DateToJdn(d2);
+	}
+
+	public static fun DateLe(IDate d1, IDate d2) : Bool
+	{
+		return GDate.DateToJdn(d1) <= GDate.DateToJdn(d2);
+	}
+}
+
+# ---- time.rkt ----
+
+class GTime
+{
+	public static fun TimeEqualProc(ITime x, ITime y) : Bool
+	{
+		return x.Ns() == y.Ns();
+	}
+
+	public static fun TimeToHmsn(ITime t) : IHMSN
+	{
+		return t.Hmsn();
+	}
+
+	public static fun TimeToNs(ITime t) : Int
+	{
+		return t.Ns();
+	}
+
+	public static fun HmsnToTime(IHMSN hmsn) : ITime
+	{
+		return new TimeS(hmsn, Hmsn.HmsnToDayNs(hmsn));
+	}
+
+	public static fun DayNsToTime(Int ns) : ITime
+	{
+		return new TimeS(Hmsn.DayNsToHmsn(ns), ns);
+	}
+
+	# (make-time h [m 0] [s 0] [n 0])
+	public static fun MakeTime(Int h, Int m, Int s, Int n) : ITime
+	{
+		return GTime.HmsnToTime(new HMSNS(h, m, s, n));
+	}
+
+	public static fun TimeToIso8601(ITime t) : IText
+	{
+		IHMSN hmsn = GTime.TimeToHmsn(t);
+		IText hm = Txt.Append(Txt.Append(Txt.Pad(hmsn.H(), 2), Txt.Char(58)), Txt.Pad(hmsn.M(), 2));
+		IText hmc = Txt.Append(hm, Txt.Char(58));
+		# (define pad (if (>= s 10) "" "0")), then (~r fsec #:precision 9)
+		if (hmsn.S() >= 10)
+		{
+			return Txt.Append(hmc, Txt.Seconds(hmsn.S(), hmsn.N()));
+		}
+		return Txt.Append(Txt.Append(hmc, Txt.Char(48)), Txt.Seconds(hmsn.S(), hmsn.N()));
+	}
+
+	public static fun TimeEq(ITime t1, ITime t2) : Bool
+	{
+		return GTime.TimeToNs(t1) == GTime.TimeToNs(t2);
+	}
+
+	public static fun TimeLe(ITime t1, ITime t2) : Bool
+	{
+		return GTime.TimeToNs(t1) <= GTime.TimeToNs(t2);
+	}
+
+	public static fun TimeLt(ITime t1, ITime t2) : Bool
+	{
+		return GTime.TimeToNs(t1) < GTime.TimeToNs(t2);
+	}
+}
+
+# ---- datetime.rkt ----
+
+# (values Date Time) of jd->date+time
+class DateAndTime
+{
+	public readonly IDate D;
+	public readonly ITime T;
+	public constructor(IDate d, ITime t)
+	{
+		D = d;
+		T = t;
+	}
+}
+
+class GDateTime
+{
+	public static fun DatetimeEqualProc(IDateTime x, IDateTime y) : Bool
+	{
+		return Q.NumEq(GDateTime.DatetimeToJd(x), GDateTime.DatetimeToJd(y));
+	}
+
+	public static fun DatetimeToDate(IDateTime dt) : IDate
+	{
+		return dt.DateOf();
+	}
+
+	public static fun DatetimeToTime(IDateTime dt) : ITime
+	{
+		return dt.TimeOf();
+	}
+
+	public static fun DatetimeToJd(IDateTime dt) : IRat
+	{
+		return dt.Jd();
+	}
+
+	public static fun DatetimeToPosix(IDateTime dt) : IRat
+	{
+		return GDateTime.JdToPosix(GDateTime.DatetimeToJd(dt));
+	}
+
+	public static fun PosixToDatetime(IRat posix) : IDateTime
+	{
+		return GDateTime.JdToDatetime(GDateTime.PosixToJd(posix));
+	}
+
+	public static fun DateTimeToDatetime(IDate d, ITime t) : IDateTime
+	{
+		return new DateTimeS(d, t, GDateTime.DateTimeToJd(d, t));
+	}
+
+	public static fun JdToDatetime(IRat jd) : IDateTime
+	{
+		DateAndTime dt = GDateTime.JdToDateTime(jd);
+		return GDateTime.DateTimeToDatetime(dt.D, dt.T);
+	}
+
+	# (datetime year [month 1] [day 1] [hour 0] [minute 0] [second 0] [nano 0])
+	public static fun Datetime(Int year, Int month, Int day, Int hour, Int minute, Int second, Int nano) : IDateTime
+	{
+		return GDateTime.DateTimeToDatetime(GDate.Date(year, month, day), GTime.MakeTime(hour, minute, second, nano));
+	}
+
+	public static fun DatetimeToIso8601(IDateTime dt) : IText
+	{
+		IText d = GDate.DateToIso8601(GDateTime.DatetimeToDate(dt));
+		return Txt.Append(Txt.Append(d, Txt.Char(84)), GTime.TimeToIso8601(GDateTime.DatetimeToTime(dt)));
+	}
+
+	public static fun DatetimeEq(IDateTime dt1, IDateTime dt2) : Bool
+	{
+		return Q.NumEq(GDateTime.DatetimeToJd(dt1), GDateTime.DatetimeToJd(dt2));
+	}
+
+	public static fun DatetimeLt(IDateTime dt1, IDateTime dt2) : Bool
+	{
+		return Q.Lt(GDateTime.DatetimeToJd(dt1), GDateTime.DatetimeToJd(dt2));
+	}
+
+	public static fun DatetimeLe(IDateTime dt1, IDateTime dt2) : Bool
+	{
+		return Q.Le(GDateTime.DatetimeToJd(dt1), GDateTime.DatetimeToJd(dt2));
+	}
+
+	public static fun DateTimeToJd(IDate d, ITime t) : IRat
+	{
+		Int jdn = GDate.DateToJdn(d);
+		Int dayNs = GTime.TimeToNs(t);
+		return Q.Add(Q.Make(jdn, 0 - 1, 2), Q.Frac(dayNs, Hmsn.NsDay()));
+	}
+
+	public static fun JdToDateTime(IRat jd) : DateAndTime
+	{
+		Int jdn = GDateTime.JdToJdn(jd);
+		IDate d = GDate.JdnToDate(jdn);
+		Int dayNs = GDateTime.JdToDayNs(jd);
+		ITime t = GTime.DayNsToTime(dayNs);
+		return new DateAndTime(d, t);
+	}
+
+	public static fun JdToJdn(IRat jd) : Int
+	{
+		Int lo = Q.Floor(jd);
+		# math-class rounding: round up for >= 1/2
+		if (Q.Compare(Q.Sub(jd, Q.FromInt(lo)), Q.Frac(1, 2)) >= 0)
+		{
+			return lo + 1;
+		}
+		return lo;
+	}
+
+	public static fun JdToDayNs(IRat jd) : Int
+	{
+		IRat base = Q.Sub(jd, Q.Frac(1, 2));
+		IRat frac = Q.Sub(base, Q.FromInt(Q.Floor(base)));
+		Int r = Q.MulIntRound(frac, Hmsn.NsDay());
+		if (r < 0)
+		{
+			ERROR("jd->day-ns");
+		}
+		return r;
+	}
+
+	public static fun JdToPosix(IRat jd) : IRat
+	{
+		return Q.MulInt(Q.Sub(jd, Q.Make(2440587, 1, 2)), 86400);
+	}
+
+	public static fun PosixToJd(IRat posix) : IRat
+	{
+		return Q.Add(Q.DivInt(posix, 86400), Q.Make(2440587, 1, 2));
+	}
+
+	public static fun DatetimeAddNanoseconds(IDateTime dt, Int n) : IDateTime
+	{
+		return GDateTime.JdToDatetime(Q.Add(GDateTime.DatetimeToJd(dt), Q.Frac(n, Hmsn.NsDay())));
+	}
+
+	public static fun DatetimeAddSeconds(IDateTime dt, Int n) : IDateTime
+	{
+		return GDateTime.DatetimeAddNanoseconds(dt, n * Hmsn.NsSecond());
+	}
+}

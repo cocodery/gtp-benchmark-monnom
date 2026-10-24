@@ -1,0 +1,305 @@
+# eval.rkt: the evaluator, the `define` command and the tokenizer.
+
+# exec of defn-command
+class DefnExec implements IExec
+{
+	private readonly ISymbol colon;
+	private readonly ISymbol define;
+	public constructor(ISymbol c, ISymbol d)
+	{
+		colon = c;
+		define = d;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		# (cons (or ': 'define) (cons w defn*-any))
+		if (v.IsEmpty())
+		{
+			return new ResFalse();
+		}
+		IVal a = v.First();
+		if (!a.IsSymbol())
+		{
+			return new ResFalse();
+		}
+		if (a.Sym() != colon)
+		{
+			if (a.Sym() != define)
+			{
+				return new ResFalse();
+			}
+		}
+		IValList r = v.Rest();
+		if (r.IsEmpty())
+		{
+			return new ResFalse();
+		}
+		IVal w = r.First();
+		IValList defns = r.Rest();
+		if (!w.IsSymbol())
+		{
+			ERROR("assert: symbol?");
+		}
+		ICommand cmd = new Command(w.Sym(), Txt.FormatVals(defns), new DefinedExec(w, defns));
+		return new ResPair(new CmdCons(cmd, e), s);
+	}
+}
+
+# exec of a user-defined command
+class DefinedExec implements IExec
+{
+	private readonly IVal w;
+	private readonly IValList defns;
+	public constructor(IVal w0, IValList d)
+	{
+		w = w0;
+		defns = d;
+	}
+	public fun this(IExecArgs args) : IResult
+	{
+		IEnv e = args.Env();
+		IStack s = args.State();
+		IValList v = args.Tokens();
+		if (Eval.EqualList(v, Txt.List1(w)))
+		{
+			Bool hasE = true;
+			IEnv env = e;
+			IStack st = s;
+			IValList d = defns;
+			while (!d.IsEmpty())
+			{
+				IVal x = d.First();
+				d = d.Rest();
+				if (!hasE)
+				{
+					continue;
+				}
+				IEvalResult r = Eval.ForthEval(env, st, Txt.List1(x));
+				hasE = r.HasEnv();
+				env = r.Env();
+				st = r.Stack();
+			}
+			if (hasE)
+			{
+				return new ResPair(env, st);
+			}
+			return new ResFalse();
+		}
+		return new ResFalse();
+	}
+}
+
+class Eval
+{
+	public static fun DefnCommand(ISymTable st) : ICommand
+	{
+		# 'define and ':
+		ISymbol define = st.Intern(Txt.Unpack(3500083360484));
+		ISymbol colon = st.Intern(Txt.Unpack(58));
+		IText w = Txt.Empty();
+		Txt.PushWord(w, 2360593392267276996);
+		Txt.PushWord(w, 7051431394246783726);
+		Txt.PushWord(w, 8305065453968437870);
+		Txt.PushWord(w, 8016854970772846821);
+		Txt.PushWord(w, 7985959242485551206);
+		Txt.PushWord(w, 7268114283886071911);
+		Txt.PushWord(w, 115);
+		return new Command(define, w, new DefnExec(colon, define));
+	}
+
+	# equal? on two token lists
+	public static fun EqualList(IValList a, IValList b) : Bool
+	{
+		while (!a.IsEmpty())
+		{
+			if (b.IsEmpty())
+			{
+				return false;
+			}
+			if (!a.First().Equal(b.First()))
+			{
+				return false;
+			}
+			a = a.Rest();
+			b = b.Rest();
+		}
+		return b.IsEmpty();
+	}
+
+	public static fun ForthEvalStar(ArrayList<ArrayList<Int>> lines, ISymTable st) : IEvalResult
+	{
+		Bool hasE = true;
+		IEnv e = new CmdCons(Eval.DefnCommand(st), Commands.CMDStar(st));
+		IStack s = Stack.StackInit();
+		foreach (ArrayList<Int> ln in lines)
+		{
+			IValList tokens = Eval.ForthTokenize(ln, st);
+			if (tokens.IsEmpty() || !hasE)
+			{
+				# Cheap way to detect EXIT
+				e = new CmdNil();
+				hasE = true;
+				continue;
+			}
+			IEvalResult r = Eval.ForthEval(e, s, tokens);
+			hasE = r.HasEnv();
+			e = r.Env();
+			s = r.Stack();
+		}
+		return new EvalResult(hasE, e, s);
+	}
+
+	# (for/or ([c (in-list E)]) ((get-field exec c) E S token*))
+	public static fun FirstResult(IEnv e, IStack s, IValList tokens) : IResult
+	{
+		IEnv c = e;
+		IExecArgs args = new ExecArgs(e, s, tokens);
+		while (!c.IsEmpty())
+		{
+			IExec exec = c.First().Exec();
+			IResult r = exec(args);
+			if (!r.IsFalse())
+			{
+				return r;
+			}
+			c = c.Rest();
+		}
+		return new ResFalse();
+	}
+
+	public static fun ForthEval(IEnv e, IStack s, IValList tokens) : IEvalResult
+	{
+		IResult res = Eval.FirstResult(e, s, tokens);
+		if (res.IsExit())
+		{
+			return new EvalResult(false, new CmdNil(), s);
+		}
+		if (res.IsFalse())
+		{
+			"Unrecognized command '".Print();
+			Txt.Print(Txt.FormatVals(tokens));
+			"'.\n".Print();
+			return new EvalResult(true, e, s);
+		}
+		return new EvalResult(true, res.Env(), res.State());
+	}
+
+	# (read) on the line until eof, case-insensitively; tokens are integers or symbols
+	public static fun ForthTokenize(ArrayList<Int> str, ISymTable st) : IValList
+	{
+		ArrayList<IVal> vals = new ArrayList<IVal>();
+		Int n = str.Length();
+		Int i = 0;
+		while (i < n)
+		{
+			if (Txt.IsSpace(str.Get(i)))
+			{
+				i = i + 1;
+				continue;
+			}
+			IText tok = Txt.Empty();
+			while (i < n)
+			{
+				Int c = str.Get(i);
+				if (Txt.IsSpace(c))
+				{
+					break;
+				}
+				tok.Push(Txt.Downcase(c));
+				i = i + 1;
+			}
+			vals.Add(Eval.ReadAtom(tok, st));
+		}
+		IValList l = new ValNil();
+		Int k = vals.Length() - 1;
+		while (k >= 0)
+		{
+			l = new ValCons(vals.Get(k), l);
+			k = k - 1;
+		}
+		return Eval.DeNest(l);
+	}
+
+	public static fun IsNumber(IText tok) : Bool
+	{
+		return Eval.AllDigits(tok, Eval.SignLength(tok));
+	}
+
+	public static fun SignLength(IText tok) : Int
+	{
+		if (tok.Length() > 1)
+		{
+			Int c0 = tok.CharAt(0);
+			if (c0 == 43 || c0 == 45)
+			{
+				return 1;
+			}
+		}
+		return 0;
+	}
+
+	public static fun AllDigits(IText tok, Int from) : Bool
+	{
+		Int n = tok.Length();
+		if (from >= n)
+		{
+			return false;
+		}
+		Int i = from;
+		while (i < n)
+		{
+			if (!Txt.IsDigit(tok.CharAt(i)))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	public static fun ParseInt(IText tok) : Int
+	{
+		Int from = Eval.SignLength(tok);
+		Int v = 0;
+		Int i = from;
+		while (i < tok.Length())
+		{
+			v = v * 10 + (tok.CharAt(i) - 48);
+			i = i + 1;
+		}
+		if (tok.CharAt(0) == 45)
+		{
+			return 0 - v;
+		}
+		return v;
+	}
+
+	public static fun ReadAtom(IText tok, ISymTable st) : IVal
+	{
+		if (Eval.IsNumber(tok))
+		{
+			return new IntVal(Eval.ParseInt(tok));
+		}
+		return new SymVal(st.Intern(tok));
+	}
+
+	# Remove all parentheses around a singleton list
+	# (the reader here never produces nested lists, so this always returns v)
+	public static fun DeNest(IValList v) : IValList
+	{
+		if (!v.IsEmpty())
+		{
+			if (v.First().IsList())
+			{
+				if (v.Rest().IsEmpty())
+				{
+					ERROR("nested lists are not supported by this reader");
+				}
+			}
+		}
+		return v;
+	}
+}

@@ -1,0 +1,210 @@
+# summary.rkt: the dataset of a GTP experiment and its module graph
+# (also contains modulegraph.rkt, merged here to keep the configuration count down).
+# The module graph is parsed from base/module-graphs/snake.tex in Racket (before the timed
+# region); here its parsed adjacency list is embedded.
+
+# (struct modulegraph ([project-name : String] [adjlist : (Listof (Listof String))]))
+class ModuleGraph implements IModuleGraph
+{
+	private readonly IText projectName;
+	private readonly ITextListList adjlist;
+	public constructor(IText p, ITextListList a)
+	{
+		projectName = p;
+		adjlist = a;
+	}
+	public fun ProjectName() : IText
+	{
+		return projectName;
+	}
+	public fun Adjlist() : ITextListList
+	{
+		return adjlist;
+	}
+}
+
+# (struct summary ([source : Path-String] [dataset : (Vectorof (Listof Index))] [modulegraph : ModuleGraph]))
+class Summary implements ISummary
+{
+	private readonly IText source;
+	private readonly IDataset dataset;
+	private readonly IModuleGraph modulegraph;
+	public constructor(IText s, IDataset d, IModuleGraph m)
+	{
+		source = s;
+		dataset = d;
+		modulegraph = m;
+	}
+	public fun Source() : IText
+	{
+		return source;
+	}
+	public fun Dataset() : IDataset
+	{
+		return dataset;
+	}
+	public fun Modulegraph() : IModuleGraph
+	{
+		return modulegraph;
+	}
+}
+
+# modulegraph.rkt
+class ModuleGraphs
+{
+	public static fun ProjectName(IModuleGraph mg) : IText
+	{
+		return mg.ProjectName();
+	}
+
+	public static fun ModuleNames(IModuleGraph mg) : ITextList
+	{
+		return ModuleGraphs.Firsts(mg.Adjlist());
+	}
+
+	public static fun Firsts(ITextListList l) : ITextList
+	{
+		if (l.IsEmpty())
+		{
+			return new TextNil();
+		}
+		return new TextCons(l.First().First(), ModuleGraphs.Firsts(l.Rest()));
+	}
+
+	# (from-tex "../base/module-graphs/snake.tex"), parsed in advance
+	public static fun FromTex() : IModuleGraph
+	{
+		return new ModuleGraph(Txt.PushWord(Txt.Empty(), 27337979763), new TextListCons(new TextCons(Txt.PushWord(Txt.Empty(), 447667085457379), new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextCons(Txt.PushWord(Txt.Empty(), 31381501923), new TextNil()))), new TextListCons(new TextCons(Txt.PushWord(Txt.Empty(), 31381501923), new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextNil())), new TextListCons(new TextCons(Txt.PushWord(Txt.Empty(), 61263753982589667), new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextNil())), new TextListCons(new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextNil()), new TextListCons(new TextCons(Txt.PushWord(Txt.Empty(), 65244121481851112), new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextCons(Txt.PushWord(Txt.Empty(), 3809589671917), new TextCons(Txt.PushWord(Txt.Empty(), 447667085457379), new TextNil())))), new TextListCons(new TextCons(Txt.PushWord(Txt.Empty(), 232419565), new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextCons(Txt.PushWord(Txt.Empty(), 31381501923), new TextCons(Txt.PushWord(Txt.Empty(), 65244121481851112), new TextCons(Txt.PushWord(Txt.Empty(), 3809589671917), new TextNil()))))), new TextListCons(new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7336565514669209581), 14444), new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextCons(Txt.PushWord(Txt.Empty(), 61263753982589667), new TextNil()))), new TextListCons(new TextCons(Txt.PushWord(Txt.Empty(), 3809589671917), new TextCons(Txt.PushWord(Txt.Empty(), 205336804), new TextCons(Txt.PushWord(Txt.Empty(), 31381501923), new TextCons(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7336565514669209581), 14444), new TextNil())))), new TextListNil())))))))));
+	}
+}
+
+class Summaries
+{
+	# (from-rktd "../base/data/snake.rktd")
+	public static fun FromRktd() : ISummary
+	{
+		IDataset dataset = Summaries.ValidateDataset(Builtins.DatasetFromRows(SnakeData.Rows()));
+		IModuleGraph mg = ModuleGraphs.FromTex();
+		Summaries.ValidateModulegraph(dataset, mg);
+		return new Summary(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7232666231915665198), 7338483063899847265), 27088582958), dataset, mg);
+	}
+
+	public static fun ValidateDataset(IDataset vec) : IDataset
+	{
+		if (vec.Length() == 0)
+		{
+			ERROR("summary: Dataset is an empty vector, does not contain any entries");
+		}
+		Int numRuns = Builtins.IntLength(vec.Row(0));
+		Int rowIndex = 0;
+		while (rowIndex < vec.Length())
+		{
+			IIntList inner = vec.Row(rowIndex);
+			if (Builtins.IntLength(inner) != numRuns)
+			{
+				ERROR("summary: rows of dataset have different lengths");
+			}
+			while (!inner.IsEmpty())
+			{
+				if (inner.First() <= 0)
+				{
+					ERROR("summary: Row contains non-integer entry");
+				}
+				inner = inner.Rest();
+			}
+			rowIndex = rowIndex + 1;
+		}
+		return vec;
+	}
+
+	public static fun ValidateModulegraph(IDataset dataset, IModuleGraph mg) : Int
+	{
+		Int dsNumModules = Bitstring.Log2(dataset.Length());
+		Int mgNumModules = Builtins.TextLength(ModuleGraphs.ModuleNames(mg));
+		if (dsNumModules != mgNumModules)
+		{
+			ERROR("summary: Dataset and module graph represent different numbers of modules");
+		}
+		return 0;
+	}
+
+	# (stream-map (lambda (n) (natural->bitstring n #:pad M)) (in-range (get-num-variations sm))),
+	# computed eagerly
+	public static fun AllVariations(ISummary sm) : ITextList
+	{
+		Int m = Summaries.GetNumModules(sm);
+		ITextList l = new TextNil();
+		Int n = Summaries.GetNumVariations(sm) - 1;
+		while (n >= 0)
+		{
+			l = new TextCons(Bitstring.NaturalToBitstring(n, m), l);
+			n = n - 1;
+		}
+		return l;
+	}
+
+	public static fun GetModuleNames(ISummary sm) : ITextList
+	{
+		return ModuleGraphs.ModuleNames(sm.Modulegraph());
+	}
+
+	public static fun GetNumVariations(ISummary sm) : Int
+	{
+		return sm.Dataset().Length();
+	}
+
+	public static fun GetNumModules(ISummary sm) : Int
+	{
+		return Builtins.TextLength(Summaries.GetModuleNames(sm));
+	}
+
+	public static fun GetProjectName(ISummary sm) : IText
+	{
+		return ModuleGraphs.ProjectName(sm.Modulegraph());
+	}
+
+	# (stream-filter p (all-variations sm))
+	public static fun PredicateToVariations(ISummary sm, IStringPred p) : ITextList
+	{
+		return Summaries.Filter(p, Summaries.AllVariations(sm));
+	}
+
+	public static fun Filter(IStringPred p, ITextList l) : ITextList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		IText x = l.First();
+		if (p(x))
+		{
+			return new TextCons(x, Summaries.Filter(p, l.Rest()));
+		}
+		return Summaries.Filter(p, l.Rest());
+	}
+
+	public static fun UntypedRuntimes(ISummary sm) : IIntList
+	{
+		return sm.Dataset().Row(0);
+	}
+
+	public static fun UntypedMean(ISummary sm) : IRatio
+	{
+		return Rat.Mean(Summaries.UntypedRuntimes(sm));
+	}
+
+	public static fun TypedRuntimes(ISummary sm) : IIntList
+	{
+		return sm.Dataset().Row(sm.Dataset().Length() - 1);
+	}
+
+	public static fun VariationToMeanRuntime(ISummary sm, IText var) : IRatio
+	{
+		return Summaries.IndexToMeanRuntime(sm, Bitstring.BitstringToNatural(var));
+	}
+
+	public static fun IndexToMeanRuntime(ISummary sm, Int i) : IRatio
+	{
+		return Rat.Mean(sm.Dataset().Row(i));
+	}
+}

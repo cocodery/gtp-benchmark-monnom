@@ -1,0 +1,89 @@
+# main.rkt: run a simulation of interacting automata.
+
+class Point implements IPoint
+{
+	private readonly Int n;
+	private readonly Float d;
+	public constructor(Int n0, Float d0)
+	{
+		n = n0;
+		d = d0;
+	}
+	public fun N() : Int
+	{
+		return n;
+	}
+	public fun D() : Float
+	{
+		return d;
+	}
+}
+
+class Main
+{
+	# turn average payoffs into a list of Cartesian points
+	public static fun SimulationToLines(IFloatList data) : IPointList
+	{
+		return Main.Lines(data, 0);
+	}
+
+	public static fun Lines(IFloatList data, Int n) : IPointList
+	{
+		if (data.IsEmpty())
+		{
+			return new PointNil();
+		}
+		return new PointCons(new Point(n, data.First()), Main.Lines(data.Rest(), n + 1));
+	}
+
+	# computes the list of average payoffs over the evolution of population p for
+	# c cycles of match-ups with r rounds per match and at birth/death rate of s
+	public static fun Evolve(IPopulation p, Int c, Int s, Int r) : IFloatList
+	{
+		if (c == 0)
+		{
+			return new FloatNil();
+		}
+		p.MatchUpStar(r);
+		IIntList pp = p.Payoffs();
+		p.DeathBirth(s, -1.0);
+		Float avg = Utilities.RelativeAverage(pp, r);
+		if (avg < 0.0)
+		{
+			ERROR("assert: payoff?");
+		}
+		return new FloatCons(avg, Main.Evolve(p, c - 1, s, r));
+	}
+
+	public static fun Main() : Void
+	{
+		# (random-seed 7480) seeds the global generator in Racket
+		IRng rng = new Rng();
+		rng.Seed(7480);
+		Timer t = new Timer();
+		IFloatList data = Main.Evolve(Populations.BuildRandomPopulation(300, rng), 4000, 100, 20);
+		IPointList lines = Main.SimulationToLines(data);
+		t.PrintDifference();
+		"\n".Print();
+		Int len = 0;
+		Float sum = 0.0;
+		Float first = data.First();
+		Float last = 0.0;
+		IFloatList d = data;
+		while (!d.IsEmpty())
+		{
+			len = len + 1;
+			sum = sum + d.First();
+			last = d.First();
+			d = d.Rest();
+		}
+		len.ToString().Print();
+		"\n".Print();
+		sum.ToString().Print();
+		"\n".Print();
+		first.ToString().Print();
+		"\n".Print();
+		last.ToString().Print();
+		"\n".Print();
+	}
+}

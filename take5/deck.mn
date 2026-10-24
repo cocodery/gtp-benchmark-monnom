@@ -1,0 +1,288 @@
+# deck.rkt: the deck class (base-deck% extended by the for-dealer and for-player mixins)
+# (also contains card-pool.rkt, merged here to keep the configuration count down).
+# MonNom has no class inheritance: the mixin chain (for-player (for-dealer base-deck%)) is one
+# class with the fields of base-deck% and the methods of both mixins.
+
+# card-pool%
+class CardPool implements ICardPool
+{
+	private ICardList myCards;
+	public constructor(ICardsFn shuffle, IBullsFn randomBulls)
+	{
+		myCards = Decks.InitialCards(shuffle, randomBulls);
+	}
+	public fun DrawCard() : ICard
+	{
+		ICard c = myCards.First();
+		myCards = myCards.Rest();
+		return c;
+	}
+	# (build-list HAND (lambda (_) (draw-card)))
+	public fun DrawHand() : ICardList
+	{
+		ArrayList<ICard> cs = new ArrayList<ICard>();
+		Int i = 0;
+		while (i < Basics.Hand())
+		{
+			cs.Add(this.DrawCard());
+			i = i + 1;
+		}
+		ICardList l = new CardNil();
+		Int k = cs.Length() - 1;
+		while (k >= 0)
+		{
+			l = new CardCons(cs.Get(k), l);
+			k = k - 1;
+		}
+		return l;
+	}
+}
+
+# the replace-stack argument when it is a card
+class CardArg implements ICardOrStack
+{
+	private readonly ICard card;
+	public constructor(ICard c)
+	{
+		card = c;
+	}
+	public fun IsList() : Bool
+	{
+		return false;
+	}
+	public fun AsCard() : ICard
+	{
+		return card;
+	}
+	public fun AsList() : ICardList
+	{
+		ERROR("not a list");
+	}
+}
+
+# the replace-stack argument when it is a list of cards
+class ListArg implements ICardOrStack
+{
+	private readonly ICardList cards;
+	public constructor(ICardList cs)
+	{
+		cards = cs;
+	}
+	public fun IsList() : Bool
+	{
+		return true;
+	}
+	public fun AsCard() : ICard
+	{
+		ERROR("not a card");
+	}
+	public fun AsList() : ICardList
+	{
+		return cards;
+	}
+}
+
+class Deck implements IDeck
+{
+	private readonly ICardList cards0;
+	private IStackList myStacks;
+	public constructor(ICardList c)
+	{
+		cards0 = c;
+		# (set-field! my-stacks this (map list cards0)) in for-dealer
+		myStacks = Decks.Singletons(c);
+	}
+	public fun Cards0() : ICardList
+	{
+		return cards0;
+	}
+	public fun MyStacks() : IStackList
+	{
+		return myStacks;
+	}
+	# for-player
+	public fun FewestBulls() : ICardList
+	{
+		# argmin over (list s (bulls s)) by the second element
+		IStackList l = myStacks;
+		ICardList best = l.First();
+		Int bestBulls = Stack.Bulls(best);
+		l = l.Rest();
+		while (!l.IsEmpty())
+		{
+			Int b = Stack.Bulls(l.First());
+			if (b < bestBulls)
+			{
+				best = l.First();
+				bestBulls = b;
+				l = l.Rest();
+				continue;
+			}
+			l = l.Rest();
+		}
+		return best;
+	}
+	# for-dealer
+	public fun Fit(ICard c) : ICardList
+	{
+		IStackList l = myStacks;
+		ICardList best = l.First();
+		Int bestD = Decks.Distance(c, best);
+		l = l.Rest();
+		while (!l.IsEmpty())
+		{
+			Int d = Decks.Distance(c, l.First());
+			if (d < bestD)
+			{
+				best = l.First();
+				bestD = d;
+				l = l.Rest();
+				continue;
+			}
+			l = l.Rest();
+		}
+		return best;
+	}
+	public fun Push(ICard c) : Int
+	{
+		ICardList s0 = this.Fit(c);
+		this.ReplaceStack(s0.First(), new CardArg(c));
+		return 0;
+	}
+	public fun Replace(ICardList s, ICard c) : Int
+	{
+		return this.ReplaceStack(s.First(), new ListArg(new CardCons(c, new CardNil())));
+	}
+	public fun ReplaceStack(ICard top0, ICardOrStack c) : Int
+	{
+		Int result = Decks.ReplacedBulls(myStacks, top0);
+		myStacks = Decks.ReplaceStacks(myStacks, top0, c);
+		return result;
+	}
+	public fun LargerThanSomeTopOfStacks(ICard c) : Bool
+	{
+		IStackList l = myStacks;
+		while (!l.IsEmpty())
+		{
+			if (Cards.GtFace(c, l.First().First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+}
+
+class Decks
+{
+	# (shuffle (build-list FACE (lambda (i) (card (+ i 1) (random-bulls)))))
+	public static fun InitialCards(ICardsFn shuffle, IBullsFn randomBulls) : ICardList
+	{
+		ArrayList<ICard> cs = new ArrayList<ICard>();
+		Int i = 0;
+		while (i < Basics.Face())
+		{
+			cs.Add(new Card(i + 1, randomBulls()));
+			i = i + 1;
+		}
+		ICardList l = new CardNil();
+		Int k = cs.Length() - 1;
+		while (k >= 0)
+		{
+			l = new CardCons(cs.Get(k), l);
+			k = k - 1;
+		}
+		return shuffle(l);
+	}
+
+	public static fun CreateCardPool(ICardsFn shuffle, IBullsFn randomBulls) : ICardPool
+	{
+		return new CardPool(shuffle, randomBulls);
+	}
+
+	public static fun CreateDeck(ICardPool cardPool) : IDeck
+	{
+		# (build-list STACKS (lambda (_) (send card-pool draw-card)))
+		ArrayList<ICard> cs = new ArrayList<ICard>();
+		Int i = 0;
+		while (i < Basics.Stacks())
+		{
+			cs.Add(cardPool.DrawCard());
+			i = i + 1;
+		}
+		ICardList l = new CardNil();
+		Int k = cs.Length() - 1;
+		while (k >= 0)
+		{
+			l = new CardCons(cs.Get(k), l);
+			k = k - 1;
+		}
+		return new Deck(l);
+	}
+
+	public static fun Singletons(ICardList cs) : IStackList
+	{
+		if (cs.IsEmpty())
+		{
+			return new StackNil();
+		}
+		return new StackCons(new CardCons(cs.First(), new CardNil()), Decks.Singletons(cs.Rest()));
+	}
+
+	# distance of fit
+	public static fun Distance(ICard c, ICardList stack) : Int
+	{
+		ICard d = stack.First();
+		if (Cards.GtFace(c, d))
+		{
+			return Cards.MinusFace(c, d);
+		}
+		return Basics.Face() + 1;
+	}
+
+	# the value of `result` after the for/list of replace-stack: bulls of the last matching stack
+	public static fun ReplacedBulls(IStackList stacks, ICard top0) : Int
+	{
+		Int result = 0;
+		while (!stacks.IsEmpty())
+		{
+			if (Cards.Equal(stacks.First().First(), top0))
+			{
+				result = Stack.Bulls(stacks.First());
+				stacks = stacks.Rest();
+				continue;
+			}
+			stacks = stacks.Rest();
+		}
+		return result;
+	}
+
+	# the new stacks computed by the for/list of replace-stack
+	public static fun ReplaceStacks(IStackList stacks, ICard top0, ICardOrStack c) : IStackList
+	{
+		if (stacks.IsEmpty())
+		{
+			return new StackNil();
+		}
+		ICardList s = stacks.First();
+		if (Cards.Equal(s.First(), top0))
+		{
+			return new StackCons(Decks.NewStack(s, c), Decks.ReplaceStacks(stacks.Rest(), top0, c));
+		}
+		return new StackCons(s, Decks.ReplaceStacks(stacks.Rest(), top0, c));
+	}
+
+	public static fun NewStack(ICardList s, ICardOrStack c) : ICardList
+	{
+		if (c.IsList())
+		{
+			if (c.AsList().IsEmpty())
+			{
+				ERROR("invalid-input");
+			}
+			return c.AsList();
+		}
+		return new CardCons(c.AsCard(), s);
+	}
+}

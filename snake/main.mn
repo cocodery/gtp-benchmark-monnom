@@ -1,0 +1,90 @@
+# main.rkt: replays a recorded game history LOOPS times.
+# The history (base/snake-hist.rktd) is embedded in the library file snake-hist.mn; each event
+# is an Int: 0 = (stop-when), 1 = (on-tick), otherwise (on-key k) with k's character code.
+
+class Main
+{
+	# one step of the `match` in replay
+	public static fun Step(IWorld w, Int ev, IRng r) : IWorld
+	{
+		if (ev == 0)
+		{
+			Handlers.GameOver(w);
+			return w;
+		}
+		if (ev == 1)
+		{
+			return Motion.WorldToWorld(w, r);
+		}
+		return Handlers.HandleKey(w, ev);
+	}
+
+	# Racket's replay returns (void); here it returns the final world so main can report it.
+	public static fun Replay(IWorld w0, ArrayList<Int> hist) : IWorld
+	{
+		IRng r = Motion.Reset();
+		IWorld w = w0;
+		Int i = 0;
+		Int n = hist.Length();
+		while (i < n)
+		{
+			w = Main.Step(w, hist.Get(i), r);
+			i = i + 1;
+		}
+		return w;
+	}
+
+	public static fun DirName(Int d) : String
+	{
+		if (d == 0)
+		{
+			return "up";
+		}
+		if (d == 1)
+		{
+			return "down";
+		}
+		if (d == 2)
+		{
+			return "left";
+		}
+		return "right";
+	}
+
+	public static fun Main() : Void
+	{
+		ArrayList<Int> hist = SnakeHist.Load();
+		Int loops = 200;
+		IWorld w0 = Const.World();
+		IWorld last = w0;
+		Timer t = new Timer();
+		Int k = 0;
+		while (k < loops)
+		{
+			last = Main.Replay(w0, hist);
+			k = k + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		ISnake s = last.GetSnake();
+		Main.DirName(s.Dir()).Print();
+		"\n".Print();
+		Int len = 0;
+		Int sum = 0;
+		IPosnList segs = s.Segs();
+		while (!segs.IsEmpty())
+		{
+			len = len + 1;
+			sum = sum + 100 * segs.First().X() + segs.First().Y();
+			segs = segs.Rest();
+		}
+		len.ToString().Print();
+		"\n".Print();
+		sum.ToString().Print();
+		"\n".Print();
+		last.Food().X().ToString().Print();
+		"\n".Print();
+		last.Food().Y().ToString().Print();
+		"\n".Print();
+	}
+}

@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><project name="QuadU" mainclass="Main" major="1" minor="0" revision="0" build="0"><files><file name="types.mn" /><file name="lib.mn" /><file name="quads.mn" /><file name="hyphenate.mn" /><file name="wrap.mn" /><file name="main.mn" /></files><libraryfiles><file name="measdata.mn" /><file name="hyphdata.mn" /></libraryfiles></project>

@@ -1,0 +1,1034 @@
+# Stand-ins for the Racket builtins the benchmark uses (strings, ~r / format, exact rationals,
+# bignums, parameters, lists) and the port of base/tzinfo (an untyped library in the original;
+# its zoneinfo data is embedded in the library file tzdata.mn).
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Txt
+{
+	public static fun Empty() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+
+	public static fun FromCodes(ArrayList<Int> codes) : IText
+	{
+		IText t = Txt.Empty();
+		foreach (Int c in codes)
+		{
+			t.Push(c);
+		}
+		return t;
+	}
+
+	# string-append
+	public static fun Append(IText a, IText b) : IText
+	{
+		IText t = Txt.Empty();
+		Int i = 0;
+		while (i < a.Length())
+		{
+			t.Push(a.CharAt(i));
+			i = i + 1;
+		}
+		Int j = 0;
+		while (j < b.Length())
+		{
+			t.Push(b.CharAt(j));
+			j = j + 1;
+		}
+		return t;
+	}
+
+	# string->immutable-string (a copy)
+	public static fun Copy(IText a) : IText
+	{
+		return Txt.Append(a, Txt.Empty());
+	}
+
+	public static fun Char(Int c) : IText
+	{
+		return Txt.Empty().Push(c);
+	}
+
+	# string=? / equal? on strings
+	public static fun Equal(IText a, IText b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (a.CharAt(i) != b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	public static fun EqualCodes(IText a, ArrayList<Int> b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (a.CharAt(i) != b.Get(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	# the decimal digits of a natural number
+	public static fun Digits(Int n) : IText
+	{
+		if (n < 10)
+		{
+			return Txt.Char(48 + n);
+		}
+		return Txt.Digits(n / 10).Push(48 + n % 10);
+	}
+
+	# (~r n #:min-width w #:pad-string "0")
+	public static fun Pad(Int n, Int w) : IText
+	{
+		if (n < 0)
+		{
+			return Txt.Append(Txt.Char(45), Txt.Pad(0 - n, w));
+		}
+		IText d = Txt.Digits(n);
+		IText t = Txt.Empty();
+		Int k = d.Length();
+		while (k < w)
+		{
+			t.Push(48);
+			k = k + 1;
+		}
+		return Txt.Append(t, d);
+	}
+
+	# (~r (+ s (/ n NS/SECOND)) #:precision 9) for naturals s and 0 <= n < 10^9: at most nine
+	# digits after the point, trailing zeros (and a bare point) dropped
+	public static fun Seconds(Int s, Int n) : IText
+	{
+		IText t = Txt.Digits(s);
+		if (n == 0)
+		{
+			return t;
+		}
+		Int frac = n;
+		Int digits = 9;
+		while (frac % 10 == 0)
+		{
+			frac = frac / 10;
+			digits = digits - 1;
+		}
+		t.Push(46);
+		return Txt.Append(t, Txt.Pad(frac, digits));
+	}
+}
+
+# the two results of MulDivMod: a * b = Q * c + R
+class QR
+{
+	public readonly Int Q;
+	public readonly Int R;
+	public constructor(Int q, Int r)
+	{
+		Q = q;
+		R = r;
+	}
+}
+
+class RatS implements IRat
+{
+	private readonly Int whole;
+	private readonly Int num;
+	private readonly Int den;
+	public constructor(Int w, Int n, Int d)
+	{
+		whole = w;
+		num = n;
+		den = d;
+	}
+	public fun Whole() : Int
+	{
+		return whole;
+	}
+	public fun Num() : Int
+	{
+		return num;
+	}
+	public fun Den() : Int
+	{
+		return den;
+	}
+}
+
+class BigS implements IBig
+{
+	private readonly Int days;
+	private readonly Int ns;
+	public constructor(Int d, Int n)
+	{
+		days = d;
+		ns = n;
+	}
+	public fun Days() : Int
+	{
+		return days;
+	}
+	public fun Ns() : Int
+	{
+		return ns;
+	}
+}
+
+# exact rational arithmetic (Racket's Exact-Rational) on mixed numbers whole + num/den;
+# products that do not fit in 64 bits go through MulDivMod
+class Q
+{
+	public static fun FloorDiv(Int a, Int b) : Int
+	{
+		Int q = a / b;
+		if (q * b > a)
+		{
+			return q - 1;
+		}
+		return q;
+	}
+
+	public static fun Gcd(Int a, Int b) : Int
+	{
+		while (b != 0)
+		{
+			Int t = a % b;
+			a = b;
+			b = t;
+		}
+		return a;
+	}
+
+	public static fun GeInt(Int a, Int b) : Int
+	{
+		if (a >= b)
+		{
+			return 1;
+		}
+		return 0;
+	}
+
+	# floor(a * b / c) and the remainder, for 0 <= a < c and b >= 0 (a * b may exceed 64 bits)
+	public static fun MulDivMod(Int a, Int b, Int c) : QR
+	{
+		Int p = 1;
+		while (p <= b / 2)
+		{
+			p = p * 2;
+		}
+		Int q = 0;
+		Int r = 0;
+		Int rem = b;
+		while (p > 0)
+		{
+			q = q * 2;
+			r = r * 2;
+			Int c1 = Q.GeInt(r, c);
+			r = r - c1 * c;
+			q = q + c1;
+			Int bit = Q.GeInt(rem, p);
+			rem = rem - bit * p;
+			r = r + bit * a;
+			Int c2 = Q.GeInt(r, c);
+			r = r - c2 * c;
+			q = q + c2;
+			p = p / 2;
+		}
+		return new QR(q, r);
+	}
+
+	# whole + n/d, normalized
+	public static fun Make(Int w, Int n, Int d) : IRat
+	{
+		if (d < 0)
+		{
+			return Q.Make(w, 0 - n, 0 - d);
+		}
+		Int fl = Q.FloorDiv(n, d);
+		Int m = n - fl * d;
+		if (m == 0)
+		{
+			return new RatS(w + fl, 0, 1);
+		}
+		Int g = Q.Gcd(m, d);
+		return new RatS(w + fl, m / g, d / g);
+	}
+
+	public static fun FromInt(Int i) : IRat
+	{
+		return new RatS(i, 0, 1);
+	}
+
+	# (/ n d)
+	public static fun Frac(Int n, Int d) : IRat
+	{
+		return Q.Make(0, n, d);
+	}
+
+	public static fun Add(IRat a, IRat b) : IRat
+	{
+		Int da = a.Den();
+		Int db = b.Den();
+		Int g = Q.Gcd(da, db);
+		Int l = (da / g) * db;
+		Int n = a.Num() * (l / da) + b.Num() * (l / db);
+		return Q.Make(a.Whole() + b.Whole(), n, l);
+	}
+
+	public static fun Neg(IRat a) : IRat
+	{
+		return Q.Make(0 - a.Whole(), 0 - a.Num(), a.Den());
+	}
+
+	public static fun Sub(IRat a, IRat b) : IRat
+	{
+		return Q.Add(a, Q.Neg(b));
+	}
+
+	# (* a k) for an exact integer k
+	public static fun MulInt(IRat a, Int k) : IRat
+	{
+		if (k < 0)
+		{
+			return Q.Neg(Q.MulInt(a, 0 - k));
+		}
+		QR f = Q.MulDivMod(a.Num(), k, a.Den());
+		return Q.Make(a.Whole() * k + f.Q, f.R, a.Den());
+	}
+
+	# (/ a k) for a positive exact integer k
+	public static fun DivInt(IRat a, Int k) : IRat
+	{
+		Int q = Q.FloorDiv(a.Whole(), k);
+		Int r = a.Whole() - q * k;
+		return Q.Make(q, r * a.Den() + a.Num(), a.Den() * k);
+	}
+
+	# exact-floor
+	public static fun Floor(IRat a) : Int
+	{
+		return a.Whole();
+	}
+
+	# -1, 0, 1 as a <, =, > b
+	public static fun Compare(IRat a, IRat b) : Int
+	{
+		if (a.Whole() < b.Whole())
+		{
+			return 0 - 1;
+		}
+		if (a.Whole() > b.Whole())
+		{
+			return 1;
+		}
+		QR f = Q.MulDivMod(a.Num(), b.Den(), a.Den());
+		if (f.Q < b.Num())
+		{
+			return 0 - 1;
+		}
+		if (f.Q > b.Num())
+		{
+			return 1;
+		}
+		if (f.R == 0)
+		{
+			return 0;
+		}
+		return 1;
+	}
+
+	public static fun NumEq(IRat a, IRat b) : Bool
+	{
+		return Q.Compare(a, b) == 0;
+	}
+
+	public static fun Lt(IRat a, IRat b) : Bool
+	{
+		return Q.Compare(a, b) < 0;
+	}
+
+	public static fun Le(IRat a, IRat b) : Bool
+	{
+		return Q.Compare(a, b) <= 0;
+	}
+
+	# (< t k) for an exact integer k: t < k iff (floor t) < k
+	public static fun LtInt(IRat t, Int k) : Bool
+	{
+		return t.Whole() < k;
+	}
+
+	# (>= t k) for an exact integer k: t >= k iff (floor t) >= k
+	public static fun GeIntBound(IRat t, Int k) : Bool
+	{
+		return t.Whole() >= k;
+	}
+
+	# round to nearest, ties to even, of whole + r/d
+	public static fun RoundParts(Int w, Int r, Int d) : Int
+	{
+		if (2 * r < d)
+		{
+			return w;
+		}
+		if (2 * r > d)
+		{
+			return w + 1;
+		}
+		if (w % 2 == 0)
+		{
+			return w;
+		}
+		return w + 1;
+	}
+
+	# exact-round
+	public static fun Round(IRat a) : Int
+	{
+		return Q.RoundParts(a.Whole(), a.Num(), a.Den());
+	}
+
+	# (exact-round (* a k)) for a natural k
+	public static fun MulIntRound(IRat a, Int k) : Int
+	{
+		QR f = Q.MulDivMod(a.Num(), k, a.Den());
+		return Q.RoundParts(a.Whole() * k + f.Q, f.R, a.Den());
+	}
+
+	# (exact-floor (* a NS/DAY)) as an exact integer Days * NS/DAY + Ns
+	public static fun FloorTimesNsDay(IRat a, Int nsDay) : IBig
+	{
+		QR f = Q.MulDivMod(a.Num(), nsDay, a.Den());
+		return new BigS(a.Whole(), f.Q);
+	}
+
+	# (- a b) on such integers
+	public static fun BigSub(IBig a, IBig b) : IBig
+	{
+		return new BigS(a.Days() - b.Days(), a.Ns() - b.Ns());
+	}
+
+	# exact-floor of a flonum (MonNom has no conversion from Float to Int: binary search)
+	public static fun ExactFloor(Float x) : Int
+	{
+		if (x >= 0.0)
+		{
+			return Q.FloorBetween(x, 0, 4611686018427387904);
+		}
+		return Q.FloorBetween(x, 0 - 4611686018427387904, 0);
+	}
+
+	public static fun FloorBetween(Float x, Int lo, Int hi) : Int
+	{
+		# invariant: lo <= floor(x) < hi
+		while (hi - lo > 1)
+		{
+			Int mid = lo + (hi - lo) / 2;
+			if (mid + 0.0 <= x)
+			{
+				lo = mid;
+				continue;
+			}
+			hi = mid;
+		}
+		return lo;
+	}
+
+	# (modulo x p) for a positive p
+	public static fun Modulo(Int x, Int p) : Int
+	{
+		Int r = x % p;
+		if (r < 0)
+		{
+			return r + p;
+		}
+		return r;
+	}
+
+	# (modulo a p) for a positive p < 2^31, with NS/DAY = nsDay
+	public static fun BigModulo(IBig a, Int nsDay, Int p) : Int
+	{
+		Int d = Q.Modulo(a.Days(), p);
+		Int k = Q.Modulo(nsDay, p);
+		return Q.Modulo(d * k + Q.Modulo(a.Ns(), p), p);
+	}
+}
+
+# a value of type tz / (U String #f)
+class TzS implements ITz
+{
+	private readonly Int kind;
+	private readonly IText name;
+	private readonly Int offset;
+	public constructor(Int k, IText n, Int o)
+	{
+		kind = k;
+		name = n;
+		offset = o;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun Name() : IText
+	{
+		return name;
+	}
+	public fun Offset() : Int
+	{
+		return offset;
+	}
+}
+
+class Tz
+{
+	public static fun False() : ITz
+	{
+		return new TzS(0, Txt.Empty(), 0);
+	}
+	public static fun Str(IText s) : ITz
+	{
+		return new TzS(1, s, 0);
+	}
+	public static fun Integer(Int o) : ITz
+	{
+		return new TzS(2, Txt.Empty(), o);
+	}
+}
+
+class Params implements IParams
+{
+	private IClock clock;
+	private ITz timezone;
+	private readonly ITzSource source;
+	public constructor(IClock c, ITz z, ITzSource s)
+	{
+		clock = c;
+		timezone = z;
+		source = s;
+	}
+	public fun CurrentClock() : IClock
+	{
+		return clock;
+	}
+	public fun SetCurrentClock(IClock c) : Int
+	{
+		clock = c;
+		return 0;
+	}
+	public fun CurrentTimezone() : ITz
+	{
+		return timezone;
+	}
+	public fun SetCurrentTimezone(ITz z) : Int
+	{
+		timezone = z;
+		return 0;
+	}
+	public fun TzinfoSource() : ITzSource
+	{
+		return source;
+	}
+}
+
+# ---- benchmark harness (moved here from main.mn so that main.mn has only static code) ----
+
+# (lambda () v), a value of current-clock
+class ConstClock implements IClock
+{
+	private readonly IRat v;
+	public constructor(IRat x)
+	{
+		v = x;
+	}
+	public fun this() : IRat
+	{
+		return v;
+	}
+}
+
+# the results of the tests (the original only checks them), see NOTES.md
+class Results
+{
+	public Int Tests;
+	public Int IsoLen;
+	public Int IsoHash;
+	public Int LeCount;
+	public Int MonthsHash;
+	public Int DaysHash;
+	public Int NanosHash;
+	public Int MeqCount;
+	public constructor()
+	{
+		Tests = 0;
+		IsoLen = 0;
+		IsoHash = 0;
+		LeCount = 0;
+		MonthsHash = 0;
+		DaysHash = 0;
+		NanosHash = 0;
+		MeqCount = 0;
+	}
+	public fun Pass() : Int
+	{
+		Tests = Tests + 1;
+		return Tests;
+	}
+	public fun See(IText s) : Int
+	{
+		IsoLen = IsoLen + s.Length();
+		Int i = 0;
+		while (i < s.Length())
+		{
+			IsoHash = Q.Modulo(IsoHash * 31 + s.CharAt(i), 1000000007);
+			i = i + 1;
+		}
+		return IsoLen;
+	}
+	public fun Le() : Int
+	{
+		LeCount = LeCount + 1;
+		return LeCount;
+	}
+	public fun Meq() : Int
+	{
+		MeqCount = MeqCount + 1;
+		return MeqCount;
+	}
+	public fun Months(Int v) : Int
+	{
+		MonthsHash = Q.Modulo(MonthsHash * 31 + v, 1000000007);
+		return MonthsHash;
+	}
+	public fun Days(Int v) : Int
+	{
+		DaysHash = Q.Modulo(DaysHash * 31 + v, 1000000007);
+		return DaysHash;
+	}
+	public fun Nanos(IBig v) : Int
+	{
+		NanosHash = Q.Modulo(NanosHash * 31 + Q.BigModulo(v, Hmsn.NsDay(), 1000000007), 1000000007);
+		return NanosHash;
+	}
+}
+
+# ---- base/tzinfo ----
+
+class TzOffsetS implements ITzOffset, ITzResult
+{
+	private readonly Int utcSeconds;
+	private readonly Bool dst;
+	private readonly IText abbreviation;
+	public constructor(Int u, Bool d, IText a)
+	{
+		utcSeconds = u;
+		dst = d;
+		abbreviation = a;
+	}
+	public fun UtcSeconds() : Int
+	{
+		return utcSeconds;
+	}
+	public fun IsDst() : Bool
+	{
+		return dst;
+	}
+	public fun Abbreviation() : IText
+	{
+		return abbreviation;
+	}
+	public fun Kind() : Int
+	{
+		return 0;
+	}
+	public fun AsOffset() : ITzOffset
+	{
+		return this;
+	}
+	public fun StartsAt() : Int
+	{
+		ERROR("tzgap-starts-at: not a tzgap");
+	}
+	public fun OffsetBefore() : ITzOffset
+	{
+		ERROR("tzgap-offset-before: not a tzgap");
+	}
+	public fun OffsetAfter() : ITzOffset
+	{
+		ERROR("tzgap-offset-after: not a tzgap");
+	}
+}
+
+class TzGapS implements ITzResult
+{
+	private readonly Int startsAt;
+	private readonly ITzOffset offsetBefore;
+	private readonly ITzOffset offsetAfter;
+	public constructor(Int s, ITzOffset b, ITzOffset a)
+	{
+		startsAt = s;
+		offsetBefore = b;
+		offsetAfter = a;
+	}
+	public fun Kind() : Int
+	{
+		return 1;
+	}
+	public fun AsOffset() : ITzOffset
+	{
+		ERROR("not a tzoffset");
+	}
+	public fun StartsAt() : Int
+	{
+		return startsAt;
+	}
+	public fun OffsetBefore() : ITzOffset
+	{
+		return offsetBefore;
+	}
+	public fun OffsetAfter() : ITzOffset
+	{
+		return offsetAfter;
+	}
+}
+
+class TzOverlapS implements ITzResult
+{
+	private readonly ITzOffset offsetBefore;
+	private readonly ITzOffset offsetAfter;
+	public constructor(ITzOffset b, ITzOffset a)
+	{
+		offsetBefore = b;
+		offsetAfter = a;
+	}
+	public fun Kind() : Int
+	{
+		return 2;
+	}
+	public fun AsOffset() : ITzOffset
+	{
+		ERROR("not a tzoffset");
+	}
+	public fun StartsAt() : Int
+	{
+		ERROR("tzgap-starts-at: not a tzgap");
+	}
+	public fun OffsetBefore() : ITzOffset
+	{
+		return offsetBefore;
+	}
+	public fun OffsetAfter() : ITzOffset
+	{
+		return offsetAfter;
+	}
+}
+
+# (struct interval (from to offset)); infinite bounds are flagged
+class Interval
+{
+	public readonly Int From;
+	public readonly Bool FromInf;
+	public readonly Int To;
+	public readonly Bool ToInf;
+	public readonly TzOffsetS Offset;
+	public constructor(Int f, Bool fi, Int t, Bool ti, TzOffsetS o)
+	{
+		From = f;
+		FromInf = fi;
+		To = t;
+		ToInf = ti;
+		Offset = o;
+	}
+}
+
+# (struct zone (id intervals offsets))
+class Zone
+{
+	public readonly IText Id;
+	public readonly ArrayList<Interval> Intervals;
+	public constructor(IText id, ArrayList<Interval> ints)
+	{
+		Id = id;
+		Intervals = ints;
+	}
+}
+
+# the zoneinfo tzinfo source: zones are built on first use and memoized (hash-ref!)
+class ZoneinfoSource implements ITzSource
+{
+	private readonly ArrayList<Zone> zones;
+	public constructor()
+	{
+		zones = new ArrayList<Zone>();
+	}
+	public fun GetZone(IText tzid) : Zone
+	{
+		foreach (Zone z in zones)
+		{
+			if (Txt.Equal(z.Id, tzid))
+			{
+				return z;
+			}
+		}
+		Zone nz = Tzinfo.BuildZone(tzid);
+		zones.Add(nz);
+		return nz;
+	}
+	public fun UtcSecondsToTzOffset(IText tzid, IRat seconds) : ITzOffset
+	{
+		Zone z = this.GetZone(tzid);
+		return Tzinfo.FindUtcOffset(z.Intervals, seconds);
+	}
+	public fun LocalSecondsToTzOffset(IText tzid, Int seconds) : ITzResult
+	{
+		Zone z = this.GetZone(tzid);
+		return Tzinfo.FindLocalOffset(z.Intervals, seconds);
+	}
+}
+
+class Tzinfo
+{
+	public static fun MakeZoneinfoSource() : ITzSource
+	{
+		return new ZoneinfoSource();
+	}
+
+	public static fun IsOne(Int x) : Bool
+	{
+		if (x == 1)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	# parse-tzfile, replaced by the embedded data of TzData
+	public static fun BuildZone(IText tzid) : Zone
+	{
+		Int z = 0;
+		while (z < TzData.ZoneCount())
+		{
+			if (Txt.EqualCodes(tzid, TzData.ZoneName(z)))
+			{
+				return Tzinfo.BuildZoneFrom(tzid, z);
+			}
+			z = z + 1;
+		}
+		ERROR("Cannot find zoneinfo file");
+	}
+
+	public static fun BuildZoneFrom(IText tzid, Int z) : Zone
+	{
+		ArrayList<Int> offs = TzData.Offsets(z);
+		ArrayList<TzOffsetS> offsets = new ArrayList<TzOffsetS>();
+		Int i = 0;
+		while (i < offs.Length())
+		{
+			offsets.Add(new TzOffsetS(offs.Get(i), Tzinfo.IsOne(offs.Get(i + 1)), Txt.PushWord(Txt.Empty(), offs.Get(i + 2))));
+			i = i + 3;
+		}
+		ArrayList<Int> ivs = TzData.Intervals(z);
+		ArrayList<Interval> intervals = new ArrayList<Interval>();
+		Int j = 0;
+		while (j < ivs.Length())
+		{
+			intervals.Add(new Interval(ivs.Get(j), Tzinfo.IsOne(ivs.Get(j + 1)), ivs.Get(j + 2), Tzinfo.IsOne(ivs.Get(j + 3)), offsets.Get(ivs.Get(j + 4))));
+			j = j + 5;
+		}
+		return new Zone(Txt.Copy(tzid), intervals);
+	}
+
+	# interval-cmp: -1 '<, 0 '=, 1 '>; local? selects offset->delta = tzoffset-utc-seconds
+	# (otherwise (λ (x) 0))
+	public static fun IntervalCmp(Interval iv, IRat t, Bool local) : Int
+	{
+		Int delta = 0;
+		if (local)
+		{
+			return Tzinfo.IntervalCmpDelta(iv, t, iv.Offset.UtcSeconds());
+		}
+		return Tzinfo.IntervalCmpDelta(iv, t, delta);
+	}
+
+	public static fun IntervalCmpDelta(Interval iv, IRat t, Int delta) : Int
+	{
+		if (!iv.FromInf)
+		{
+			if (Q.LtInt(t, iv.From + delta))
+			{
+				return 0 - 1;
+			}
+		}
+		if (!iv.ToInf)
+		{
+			if (Q.GeIntBound(t, iv.To + delta))
+			{
+				return 1;
+			}
+		}
+		return 0;
+	}
+
+	# binary-search: returns idx for #s(present idx), -1 - best for #s(absent best)
+	public static fun BinarySearch(ArrayList<Interval> intervals, IRat t, Bool local, Int start, Int end, Int last, Int best) : Int
+	{
+		Int i = (end + start) / 2;
+		if (start == end)
+		{
+			return 0 - 1 - best;
+		}
+		if (i == last)
+		{
+			return 0 - 1 - best;
+		}
+		Int c = Tzinfo.IntervalCmp(intervals.Get(i), t, local);
+		if (c == 0)
+		{
+			return i;
+		}
+		if (c < 0)
+		{
+			return Tzinfo.BinarySearch(intervals, t, local, start, i, i, i);
+		}
+		return Tzinfo.BinarySearch(intervals, t, local, i, end, i, i + 1);
+	}
+
+	public static fun FindUtcOffset(ArrayList<Interval> intervals, IRat seconds) : ITzOffset
+	{
+		Int idx = Tzinfo.BinarySearch(intervals, seconds, false, 0, intervals.Length(), 0 - 1, 0 - 1);
+		if (idx < 0)
+		{
+			ERROR("match: no matching clause");
+		}
+		return intervals.Get(idx).Offset;
+	}
+
+	public static fun InInterval(ArrayList<Interval> intervals, Int n, IRat seconds) : Bool
+	{
+		if (n < 0)
+		{
+			return false;
+		}
+		if (n >= intervals.Length())
+		{
+			return false;
+		}
+		return Tzinfo.IntervalCmp(intervals.Get(n), seconds, true) == 0;
+	}
+
+	public static fun FindLocalOffset(ArrayList<Interval> intervals, Int secs) : ITzResult
+	{
+		IRat seconds = Q.FromInt(secs);
+		Int idx = Tzinfo.BinarySearch(intervals, seconds, true, 0, intervals.Length(), 0 - 1, 0 - 1);
+		if (idx >= 0)
+		{
+			# could be an overlap
+			if (Tzinfo.InInterval(intervals, idx - 1, seconds))
+			{
+				return new TzOverlapS(intervals.Get(idx - 1).Offset, intervals.Get(idx).Offset);
+			}
+			if (Tzinfo.InInterval(intervals, idx + 1, seconds))
+			{
+				return new TzOverlapS(intervals.Get(idx).Offset, intervals.Get(idx + 1).Offset);
+			}
+			return intervals.Get(idx).Offset;
+		}
+		# gap
+		Int best = 0 - 1 - idx;
+		Interval iv = intervals.Get(best);
+		return new TzGapS(iv.From, intervals.Get(best - 1).Offset, iv.Offset);
+	}
+}
+
+class DateTimeNil implements IDateTimeList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IDateTime
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IDateTimeList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class DateTimeCons implements IDateTimeList
+{
+	private readonly IDateTime first;
+	private readonly IDateTimeList rest;
+	public constructor(IDateTime f, IDateTimeList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IDateTime
+	{
+		return first;
+	}
+	public fun Rest() : IDateTimeList
+	{
+		return rest;
+	}
+}
+

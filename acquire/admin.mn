@@ -1,0 +1,948 @@
+# admin.rkt, player.rkt and strategy.rkt (merged to keep the configuration count down; see
+# NOTES.md). in-sandbox runs the producer and passes its result to the consumer (it never fails:
+# errors are not caught by the original either), so the failure continuations are not taken.
+
+# ---- strategy.rkt ----
+
+class TurnResultS implements ITurnResult
+{
+	private readonly Bool hasTile;
+	private readonly ITile tile;
+	private readonly Int hotel;
+	private readonly IIntList buy;
+	public constructor(Bool h, ITile t, Int ho, IIntList b)
+	{
+		hasTile = h;
+		tile = t;
+		hotel = ho;
+		buy = b;
+	}
+	public fun HasTile() : Bool
+	{
+		return hasTile;
+	}
+	public fun Tile() : ITile
+	{
+		return tile;
+	}
+	public fun Hotel() : Int
+	{
+		return hotel;
+	}
+	public fun Buy() : IIntList
+	{
+		return buy;
+	}
+}
+
+# (inst first Hotel Hotel)
+class FirstHotel implements IHotelPicker
+{
+	public constructor()
+	{
+	}
+	public fun this(IIntList l) : Int
+	{
+		return l.First();
+	}
+}
+
+class AlphabeticallyFirst implements IHotelPicker
+{
+	public constructor()
+	{
+	}
+	public fun this(IIntList w) : Int
+	{
+		return Strategy.SortHotels(w).First();
+	}
+}
+
+class RandomlyPickHotel implements IHotelPicker
+{
+	private readonly IRng rng;
+	public constructor(IRng r)
+	{
+		rng = r;
+	}
+	public fun this(IIntList l) : Int
+	{
+		return Aux.RandomlyPickHotel(l, rng);
+	}
+}
+
+# (inst id Natural)
+class IdNat implements INatFn
+{
+	public constructor()
+	{
+	}
+	public fun this(Int n) : Int
+	{
+		return n;
+	}
+}
+
+class RandomPlus1 implements INatFn
+{
+	private readonly IRng rng;
+	public constructor(IRng r)
+	{
+		rng = r;
+	}
+	public fun this(Int n) : Int
+	{
+		return rng.NextInt(n + 1);
+	}
+}
+
+# (strategy/d choose-founding choose-merger choose-shares#)
+class StrategyD implements IStrategy
+{
+	private readonly IHotelPicker chooseFounding;
+	private readonly IHotelPicker chooseMerger;
+	private readonly INatFn chooseShares;
+	public constructor(IHotelPicker f, IHotelPicker m, INatFn s)
+	{
+		chooseFounding = f;
+		chooseMerger = m;
+		chooseShares = s;
+	}
+	public fun this(ITurn turn) : ITurnResult
+	{
+		IBoard b = turn.Board();
+		Int myCash = turn.Cash();
+		IShares availableShares = turn.Shares();
+		IIntList availableHotels = turn.Hotels();
+		ITileList ts = Board.SortTiles(turn.Tiles());
+		while (!ts.IsEmpty())
+		{
+			ITile t = ts.First();
+			Int s = Board.WhatKindOfSpot(b, t);
+			if (s != Board.Impossible())
+			{
+				return Strategy.PlaceAndBuy(turn, t, s, chooseFounding, chooseMerger);
+			}
+			ts = ts.Rest();
+		}
+		INatFn cs = chooseShares;
+		IIntList buy = Strategy.ToBuy(b, myCash, availableShares, cs(Strategy.NatSharesPerTurnN()));
+		return new TurnResultS(false, Board.Tile(0, 0), 0 - 1, buy);
+	}
+}
+
+class Strategy
+{
+	public static fun NatSharesPerTurnN() : Int
+	{
+		Int n = Basics.SharesPerTurnN();
+		if (n < 0)
+		{
+			ERROR("assert: exact-nonnegative-integer?");
+		}
+		return n;
+	}
+
+	public static fun SortHotels(IIntList l) : IIntList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		return Strategy.InsertHotel(l.First(), Strategy.SortHotels(l.Rest()));
+	}
+
+	public static fun InsertHotel(Int h, IIntList sorted) : IIntList
+	{
+		if (sorted.IsEmpty())
+		{
+			return new IntCons(h, sorted);
+		}
+		if (Basics.HotelLe(h, sorted.First()))
+		{
+			return new IntCons(h, sorted);
+		}
+		return new IntCons(sorted.First(), Strategy.InsertHotel(h, sorted.Rest()));
+	}
+
+	public static fun PickHotel(IBoard b, ITile toPlace, Int kind, IIntList availableHotels, IHotelPicker selectFoundingHotel, IHotelPicker selectMerger) : Int
+	{
+		if (kind == Board.Founding())
+		{
+			if (availableHotels.IsEmpty())
+			{
+				return 0 - 1;
+			}
+			return selectFoundingHotel(availableHotels);
+		}
+		if (kind == Board.Merging())
+		{
+			IMergingWhich mw = Board.MergingWhich(b, toPlace);
+			return selectMerger(mw.Acquirers());
+		}
+		return 0 - 1;
+	}
+
+	# the tile-kind branch of strategy/d
+	public static fun PlaceAndBuy(ITurn turn, ITile toPlace, Int kind, IHotelPicker chooseFounding, IHotelPicker chooseMerger) : ITurnResult
+	{
+		IBoard b = turn.Board();
+		Int myCash = turn.Cash();
+		IShares availableShares = turn.Shares();
+		Int hotel = Strategy.PickHotel(b, toPlace, kind, turn.Hotels(), chooseFounding, chooseMerger);
+		IBoard board = Board.SetBoard(b, toPlace, kind, hotel);
+		IShares shares = Strategy.SharesAfter(availableShares, kind, hotel);
+		if (kind == Board.Merging())
+		{
+			if (hotel >= 0)
+			{
+				turn.Place(toPlace, hotel);
+			}
+		}
+		IIntList buy = Strategy.ToBuy(board, myCash, shares, Strategy.NatSharesPerTurnN());
+		return new TurnResultS(true, toPlace, hotel, buy);
+	}
+
+	public static fun SharesAfter(IShares availableShares, Int kind, Int hotel) : IShares
+	{
+		if (kind == Board.Founding())
+		{
+			if (hotel >= 0)
+			{
+				if (Basics.SharesAvailable(availableShares, hotel) > 0)
+				{
+					return Basics.SharesMinusMinus(availableShares, hotel);
+				}
+			}
+		}
+		return availableShares;
+	}
+
+	public static fun ToBuy(IBoard b, Int myCash, IShares availableShares, Int buyN) : IIntList
+	{
+		IIntList hotels = Basics.AllHotels();
+		Int n = 0;
+		while (true)
+		{
+			if (hotels.IsEmpty())
+			{
+				return new IntNil();
+			}
+			if (buyN == n)
+			{
+				return new IntNil();
+			}
+			Int h = hotels.First();
+			Int availableH = Basics.SharesAvailable(availableShares, h);
+			if (availableH == 0)
+			{
+				hotels = hotels.Rest();
+				continue;
+			}
+			Int price = Basics.PricePerShare(h, Board.SizeOfHotel(b, h));
+			if (price >= 0)
+			{
+				if (price <= myCash)
+				{
+					if (2 * price <= myCash)
+					{
+						if (availableH > 1)
+						{
+							return new IntCons(h, new IntCons(h, new IntNil()));
+						}
+					}
+					return new IntCons(h, new IntNil());
+				}
+			}
+			hotels = hotels.Rest();
+		}
+		return new IntNil();
+	}
+
+	public static fun OrderedS() : IStrategy
+	{
+		IHotelPicker f = new FirstHotel();
+		IHotelPicker m = new AlphabeticallyFirst();
+		INatFn s = new IdNat();
+		return new StrategyD(f, m, s);
+	}
+
+	public static fun RandomS(IRng rng) : IStrategy
+	{
+		IHotelPicker f = new RandomlyPickHotel(rng);
+		IHotelPicker m = new RandomlyPickHotel(rng);
+		INatFn s = new RandomPlus1(rng);
+		return new StrategyD(f, m, s);
+	}
+}
+
+# ---- player.rkt ----
+
+class PlayerExtS implements IPlayerExt
+{
+	private readonly Int id;
+	private readonly IText name;
+	private readonly IStrategy choice;
+	private readonly IRng rng;
+	private IPlayerList players;
+	private IPlayerList bad;
+	private IText myGameName;
+	public constructor(Int i, IText n, IStrategy c, IRng r)
+	{
+		id = i;
+		name = n;
+		choice = c;
+		rng = r;
+		players = new PlayerNil();
+		bad = new PlayerNil();
+		myGameName = Txt.Empty();
+	}
+	public fun Id() : Int
+	{
+		return id;
+	}
+	public fun Go(IAdministrator administrator) : Int
+	{
+		myGameName = administrator.SignUp(name, this);
+		return 0;
+	}
+	public fun Setup(IState s) : Int
+	{
+		return this.BadPlayers(s.Players());
+	}
+	public fun TakeTurn(ITurn turn) : ITurnResult
+	{
+		this.BadPlayers(turn.Players());
+		IStrategy c = choice;
+		return c(this.Reconcile(turn));
+	}
+	public fun Keep(IIntList hotels) : IBoolList
+	{
+		if (hotels.IsEmpty())
+		{
+			return new BoolNil();
+		}
+		Bool k = PlayerFactory.Coin(rng);
+		return new BoolCons(k, this.Keep(hotels.Rest()));
+	}
+	public fun ReceiveTile(ITile t) : Int
+	{
+		return 0;
+	}
+	public fun Inform(IState s) : Int
+	{
+		return this.BadPlayers(s.Players());
+	}
+	public fun TheEnd(IState s, IScoreList results) : Int
+	{
+		return 0;
+	}
+	public fun BadPlayers(IPlayerList current) : Int
+	{
+		IPlayerList b = bad;
+		IPlayerList l = players;
+		while (!l.IsEmpty())
+		{
+			IPlayer oldPlayer = l.First();
+			l = l.Rest();
+			if (PlayerFactory.FindByName(oldPlayer.Name(), current))
+			{
+				continue;
+			}
+			b = new PlayerCons(oldPlayer, b);
+		}
+		bad = b;
+		players = current;
+		return 0;
+	}
+	public fun Reconcile(ITurn turn) : ITurn
+	{
+		IShares badShares = Basics.CombineShares(PlayerFactory.SharesOf(bad));
+		turn.ReconcileShares(badShares);
+		return turn;
+	}
+}
+
+class PlayerFactory
+{
+	# (< (random 100) 50)
+	public static fun Coin(IRng rng) : Bool
+	{
+		if (rng.NextInt(100) < 50)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public static fun FindByName(IText n, IPlayerList ps) : Bool
+	{
+		while (!ps.IsEmpty())
+		{
+			if (Txt.Equal(ps.First().Name(), n))
+			{
+				return true;
+			}
+			ps = ps.Rest();
+		}
+		return false;
+	}
+
+	public static fun SharesOf(IPlayerList ps) : ISharesList
+	{
+		if (ps.IsEmpty())
+		{
+			return new SharesNil();
+		}
+		return new SharesCons(ps.First().Shares(), PlayerFactory.SharesOf(ps.Rest()));
+	}
+
+	public static fun Create(Int id, IText n, IStrategy c, IRng rng) : IPlayerExt
+	{
+		return new PlayerExtS(id, n, c, rng);
+	}
+
+	# (for/list ((name '("a" "b" "c" "d" "e" "f")) (i (in-range n))) (create name S)); ids
+	# start at firstId (identities for eq?)
+	public static fun MakePlayers(IStrategy s, Int n, Int firstId, IRng rng) : IPlayerExtList
+	{
+		if (n < 6)
+		{
+			return PlayerFactory.PlayersUpTo(s, n, firstId, rng);
+		}
+		return PlayerFactory.PlayersUpTo(s, 6, firstId, rng);
+	}
+
+	public static fun PlayersUpTo(IStrategy s, Int k, Int firstId, IRng rng) : IPlayerExtList
+	{
+		IPlayerExtList l = new PlayerExtNil();
+		Int i = k - 1;
+		while (i >= 0)
+		{
+			l = new PlayerExtCons(PlayerFactory.Create(firstId + i, Txt.Empty().Push(97 + i), s, rng), l);
+			i = i - 1;
+		}
+		return l;
+	}
+
+	public static fun RandomPlayers(Int n, Int firstId, IRng rng) : IPlayerExtList
+	{
+		return PlayerFactory.MakePlayers(Strategy.RandomS(rng), n, firstId, rng);
+	}
+
+	public static fun OrderedPlayers(Int n, Int firstId, IRng rng) : IPlayerExtList
+	{
+		return PlayerFactory.MakePlayers(Strategy.OrderedS(), n, firstId, rng);
+	}
+}
+
+# ---- admin.rkt ----
+
+class TurnDecisionsS implements ITurnDecisions
+{
+	private readonly Bool hasTile;
+	private readonly ITile tile;
+	private readonly Int hotel;
+	private readonly IDecisionList decisions;
+	public constructor(Bool h, ITile t, Int ho, IDecisionList d)
+	{
+		hasTile = h;
+		tile = t;
+		hotel = ho;
+		decisions = d;
+	}
+	public fun HasTile() : Bool
+	{
+		return hasTile;
+	}
+	public fun Tile() : ITile
+	{
+		return tile;
+	}
+	public fun Hotel() : Int
+	{
+		return hotel;
+	}
+	public fun Decisions() : IDecisionList
+	{
+		return decisions;
+	}
+}
+
+class RunResultS implements IRunResult
+{
+	private readonly Int status;
+	private readonly Bool hasScore;
+	private readonly IScoreList score;
+	private readonly IStateList states;
+	public constructor(Int st, Bool h, IScoreList sc, IStateList s)
+	{
+		status = st;
+		hasScore = h;
+		score = sc;
+		states = s;
+	}
+	public fun Status() : Int
+	{
+		return status;
+	}
+	public fun HasScore() : Bool
+	{
+		return hasScore;
+	}
+	public fun Score() : IScoreList
+	{
+		return score;
+	}
+	public fun States() : IStateList
+	{
+		return states;
+	}
+}
+
+class NextArgsS implements INextArgs
+{
+	private readonly ITile tile;
+	private readonly Int hotel;
+	private readonly IDecisionList decisions;
+	private readonly IIntList sharesToBuy;
+	private readonly ITilePicker pickTile;
+	public constructor(ITile t, Int h, IDecisionList d, IIntList s, ITilePicker p)
+	{
+		tile = t;
+		hotel = h;
+		decisions = d;
+		sharesToBuy = s;
+		pickTile = p;
+	}
+	public fun Tile() : ITile
+	{
+		return tile;
+	}
+	public fun Hotel() : Int
+	{
+		return hotel;
+	}
+	public fun Decisions() : IDecisionList
+	{
+		return decisions;
+	}
+	public fun SharesToBuy() : IIntList
+	{
+		return sharesToBuy;
+	}
+	public fun PickTile() : ITilePicker
+	{
+		return pickTile;
+	}
+}
+
+# turn%
+class TurnS implements ITurn
+{
+	private IState currentState;
+	private readonly IBoard board;
+	private readonly IPlayer current;
+	private readonly Int cash;
+	private readonly ITileList tiles;
+	private readonly IShares shares;
+	private readonly IIntList hotels;
+	private readonly IPlayerList players;
+	private Bool hasTile;
+	private ITile tile;
+	private Int hotel;
+	private IDecisionList decisions;
+	private IPlayerList eliminated;
+	private Bool called;
+	public constructor(IState s, IBoard b, IPlayer c, Int ca, ITileList t, IShares sh, IIntList h, IPlayerList p)
+	{
+		currentState = s;
+		board = b;
+		current = c;
+		cash = ca;
+		tiles = t;
+		shares = sh;
+		hotels = h;
+		players = p;
+		hasTile = false;
+		tile = Board.Tile(0, 0);
+		hotel = 0 - 1;
+		decisions = new DecisionNil();
+		eliminated = new PlayerNil();
+		called = false;
+	}
+	public fun Board() : IBoard
+	{
+		return board;
+	}
+	public fun Current() : IPlayer
+	{
+		return current;
+	}
+	public fun Cash() : Int
+	{
+		return cash;
+	}
+	public fun Tiles() : ITileList
+	{
+		return tiles;
+	}
+	public fun Shares() : IShares
+	{
+		return shares;
+	}
+	public fun Hotels() : IIntList
+	{
+		return hotels;
+	}
+	public fun Players() : IPlayerList
+	{
+		return players;
+	}
+	public fun ReconcileShares(IShares t) : IShares
+	{
+		return t;
+	}
+	public fun Eliminated() : IPlayerList
+	{
+		return eliminated;
+	}
+	public fun PlaceCalled() : Bool
+	{
+		return called;
+	}
+	public fun Decisions() : ITurnDecisions
+	{
+		return new TurnDecisionsS(hasTile, tile, hotel, decisions);
+	}
+	public fun Place(ITile t, Int h) : IPlayerList
+	{
+		if (called)
+		{
+			return currentState.Players();
+		}
+		called = true;
+		hasTile = true;
+		tile = t;
+		hotel = h;
+		IMergingWhich mw = Board.MergingWhich(board, t);
+		IIntList acquiredHotels = Builtins.IntAppend(Builtins.IntRemove(h, mw.Acquirers()), mw.Acquired());
+		IPlayerList ps = players;
+		while (!ps.IsEmpty())
+		{
+			IPlayer p = ps.First();
+			IBoolList pSDecisions = Admin.KeepOf(p, acquiredHotels);
+			decisions = new DecisionCons(Tree.MakeDecision(p, Admin.Zip(acquiredHotels, pSDecisions)), decisions);
+			ps = ps.Rest();
+		}
+		IState stateEliminated = State.StateEliminate(currentState, eliminated);
+		IState stateReturns = State.StateReturnShares(stateEliminated, decisions, stateEliminated.Board());
+		currentState = stateReturns;
+		return stateReturns.Players();
+	}
+}
+
+# (List String (Instance Player%)) of *named-players
+class NamedPlayer
+{
+	public readonly IText Name;
+	public readonly IPlayerExt Player;
+	public constructor(IText n, IPlayerExt p)
+	{
+		Name = n;
+		Player = p;
+	}
+}
+
+# administrator%
+class Administrator implements IAdministrator
+{
+	private readonly ITilePicker nextTile;
+	private readonly IRng rng;
+	private Int count;
+	private ITextList names;
+	private IPlayerExtList externals;
+	public constructor(ITilePicker n, IRng r)
+	{
+		nextTile = n;
+		rng = r;
+		count = 10;
+		names = new TextNil();
+		externals = new PlayerExtNil();
+	}
+	public fun SignUp(IText name0, IPlayerExt player) : IText
+	{
+		IText pre = Admin.Pre(rng);
+		count = count + 1 + rng.NextInt(10);
+		IText name = Txt.Append(Txt.Append(Txt.Append(pre, Txt.Digits(count)), Txt.Empty().Push(58)), name0);
+		names = new TextCons(name, names);
+		externals = new PlayerExtCons(player, externals);
+		return name;
+	}
+	public fun ShowPlayers() : ITextList
+	{
+		return names;
+	}
+	public fun Run(Int turns) : IRunResult
+	{
+		IPlayerList players = Admin.PlayerToInternals(names, externals);
+		if (players.IsEmpty())
+		{
+			ERROR("run: players failed to sign up properly");
+		}
+		ITree tree0 = Tree.GenerateTree(Admin.SetupAll(players, State.State0(players)));
+		return Admin.Loop(tree0, turns, new StateCons(Tree.TreeState(tree0), new StateNil()), nextTile);
+	}
+}
+
+class Admin
+{
+	public static fun Done() : Int
+	{
+		return 0;
+	}
+	public static fun Exhausted() : Int
+	{
+		return 1;
+	}
+	public static fun ScoreStatus() : Int
+	{
+		return 2;
+	}
+	public static fun ImpossibleStatus() : Int
+	{
+		return 3;
+	}
+
+	# (if (< (random 100) 50) "player" "spieler")
+	public static fun Pre(IRng rng) : IText
+	{
+		if (rng.NextInt(100) < 50)
+		{
+			return Txt.PushWord(Txt.Empty(), 3944377513584);
+		}
+		return Txt.PushWord(Txt.Empty(), 504876840417395);
+	}
+
+	public static fun KeepOf(IPlayer p, IIntList acquiredHotels) : IBoolList
+	{
+		if (!p.HasExternal())
+		{
+			return Admin.AllTrue(acquiredHotels);
+		}
+		return p.External().Keep(acquiredHotels);
+	}
+
+	public static fun AllTrue(IIntList l) : IBoolList
+	{
+		if (l.IsEmpty())
+		{
+			return new BoolNil();
+		}
+		return new BoolCons(true, Admin.AllTrue(l.Rest()));
+	}
+
+	# (for/list ([h acquired-hotels] [d p-s-decisions]) (list h (if d #t #f)))
+	public static fun Zip(IIntList hs, IBoolList ds) : IHotelDecisionList
+	{
+		if (hs.IsEmpty())
+		{
+			return new HotelDecisionNil();
+		}
+		if (ds.IsEmpty())
+		{
+			return new HotelDecisionNil();
+		}
+		return new HotelDecisionCons(Tree.MakeHotelDecision(hs.First(), ds.First()), Admin.Zip(hs.Rest(), ds.Rest()));
+	}
+
+	public static fun MakeTurn(IState s) : ITurn
+	{
+		IPlayer current = State.StateCurrentPlayer(s);
+		return new TurnS(s, s.Board(), current, current.Money(), current.Tiles(), s.Shares(), s.Hotels(), s.Players());
+	}
+
+	public static fun Result(Int status, IState state, IStateList states) : IRunResult
+	{
+		return new RunResultS(status, true, State.StateScore(state), Admin.ReverseStates(states));
+	}
+
+	public static fun ReverseStates(IStateList l) : IStateList
+	{
+		IStateList r = new StateNil();
+		while (!l.IsEmpty())
+		{
+			r = new StateCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	# the loop of run
+	public static fun Loop(ITree tree0, Int n0, IStateList states0, ITilePicker nextTile) : IRunResult
+	{
+		ITree tree = tree0;
+		Int n = n0;
+		IStateList states = states0;
+		while (true)
+		{
+			IState state = Tree.TreeState(tree);
+			if (n == 0)
+			{
+				return Admin.Result(Admin.Done(), state, states);
+			}
+			if (state.Players().IsEmpty())
+			{
+				return Admin.Result(Admin.Exhausted(), state, states);
+			}
+			if (tree.IsLPlaced())
+			{
+				if (tree.NothingToPlace())
+				{
+					return Admin.Result(Admin.ScoreStatus(), state, states);
+				}
+			}
+			IPlayer cur = State.StateCurrentPlayer(state);
+			if (!cur.HasExternal())
+			{
+				ERROR("external/fail");
+			}
+			IPlayerExt external = cur.External();
+			ITurn turn = Admin.MakeTurn(state);
+			ITurnResult r = external.TakeTurn(turn);
+			if (!r.HasTile())
+			{
+				return Admin.Result(Admin.ImpossibleStatus(), state, new StateCons(state, states));
+			}
+			ITile tile = r.Tile();
+			Int hotelInvolved = r.Hotel();
+			Bool merger = Admin.IsMerging(Board.WhatKindOfSpot(state.Board(), tile));
+			if (merger)
+			{
+				if (!turn.PlaceCalled())
+				{
+					tree = Tree.GenerateTree(State.StateRemoveCurrentPlayer(state));
+					n = n - 1;
+					continue;
+				}
+			}
+			IDecisionList ds = Admin.DecisionsIf(merger, turn);
+			IPlayerList eliminate = turn.Eliminated();
+			if (State.PlayerMember(State.StateCurrentPlayer(state), eliminate))
+			{
+				# failure: `(S "current player failed on keep")
+				IState stateEliminate = State.StateRemoveCurrentPlayer(state);
+				if (stateEliminate.Players().IsEmpty())
+				{
+					return new RunResultS(Admin.Exhausted(), false, new ScoreNil(), Admin.ReverseStates(states));
+				}
+				tree = Tree.GenerateTree(stateEliminate);
+				n = n - 1;
+				continue;
+			}
+			ITree treeEliminate = Admin.TreeEliminate(tree, state, eliminate);
+			# exec
+			ITileAndTree tt = Tree.TreeNext(treeEliminate, new NextArgsS(tile, hotelInvolved, ds, r.Buy(), nextTile));
+			if (!tt.HasTile())
+			{
+				ERROR("no-tile");
+			}
+			external.ReceiveTile(tt.Tile());
+			ITree nextTree = tt.Tree();
+			IState st = Tree.TreeState(nextTree);
+			# inform-all
+			IPlayerList ps = st.Players();
+			while (!ps.IsEmpty())
+			{
+				IPlayer p = ps.First();
+				if (!p.HasExternal())
+				{
+					ERROR("external-fail");
+				}
+				p.External().Inform(st);
+				ps = ps.Rest();
+			}
+			if (st.Tiles().IsEmpty())
+			{
+				return Admin.Result(Admin.Exhausted(), st, states);
+			}
+			tree = nextTree;
+			n = n - 1;
+			states = new StateCons(st, states);
+		}
+		ERROR("unreachable");
+	}
+
+	public static fun IsMerging(Int kind) : Bool
+	{
+		if (kind == Board.Merging())
+		{
+			return true;
+		}
+		return false;
+	}
+
+	public static fun DecisionsIf(Bool merger, ITurn turn) : IDecisionList
+	{
+		if (merger)
+		{
+			return turn.Decisions().Decisions();
+		}
+		return new DecisionNil();
+	}
+
+	public static fun TreeEliminate(ITree tree, IState state, IPlayerList eliminate) : ITree
+	{
+		if (eliminate.IsEmpty())
+		{
+			return tree;
+		}
+		return Tree.GenerateTree(State.StateEliminate(state, eliminate));
+	}
+
+	# player->internals
+	public static fun PlayerToInternals(ITextList names0, IPlayerExtList externals0) : IPlayerList
+	{
+		IPlayerList internals = new PlayerNil();
+		ITileList tiles = Board.AllTiles();
+		ITextList names = names0;
+		IPlayerExtList externals = externals0;
+		while (!names.IsEmpty())
+		{
+			ITileList ts = Board.TileTake(tiles, Board.StarterTilesN());
+			ITile t1 = ts.First();
+			ITile t2 = ts.Rest().First();
+			ITile t3 = ts.Rest().Rest().First();
+			ITile t4 = ts.Rest().Rest().Rest().First();
+			ITile t5 = ts.Rest().Rest().Rest().Rest().First();
+			ITile t6 = ts.Rest().Rest().Rest().Rest().Rest().First();
+			IPlayer player = State.Player0(names.First(), t1, t2, t3, t4, t5, t6, externals.First());
+			internals = new PlayerCons(player, internals);
+			tiles = Board.TileDrop(tiles, Board.StarterTilesN());
+			names = names.Rest();
+			externals = externals.Rest();
+		}
+		return internals;
+	}
+
+	public static fun SetupAll(IPlayerList players, IState state) : IState
+	{
+		IPlayerList ps = players;
+		while (!ps.IsEmpty())
+		{
+			IPlayer p = ps.First();
+			if (!p.HasExternal())
+			{
+				ERROR("external-failed");
+			}
+			p.External().Setup(state);
+			ps = ps.Rest();
+		}
+		return state;
+	}
+
+	public static fun MakeAdministrator(ITilePicker nextTile, IRng rng) : IAdministrator
+	{
+		return new Administrator(nextTile, rng);
+	}
+}

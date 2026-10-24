@@ -1,0 +1,404 @@
+# cell.rkt: the cell class hierarchy
+# (also contains message-queue.rkt, merged here to keep the configuration count down).
+# MonNom has no class inheritance and classes are not values, so every Racket class is a
+# CellClass object (with its superclass, for is-a?) and every instance a Cell that dispatches on
+# the kind of the class body that defines a method:
+#   0 cell%, 1 empty-cell%, 2 void-cell%, 3 wall%, 4 the define-wall classes, 5 door%,
+#   6 vertical-door% (and its anonymous subclass), 7 horizontal-door% (and its anonymous subclass)
+# The char->cell% table (register-cell-type!) is not ported: it is only used by grid.rkt's
+# parse-grid, which is neither exported nor called.
+
+class CellClass implements ICellClass
+{
+	private readonly Int id;
+	private readonly Bool hasSuper;
+	private readonly ICellClass super0;
+	private readonly Int kind;
+	private readonly Int single;
+	private readonly Int double0;
+	public constructor(Int i, Bool h, ICellClass s, Int k, Int sb, Int db)
+	{
+		id = i;
+		hasSuper = h;
+		super0 = s;
+		kind = k;
+		single = sb;
+		double0 = db;
+	}
+	public fun Id() : Int
+	{
+		return id;
+	}
+	public fun HasSuper() : Bool
+	{
+		return hasSuper;
+	}
+	public fun Super() : ICellClass
+	{
+		return super0;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun SingleBar() : Int
+	{
+		return single;
+	}
+	public fun DoubleBar() : Int
+	{
+		return double0;
+	}
+	public fun New() : ICell
+	{
+		return new Cell(this);
+	}
+}
+
+# an instance of one of the cell classes (items '() and occupant #f, as in every use)
+class Cell implements ICell
+{
+	private readonly ICellClass cls;
+	private readonly Bool hasOccupant;
+	public constructor(ICellClass c)
+	{
+		cls = c;
+		hasOccupant = false;
+	}
+	public fun Class() : ICellClass
+	{
+		return cls;
+	}
+	public fun IsFalse() : Bool
+	{
+		return false;
+	}
+	public fun Free() : Bool
+	{
+		Int k = cls.Kind();
+		if (k == 1)
+		{
+			return !hasOccupant;
+		}
+		if (k >= 5)
+		{
+			return !hasOccupant;
+		}
+		return false;
+	}
+	public fun Show() : Int
+	{
+		Int k = cls.Kind();
+		if (k == 1)
+		{
+			return 32;
+		}
+		if (k == 2)
+		{
+			return 46;
+		}
+		if (k == 3)
+		{
+			return 88;
+		}
+		if (k == 4)
+		{
+			# (if double-bar? double-bar single-bar) with double-bar? = #t
+			return cls.DoubleBar();
+		}
+		if (k == 6)
+		{
+			return 95;
+		}
+		if (k == 7)
+		{
+			return 39;
+		}
+		return 42;
+	}
+	public fun Open(IMessageQueue q) : Int
+	{
+		if (cls.Kind() >= 5)
+		{
+			return q.Enqueue("The door is already open.");
+		}
+		return q.Enqueue("Can't open that.");
+	}
+	public fun Close(IMessageQueue q) : Int
+	{
+		if (cls.Kind() >= 5)
+		{
+			return 0;
+		}
+		return q.Enqueue("Can't close that.");
+	}
+}
+
+# the #f returned by grid-ref outside the grid
+class NoCell implements ICell
+{
+	public constructor()
+	{
+	}
+	public fun Class() : ICellClass
+	{
+		ERROR("not a cell");
+	}
+	public fun IsFalse() : Bool
+	{
+		return true;
+	}
+	public fun Free() : Bool
+	{
+		ERROR("send: not an object");
+	}
+	public fun Show() : Int
+	{
+		ERROR("send: not an object");
+	}
+	public fun Open(IMessageQueue q) : Int
+	{
+		ERROR("send: not an object");
+	}
+	public fun Close(IMessageQueue q) : Int
+	{
+		ERROR("send: not an object");
+	}
+}
+
+class CellClasses implements ICellClasses
+{
+	private readonly ICellClass cell;
+	private readonly ICellClass emptyCell;
+	private readonly ICellClass voidCell;
+	private readonly ICellClass wall;
+	private readonly ICellClass door;
+	private readonly ICellClass verticalDoor;
+	private readonly ICellClass horizontalDoor;
+	private readonly ICellClass pillar;
+	private readonly ICellClass verticalWall;
+	private readonly ICellClass horizontalWall;
+	private readonly ICellClass fourCornerWall;
+	private readonly ICellClass northEastWall;
+	private readonly ICellClass northWestWall;
+	private readonly ICellClass southEastWall;
+	private readonly ICellClass southWestWall;
+	private readonly ICellClass northTeeWall;
+	private readonly ICellClass southTeeWall;
+	private readonly ICellClass eastTeeWall;
+	private readonly ICellClass westTeeWall;
+	private readonly ICell noCell;
+	public constructor(ICellClass c, ICellClass w, ICellClass d)
+	{
+		cell = c;
+		emptyCell = new CellClass(1, true, c, 1, 32, 32);
+		voidCell = new CellClass(2, true, c, 2, 46, 46);
+		wall = w;
+		door = d;
+		verticalDoor = new CellClass(5, true, d, 6, 124, 124);
+		horizontalDoor = new CellClass(6, true, d, 7, 45, 45);
+		pillar = new CellClass(7, true, w, 4, 43, 35);
+		verticalWall = new CellClass(8, true, w, 4, 9474, 9553);
+		horizontalWall = new CellClass(9, true, w, 4, 9472, 9552);
+		fourCornerWall = new CellClass(10, true, w, 4, 9532, 9580);
+		northEastWall = new CellClass(11, true, w, 4, 9488, 9559);
+		northWestWall = new CellClass(12, true, w, 4, 9484, 9556);
+		southEastWall = new CellClass(13, true, w, 4, 9496, 9565);
+		southWestWall = new CellClass(14, true, w, 4, 9492, 9562);
+		northTeeWall = new CellClass(15, true, w, 4, 9516, 9574);
+		southTeeWall = new CellClass(16, true, w, 4, 9524, 9577);
+		eastTeeWall = new CellClass(17, true, w, 4, 9508, 9571);
+		westTeeWall = new CellClass(18, true, w, 4, 9500, 9568);
+		noCell = new NoCell();
+	}
+	public fun Cell() : ICellClass
+	{
+		return cell;
+	}
+	public fun EmptyCell() : ICellClass
+	{
+		return emptyCell;
+	}
+	public fun VoidCell() : ICellClass
+	{
+		return voidCell;
+	}
+	public fun Wall() : ICellClass
+	{
+		return wall;
+	}
+	public fun Door() : ICellClass
+	{
+		return door;
+	}
+	public fun VerticalDoor() : ICellClass
+	{
+		return verticalDoor;
+	}
+	public fun HorizontalDoor() : ICellClass
+	{
+		return horizontalDoor;
+	}
+	public fun Pillar() : ICellClass
+	{
+		return pillar;
+	}
+	public fun VerticalWall() : ICellClass
+	{
+		return verticalWall;
+	}
+	public fun HorizontalWall() : ICellClass
+	{
+		return horizontalWall;
+	}
+	public fun FourCornerWall() : ICellClass
+	{
+		return fourCornerWall;
+	}
+	public fun NorthEastWall() : ICellClass
+	{
+		return northEastWall;
+	}
+	public fun NorthWestWall() : ICellClass
+	{
+		return northWestWall;
+	}
+	public fun SouthEastWall() : ICellClass
+	{
+		return southEastWall;
+	}
+	public fun SouthWestWall() : ICellClass
+	{
+		return southWestWall;
+	}
+	public fun NorthTeeWall() : ICellClass
+	{
+		return northTeeWall;
+	}
+	public fun SouthTeeWall() : ICellClass
+	{
+		return southTeeWall;
+	}
+	public fun EastTeeWall() : ICellClass
+	{
+		return eastTeeWall;
+	}
+	public fun WestTeeWall() : ICellClass
+	{
+		return westTeeWall;
+	}
+	public fun NoCell() : ICell
+	{
+		return noCell;
+	}
+}
+
+# message-queue.rkt
+class MessageQueue implements IMessageQueue
+{
+	private IStringList queue;
+	private Int count;
+	public constructor()
+	{
+		queue = new StringNil();
+		count = 0;
+	}
+	public fun Enqueue(String m) : Int
+	{
+		queue = new StringCons(m, queue);
+		count = count + 1;
+		return count;
+	}
+	public fun Reset() : Int
+	{
+		queue = new StringNil();
+		count = 0;
+		return 0;
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+}
+
+# the missing superclass of cell% (object%)
+class ObjectClass implements ICellClass
+{
+	public constructor()
+	{
+	}
+	public fun Id() : Int
+	{
+		return -1;
+	}
+	public fun HasSuper() : Bool
+	{
+		return false;
+	}
+	public fun Super() : ICellClass
+	{
+		ERROR("object% has no superclass here");
+	}
+	public fun Kind() : Int
+	{
+		return -1;
+	}
+	public fun SingleBar() : Int
+	{
+		return 0;
+	}
+	public fun DoubleBar() : Int
+	{
+		return 0;
+	}
+	public fun New() : ICell
+	{
+		ERROR("not a cell class");
+	}
+}
+
+class Cells
+{
+	# the classes of cell.rkt (module-level values), created once by main
+	public static fun Classes() : ICellClasses
+	{
+		ICellClass cell = new CellClass(0, true, new ObjectClass(), 0, 42, 42);
+		ICellClass wall = new CellClass(3, true, cell, 3, 88, 88);
+		ICellClass door = new CellClass(4, true, cell, 5, 42, 42);
+		return new CellClasses(cell, wall, door);
+	}
+
+	# (is-a? c cls); c may be the #f of grid-ref
+	public static fun IsA(ICell c, ICellClass cls) : Bool
+	{
+		if (c.IsFalse())
+		{
+			return false;
+		}
+		ICellClass k = c.Class();
+		while (true)
+		{
+			if (k == cls)
+			{
+				return true;
+			}
+			if (!k.HasSuper())
+			{
+				return false;
+			}
+			k = k.Super();
+		}
+		return false;
+	}
+
+	# the anonymous subclasses (class vertical-door% (super-new)) / (class horizontal-door% ...),
+	# only registered in the char table in Racket
+	public static fun OpenVerticalDoor(ICellClasses cs) : ICellClass
+	{
+		return new CellClass(19, true, cs.VerticalDoor(), 6, 95, 95);
+	}
+	public static fun OpenHorizontalDoor(ICellClasses cs) : ICellClass
+	{
+		return new CellClass(20, true, cs.HorizontalDoor(), 7, 39, 39);
+	}
+}

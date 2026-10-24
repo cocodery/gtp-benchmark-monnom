@@ -1,0 +1,521 @@
+# Stand-ins for Racket builtins: vectors (Pos, Grid), hash tables keyed by Pos, boxes, lists.
+
+# Pos = (Vector Index Index)
+class Pos implements IPos
+{
+	private readonly Int x;
+	private readonly Int y;
+	public constructor(Int x0, Int y0)
+	{
+		x = x0;
+		y = y0;
+	}
+	public fun X() : Int
+	{
+		return x;
+	}
+	public fun Y() : Int
+	{
+		return y;
+	}
+}
+
+class Grid implements IGrid
+{
+	private readonly ArrayList<ArrayList<ICell>> rows;
+	public constructor(ArrayList<ArrayList<ICell>> r)
+	{
+		rows = r;
+	}
+	public fun Height() : Int
+	{
+		return rows.Length();
+	}
+	public fun Width() : Int
+	{
+		return rows.Get(0).Length();
+	}
+	public fun Ref(Int x, Int y) : ICell
+	{
+		return rows.Get(x).Get(y);
+	}
+	# (vector-set! (vector-ref g (vector-ref p 0)) (vector-ref p 1) v)
+	public fun Set(IPos p, ICell c) : Int
+	{
+		rows.Get(p.X()).Set(p.Y(), c);
+		return 0;
+	}
+}
+
+# a mutable equal?-hash table from positions to booleans (positions are small: a dense table)
+class PosCache implements IPosCache
+{
+	private readonly ArrayList<Bool> present;
+	private readonly ArrayList<Bool> values;
+	public constructor(ArrayList<Bool> p, ArrayList<Bool> v)
+	{
+		present = p;
+		values = v;
+	}
+	# (hash-ref cache pos #f)
+	public fun Ref(IPos p) : Bool
+	{
+		Int k = p.X() * 256 + p.Y();
+		if (present.Get(k))
+		{
+			return values.Get(k);
+		}
+		return false;
+	}
+	public fun Set(IPos p, Bool b) : Int
+	{
+		Int k = p.X() * 256 + p.Y();
+		present.Set(k, true);
+		values.Set(k, b);
+		return k;
+	}
+}
+
+# (box orig): the list of "random" numbers of utils.rkt
+class RandomBox implements IRandomBox
+{
+	private readonly IIntList orig;
+	private IIntList cur;
+	public constructor(IIntList o)
+	{
+		orig = o;
+		cur = o;
+	}
+	# (begin0 (car (unbox r*)) (set-box! r* (cdr (unbox r*))))
+	public fun Next() : Int
+	{
+		Int v = cur.First();
+		cur = cur.Rest();
+		return v;
+	}
+	# (set-box! r* orig)
+	public fun Reset() : Int
+	{
+		cur = orig;
+		return 0;
+	}
+}
+
+class Builtins
+{
+	# (for/vector ([x h]) (for/vector ([y w]) (f (vector x y))))
+	public static fun MakeGrid(Int h, Int w, IPosToCell f) : IGrid
+	{
+		ArrayList<ArrayList<ICell>> rows = new ArrayList<ArrayList<ICell>>();
+		Int x = 0;
+		while (x < h)
+		{
+			ArrayList<ICell> row = new ArrayList<ICell>();
+			Int y = 0;
+			while (y < w)
+			{
+				row.Add(f(new Pos(x, y)));
+				y = y + 1;
+			}
+			rows.Add(row);
+			x = x + 1;
+		}
+		return new Grid(rows);
+	}
+
+	# (make-hash) for Pos keys
+	public static fun MakePosCache() : IPosCache
+	{
+		ArrayList<Bool> p = new ArrayList<Bool>();
+		ArrayList<Bool> v = new ArrayList<Bool>();
+		Int i = 0;
+		while (i < 65536)
+		{
+			p.Add(false);
+			v.Add(false);
+			i = i + 1;
+		}
+		return new PosCache(p, v);
+	}
+
+	# equal? on positions
+	public static fun PosEqual(IPos a, IPos b) : Bool
+	{
+		if (a.X() == b.X())
+		{
+			return a.Y() == b.Y();
+		}
+		return false;
+	}
+
+	public static fun PosMember(IPos p, IPosList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (Builtins.PosEqual(p, l.First()))
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	# racket/set's set-intersect on lists (list-intersect): fold over a, keep members of b, dedup
+	public static fun PosIntersect(IPosList a, IPosList b) : IPosList
+	{
+		IPosList res = new PosNil();
+		while (!a.IsEmpty())
+		{
+			IPos x = a.First();
+			a = a.Rest();
+			if (!Builtins.PosMember(x, b))
+			{
+				continue;
+			}
+			if (Builtins.PosMember(x, res))
+			{
+				continue;
+			}
+			res = new PosCons(x, res);
+		}
+		return res;
+	}
+}
+
+class PosNil implements IPosList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPos
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPosList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PosCons implements IPosList
+{
+	private readonly IPos first;
+	private readonly IPosList rest;
+	public constructor(IPos f, IPosList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPos
+	{
+		return first;
+	}
+	public fun Rest() : IPosList
+	{
+		return rest;
+	}
+}
+
+class PosCellNil implements IPosCellList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPosCell
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPosCellList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PosCellCons implements IPosCellList
+{
+	private readonly IPosCell first;
+	private readonly IPosCellList rest;
+	public constructor(IPosCell f, IPosCellList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPosCell
+	{
+		return first;
+	}
+	public fun Rest() : IPosCellList
+	{
+		return rest;
+	}
+}
+
+class RoomNil implements IRoomList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IRoom
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IRoomList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class RoomCons implements IRoomList
+{
+	private readonly IRoom first;
+	private readonly IRoomList rest;
+	public constructor(IRoom f, IRoomList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IRoom
+	{
+		return first;
+	}
+	public fun Rest() : IRoomList
+	{
+		return rest;
+	}
+}
+
+class ExtPointNil implements IExtPointList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IExtPoint
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IExtPointList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ExtPointCons implements IExtPointList
+{
+	private readonly IExtPoint first;
+	private readonly IExtPointList rest;
+	public constructor(IExtPoint f, IExtPointList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IExtPoint
+	{
+		return first;
+	}
+	public fun Rest() : IExtPointList
+	{
+		return rest;
+	}
+}
+
+class RoomPairNil implements IRoomPairList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IRoomPair
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IRoomPairList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class RoomPairCons implements IRoomPairList
+{
+	private readonly IRoomPair first;
+	private readonly IRoomPairList rest;
+	public constructor(IRoomPair f, IRoomPairList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IRoomPair
+	{
+		return first;
+	}
+	public fun Rest() : IRoomPairList
+	{
+		return rest;
+	}
+}
+
+class DirectionNil implements IDirectionList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IDirection
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IDirectionList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class DirectionCons implements IDirectionList
+{
+	private readonly IDirection first;
+	private readonly IDirectionList rest;
+	public constructor(IDirection f, IDirectionList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IDirection
+	{
+		return first;
+	}
+	public fun Rest() : IDirectionList
+	{
+		return rest;
+	}
+}
+
+class IntNil implements IIntList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntCons implements IIntList
+{
+	private readonly Int first;
+	private readonly IIntList rest;
+	public constructor(Int f, IIntList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IIntList
+	{
+		return rest;
+	}
+}
+
+class StringNil implements IStringList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : String
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IStringList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class StringCons implements IStringList
+{
+	private readonly String first;
+	private readonly IStringList rest;
+	public constructor(String f, IStringList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : String
+	{
+		return first;
+	}
+	public fun Rest() : IStringList
+	{
+		return rest;
+	}
+}
+

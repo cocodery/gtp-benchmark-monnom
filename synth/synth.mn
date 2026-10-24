@@ -1,0 +1,586 @@
+# synth.rkt, mixer.rkt, sequencer.rkt and drum.rkt (merged to keep the number of
+# configurations below 500; see NOTES.md)
+
+# ---- synth.rkt ----
+
+# the array-lambda returned by (make-sawtooth-wave coeff) freq
+class SawtoothProc implements IIndexProc
+{
+	private readonly Float coeff;
+	private readonly Int samplePeriod;
+	private readonly Int samplePeriodHalf;
+	public constructor(Float c, Int sp, Int sph)
+	{
+		coeff = c;
+		samplePeriod = sp;
+		samplePeriodHalf = sph;
+	}
+	public fun this(IIdx iStar) : Float
+	{
+		Int x = iStar.Ref(0);
+		# gradually goes from -1 to 1 over the whole cycle
+		Float xStar = Builtins.Modulo(x, samplePeriod) + 0.0;
+		return coeff * (xStar / (samplePeriodHalf + 0.0) - 1.0);
+	}
+}
+
+# (make-sawtooth-wave coeff)
+class SawtoothWave implements IWave
+{
+	private readonly Float coeff;
+	public constructor(Float c)
+	{
+		coeff = c;
+	}
+	public fun this(Float freq) : IIndexProc
+	{
+		Int samplePeriod = Synth.FreqToSamplePeriod(freq);
+		Int samplePeriodHalf = samplePeriod / 2;
+		return new SawtoothProc(coeff, samplePeriod, samplePeriodHalf);
+	}
+}
+
+class Synth
+{
+	public static fun Fs() : Int
+	{
+		return 44100;
+	}
+
+	public static fun BitsPerSample() : Int
+	{
+		return 16;
+	}
+
+	public static fun FreqToSamplePeriod(Float freq) : Int
+	{
+		Int res = Builtins.Round((Synth.Fs() + 0.0) / freq);
+		if (res < 0)
+		{
+			ERROR("not index");
+		}
+		return res;
+	}
+
+	public static fun SecondsToSamples(Float s) : Int
+	{
+		Int res = Builtins.Round(s * (Synth.Fs() + 0.0));
+		if (res < 0)
+		{
+			ERROR("not index");
+		}
+		return res;
+	}
+
+	public static fun MakeSawtoothWave(Float coeff) : IWave
+	{
+		return new SawtoothWave(coeff);
+	}
+
+	public static fun SawtoothWave() : IWave
+	{
+		return Synth.MakeSawtoothWave(1.0);
+	}
+
+	public static fun Clamp(Int lo, Int hi, Int v) : Int
+	{
+		if (v > hi)
+		{
+			return Synth.Max(lo, hi);
+		}
+		return Synth.Max(lo, v);
+	}
+
+	public static fun Max(Int a, Int b) : Int
+	{
+		if (a > b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	# 2^n
+	public static fun Expt2(Int n) : Int
+	{
+		Int r = 1;
+		Int i = 0;
+		while (i < n)
+		{
+			r = r * 2;
+			i = i + 1;
+		}
+		return r;
+	}
+
+	# signal->integer-sequence; the samples are read with in-array (row-major order)
+	public static fun SignalToIntegerSequence(IArray signal, Float gain) : IIdx
+	{
+		Int n = ArrayStruct.ArraySize(signal);
+		IIdx result = Builtins.MakeIdx(n, 0);
+		IIdx ds = ArrayStruct.ArrayShape(signal);
+		Int dims = ds.Length();
+		Int size = ArrayStruct.ArraySize(signal);
+		IIndexProc proc = ArrayStruct.UnsafeArrayProc(signal);
+		IIdx js = Builtins.MakeIdx(dims, 0);
+		Int hi = Synth.Expt2(Synth.BitsPerSample()) - 1;
+		Float mid = Synth.Expt2(Synth.BitsPerSample() - 1) + 0.0;
+		Int j = 0;
+		while (j < size)
+		{
+			Float sample = proc(js);
+			Int v = Builtins.ExactFloor(gain * ((sample + 1.0) * mid));
+			result.Set(j, Synth.Clamp(0, hi, v));
+			ArrayUtils.NextIndexesBang(ds, dims, js);
+			j = j + 1;
+		}
+		return result;
+	}
+
+	# `emit` used to write a file; it converts a signal to a sequence
+	public static fun Emit(IArray signal) : IIdx
+	{
+		return Synth.SignalToIntegerSequence(signal, 0.3);
+	}
+}
+
+# ---- mixer.rkt ----
+
+class MapProc1 implements IIndexProc
+{
+	private readonly IFloatFn f;
+	private readonly IIndexProc proc;
+	public constructor(IFloatFn ff, IIndexProc p)
+	{
+		f = ff;
+		proc = p;
+	}
+	public fun this(IIdx js) : Float
+	{
+		IFloatFn ff = f;
+		IIndexProc p = proc;
+		return ff(p(js));
+	}
+}
+
+class MapProc2 implements IIndexProc
+{
+	private readonly IFloat2Fn f;
+	private readonly IIndexProc proc0;
+	private readonly IIndexProc proc1;
+	public constructor(IFloat2Fn ff, IIndexProc p0, IIndexProc p1)
+	{
+		f = ff;
+		proc0 = p0;
+		proc1 = p1;
+	}
+	public fun this(IIdx js) : Float
+	{
+		IIndexProc p0 = proc0;
+		IIndexProc p1 = proc1;
+		IFloat2Fn ff = f;
+		Float a = p0(js);
+		Float b = p1(js);
+		return ff(a, b);
+	}
+}
+
+# ((scale-signal w) x) = (* x w downscale-ratio)
+class ScaleSignal implements IFloatFn
+{
+	private readonly Float w;
+	private readonly Float downscaleRatio;
+	public constructor(Float ww, Float d)
+	{
+		w = ww;
+		downscaleRatio = d;
+	}
+	public fun this(Float x) : Float
+	{
+		return x * w * downscaleRatio;
+	}
+}
+
+# (lambda (acc new) (+ acc (scale new)))
+class MixAdd implements IFloat2Fn
+{
+	private readonly IFloatFn scale;
+	public constructor(IFloatFn s)
+	{
+		scale = s;
+	}
+	public fun this(Float acc, Float nw) : Float
+	{
+		IFloatFn s = scale;
+		return acc + s(nw);
+	}
+}
+
+class Mixer
+{
+	# (array-map f arr)
+	public static fun ArrayMap1(IFloatFn f, IArray arr) : IArray
+	{
+		IIdx ds = ArrayStruct.ArrayShape(arr);
+		IIndexProc proc = ArrayStruct.UnsafeArrayProc(arr);
+		IArray arrStar = ArrayStruct.UnsafeBuildArray(ds, new MapProc1(f, proc));
+		ArrayStruct.ArrayDefaultStrictBang(arrStar);
+		return arrStar;
+	}
+
+	# (array-map f arr0 arr1) under the current value of array-broadcasting
+	public static fun ArrayMap2(IFloat2Fn f, IArray arr0, IArray arr1, Int broadcasting) : IArray
+	{
+		IIdxList shapes = new IdxListCons(ArrayStruct.ArrayShape(arr0), new IdxListCons(ArrayStruct.ArrayShape(arr1), new IdxListNil()));
+		IIdx ds = ArrayBroadcast.ArrayShapeBroadcast(shapes, broadcasting);
+		IArray a0 = ArrayBroadcast.ArrayBroadcast(arr0, ds);
+		IArray a1 = ArrayBroadcast.ArrayBroadcast(arr1, ds);
+		IIndexProc proc0 = ArrayStruct.UnsafeArrayProc(a0);
+		IIndexProc proc1 = ArrayStruct.UnsafeArrayProc(a1);
+		IArray arrStar = ArrayStruct.UnsafeBuildArray(ds, new MapProc2(f, proc0, proc1));
+		ArrayStruct.ArrayDefaultStrictBang(arrStar);
+		return arrStar;
+	}
+
+	# weighted sum of signals; shorter signals are repeated to match the length of the longest
+	public static fun Mix(IWeightedList ss) : IArray
+	{
+		# signals and weights (for/list)
+		IArrayList signals = new ArrayNil();
+		IFloatList weights = new FloatNil();
+		IWeightedList l = ss;
+		while (!l.IsEmpty())
+		{
+			signals = new ArrayCons(l.First().Signal(), signals);
+			weights = new FloatCons(l.First().Weight(), weights);
+			l = l.Rest();
+		}
+		signals = Builtins.ReverseArrays(signals);
+		IFloatList rw = new FloatNil();
+		while (!weights.IsEmpty())
+		{
+			rw = new FloatCons(weights.First(), rw);
+			weights = weights.Rest();
+		}
+		weights = rw;
+		Float total = 0.0;
+		IFloatList wl = weights;
+		while (!wl.IsEmpty())
+		{
+			total = total + wl.First();
+			wl = wl.Rest();
+		}
+		Float downscaleRatio = 1.0 / total;
+		# (parameterize ([array-broadcasting 'permissive]) ...)
+		Int broadcasting = 2;
+		IArray res = Mixer.ArrayMap1(new ScaleSignal(weights.First(), downscaleRatio), signals.First());
+		IArrayList sl = signals.Rest();
+		IFloatList wl2 = weights.Rest();
+		while (!sl.IsEmpty())
+		{
+			IFloatFn scale = new ScaleSignal(wl2.First(), downscaleRatio);
+			res = Mixer.ArrayMap2(new MixAdd(scale), res, sl.First(), broadcasting);
+			sl = sl.Rest();
+			wl2 = wl2.Rest();
+		}
+		return res;
+	}
+}
+
+# ---- sequencer.rkt ----
+
+# (lambda (x) 0.0), a pause
+class PauseProc implements IIndexProc
+{
+	public constructor()
+	{
+	}
+	public fun this(IIdx x) : Float
+	{
+		return 0.0;
+	}
+}
+
+# (Pairof (U Natural #f) Natural)
+class NoteS implements INote
+{
+	private readonly Bool hasNote;
+	private readonly Int note;
+	private readonly Int duration;
+	public constructor(Bool h, Int n, Int d)
+	{
+		hasNote = h;
+		note = n;
+		duration = d;
+	}
+	public fun HasNote() : Bool
+	{
+		return hasNote;
+	}
+	public fun Note() : Int
+	{
+		return note;
+	}
+	public fun Duration() : Int
+	{
+		return duration;
+	}
+}
+
+class Sequencer
+{
+	# (expt (expt 2 1/12) k) for an exact integer k: repeated multiplication of the flonum
+	public static fun Expt(Float b, Int k) : Float
+	{
+		Float r = 1.0;
+		Int i = 0;
+		if (k >= 0)
+		{
+			while (i < k)
+			{
+				r = r * b;
+				i = i + 1;
+			}
+			return r;
+		}
+		while (i < 0 - k)
+		{
+			r = r / b;
+			i = i + 1;
+		}
+		return r;
+	}
+
+	# A4 (440Hz) is 57 semitones above C0, which is our base
+	public static fun NoteFreq(Int note) : Float
+	{
+		return 440.0 * Sequencer.Expt(1.0594630943592953, note - 57);
+	}
+
+	# note names (symbols) are encoded as Ints:
+	# C 0, C# 1, Db 2, D 3, D# 4, Eb 5, E 6, F 7, F# 8, Gb 9, G 10, G# 11, Ab 12, A 13, A# 14,
+	# Bb 15, B 16
+	public static fun NameOffset(Int name) : Int
+	{
+		if (name == 0)
+		{
+			return 0;
+		}
+		if (name <= 2)
+		{
+			return 1;
+		}
+		if (name == 3)
+		{
+			return 2;
+		}
+		if (name <= 5)
+		{
+			return 3;
+		}
+		if (name == 6)
+		{
+			return 4;
+		}
+		if (name == 7)
+		{
+			return 5;
+		}
+		if (name <= 9)
+		{
+			return 6;
+		}
+		if (name == 10)
+		{
+			return 7;
+		}
+		if (name <= 12)
+		{
+			return 8;
+		}
+		if (name == 13)
+		{
+			return 9;
+		}
+		if (name <= 15)
+		{
+			return 10;
+		}
+		if (name == 16)
+		{
+			return 11;
+		}
+		return 0;
+	}
+
+	public static fun NameOctaveToNote(Int name, Int octave) : Int
+	{
+		return 12 * octave + Sequencer.NameOffset(name);
+	}
+
+	# single note
+	public static fun Note(Int name, Int octave, Int duration) : INote
+	{
+		return new NoteS(true, Sequencer.NameOctaveToNote(name, octave), duration);
+	}
+
+	# (cons #f duration)
+	public static fun Pause(Int duration) : INote
+	{
+		return new NoteS(false, 0, duration);
+	}
+
+	public static fun SynthesizeNote(INote note, Int nSamples, IWave function) : IArray
+	{
+		if (note.HasNote())
+		{
+			return ArrayStruct.BuildArray(Builtins.Idx1(nSamples), function(Sequencer.NoteFreq(note.Note())));
+		}
+		return ArrayStruct.BuildArray(Builtins.Idx1(nSamples), new PauseProc());
+	}
+
+	# repeats n times the sequence encoded by the pattern, at tempo bpm
+	public static fun Sequence(Int n, INoteList pattern, Int tempo, IWave function) : IArray
+	{
+		Int samplesPerBeat = (Synth.Fs() * 60) / tempo;
+		IArrayList arrs = new ArrayNil();
+		Int i = 0;
+		while (i < n)
+		{
+			INoteList p = pattern;
+			while (!p.IsEmpty())
+			{
+				INote note = p.First();
+				Int nsamples = samplesPerBeat * note.Duration();
+				arrs = new ArrayCons(Sequencer.SynthesizeNote(note, nsamples, function), arrs);
+				p = p.Rest();
+			}
+			i = i + 1;
+		}
+		return ArrayTransform.ArrayAppendStar(Builtins.ReverseArrays(arrs));
+	}
+}
+
+# ---- drum.rkt ----
+
+# the generator of snare: (lambda (x) (random-sample))
+class SnareGen implements IIndexProc
+{
+	private readonly IRng rng;
+	public constructor(IRng r)
+	{
+		rng = r;
+	}
+	public fun this(IIdx x) : Float
+	{
+		return Drum.RandomSample(rng);
+	}
+}
+
+class DrumSamples implements IDrumSamples
+{
+	private readonly IArray bassDrum;
+	private readonly IArray snare;
+	public constructor(IArray b, IArray s)
+	{
+		bassDrum = b;
+		snare = s;
+	}
+	public fun BassDrum() : IArray
+	{
+		return bassDrum;
+	}
+	public fun Snare() : IArray
+	{
+		return snare;
+	}
+}
+
+class Drum
+{
+	public static fun RandomSample(IRng rng) : Float
+	{
+		return 2.0 * rng.NextFloat() - 1.0;
+	}
+
+	# 0.05 seconds of noise whose value changes every 12 samples
+	public static fun BassDrum(IRng rng) : IArray
+	{
+		Int nSamples = Synth.SecondsToSamples(0.05);
+		Int nDifferentSamples = nSamples / 12;
+		IIdx dsStar = Builtins.Idx1(nSamples);
+		IIdx ds = ArrayUtils.CheckArrayShape(dsStar, new FailThunk());
+		Int len = ArrayUtils.ArrayShapeSize(ds);
+		IFloatVec vs = Builtins.MakeFloatVec(len, 0.0);
+		Int pos = 0;
+		Int i = 0;
+		while (i < nDifferentSamples)
+		{
+			Float sample = Drum.RandomSample(rng);
+			Int j = 0;
+			while (j < 12)
+			{
+				vs.Set(pos, sample);
+				pos = pos + 1;
+				j = j + 1;
+			}
+			i = i + 1;
+		}
+		return ArrayStruct.UnsafeVectorToArray(ds, vs);
+	}
+
+	# 0.05 seconds of noise
+	public static fun Snare(IRng rng) : IArray
+	{
+		IIdx indexes = Builtins.Idx1(Synth.SecondsToSamples(0.05));
+		IIndexProc arrGen = new SnareGen(rng);
+		return ArrayStruct.BuildArray(indexes, arrGen);
+	}
+
+	# the module-level definitions of drum.rkt, evaluated when the module is instantiated
+	public static fun Init(IRng rng) : IDrumSamples
+	{
+		IArray b = Drum.BassDrum(rng);
+		IArray s = Drum.Snare(rng);
+		return new DrumSamples(b, s);
+	}
+
+	public static fun MakeDrum(IArray drumSample, Int samplesPerBeat) : IArray
+	{
+		IArray rest = ArrayStruct.MakeArray(Builtins.Idx1(samplesPerBeat - ArrayStruct.ArraySize(drumSample)), 0.0);
+		return ArrayTransform.ArrayAppendStar(new ArrayCons(drumSample, new ArrayCons(rest, new ArrayNil())));
+	}
+
+	# limited drum machine; pattern elements: 1 = 'O, 2 = 'X, 0 = #f
+	public static fun Drum(Int n, IIntList pattern, Int tempo, IDrumSamples samples) : IArray
+	{
+		Int samplesPerBeat = (Synth.Fs() * 60) / tempo;
+		IArray o = Drum.MakeDrum(samples.BassDrum(), samplesPerBeat);
+		IArray x = Drum.MakeDrum(samples.Snare(), samplesPerBeat);
+		IArray pause = ArrayStruct.MakeArray(Builtins.Idx1(samplesPerBeat), 0.0);
+		IArrayList arrs = new ArrayNil();
+		Int i = 0;
+		while (i < n)
+		{
+			IIntList p = pattern;
+			while (!p.IsEmpty())
+			{
+				Int beat = p.First();
+				p = p.Rest();
+				if (beat == 2)
+				{
+					arrs = new ArrayCons(x, arrs);
+					continue;
+				}
+				if (beat == 1)
+				{
+					arrs = new ArrayCons(o, arrs);
+					continue;
+				}
+				arrs = new ArrayCons(pause, arrs);
+			}
+			i = i + 1;
+		}
+		return ArrayTransform.ArrayAppendStar(Builtins.ReverseArrays(arrs));
+	}
+}

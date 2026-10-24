@@ -1,0 +1,233 @@
+# Stand-ins for Racket builtins: the pseudo-random generator (exact port of Racket CS's
+# MRG32k3a generator) and cons lists.
+
+# Racket CS pseudo-random generator (MRG32k3a, Chez Scheme c/random.c),
+# re-implemented with exact 64-bit integer arithmetic.
+class Rng implements IRng
+{
+	private Int x10;
+	private Int x11;
+	private Int x12;
+	private Int x20;
+	private Int x21;
+	private Int x22;
+	private Int sx;
+	public constructor()
+	{
+		x10 = 1;
+		x11 = 1;
+		x12 = 1;
+		x20 = 1;
+		x21 = 1;
+		x22 = 1;
+		sx = 0;
+	}
+	# (random-seed k) / pseudo-random-generator-seed!
+	public fun Seed(Int k) : Int
+	{
+		x10 = 1062452522;
+		x11 = 2961816100;
+		x12 = 342112271;
+		x20 = 2854655037;
+		x21 = 3321940838;
+		x22 = 3542344109;
+		this.SrandHalf(k % 65536);
+		this.SrandHalf((k / 65536) % 65536);
+		return k;
+	}
+	public fun RandomM() : Int
+	{
+		Int x = sx;
+		Int y = x % 65536;
+		sx = (30903 * y + x / 65536) % 4294967296;
+		return y;
+	}
+	public fun RandomN(Int n) : Int
+	{
+		Int hi = this.RandomM();
+		Int lo = this.RandomM();
+		return (hi * 65536 + lo) % n;
+	}
+	public fun SrandHalf(Int x) : Void
+	{
+		sx = x;
+		Int z = this.RandomN(4294967086);
+		x10 = 1 + ((x10 + z) % 4294967296) % 4294967086;
+		z = this.RandomN(4294967087);
+		x11 = ((x11 + z) % 4294967296) % 4294967087;
+		z = this.RandomN(4294967087);
+		x12 = ((x12 + z) % 4294967296) % 4294967087;
+		z = this.RandomN(4294944442);
+		x20 = 1 + ((x20 + z) % 4294967296) % 4294944442;
+		z = this.RandomN(4294944443);
+		x21 = ((x21 + z) % 4294967296) % 4294944443;
+		z = this.RandomN(4294944443);
+		x22 = ((x22 + z) % 4294967296) % 4294944443;
+	}
+	public fun Fix(Int v, Int m) : Int
+	{
+		if (v < 0)
+		{
+			return v + m;
+		}
+		return v;
+	}
+	# one step of MRG32k3a, result in {0..m1-1}
+	public fun Next() : Int
+	{
+		Int p1 = 1403580 * x11 - 810728 * x12;
+		p1 = this.Fix(p1 - (p1 / 4294967087) * 4294967087, 4294967087);
+		x12 = x11;
+		x11 = x10;
+		x10 = p1;
+		Int p2 = 527612 * x20 - 1370589 * x22;
+		p2 = this.Fix(p2 - (p2 / 4294944443) * 4294944443, 4294944443);
+		x22 = x21;
+		x21 = x20;
+		x20 = p2;
+		return this.Fix(p1 - p2, 4294967087);
+	}
+	# (random n r) for 1 <= n <= 4294967087
+	public fun NextInt(Int n) : Int
+	{
+		Int q = 4294967087 / n;
+		Int qn = q * n;
+		Int x = this.Next();
+		while (x >= qn)
+		{
+			x = this.Next();
+		}
+		return x / q;
+	}
+	# (random r)
+	public fun NextFloat() : Float
+	{
+		return (this.Next() + 1.0) * 0.0000000002328306549295728;
+	}
+}
+
+class IntNil implements IIntList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("first: empty list");
+	}
+	public fun Rest() : IIntList
+	{
+		ERROR("rest: empty list");
+	}
+}
+
+class IntCons implements IIntList
+{
+	private readonly Int first;
+	private readonly IIntList rest;
+	public constructor(Int f, IIntList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IIntList
+	{
+		return rest;
+	}
+}
+
+class FloatNil implements IFloatList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Float
+	{
+		ERROR("first: empty list");
+	}
+	public fun Rest() : IFloatList
+	{
+		ERROR("rest: empty list");
+	}
+}
+
+class FloatCons implements IFloatList
+{
+	private readonly Float first;
+	private readonly IFloatList rest;
+	public constructor(Float f, IFloatList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Float
+	{
+		return first;
+	}
+	public fun Rest() : IFloatList
+	{
+		return rest;
+	}
+}
+
+class PointNil implements IPointList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPoint
+	{
+		ERROR("first: empty list");
+	}
+	public fun Rest() : IPointList
+	{
+		ERROR("rest: empty list");
+	}
+}
+
+class PointCons implements IPointList
+{
+	private readonly IPoint first;
+	private readonly IPointList rest;
+	public constructor(IPoint f, IPointList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPoint
+	{
+		return first;
+	}
+	public fun Rest() : IPointList
+	{
+		return rest;
+	}
+}

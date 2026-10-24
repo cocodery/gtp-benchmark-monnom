@@ -1,0 +1,287 @@
+# base/core-types.rkt and base/quad-types.rkt (Quad, QuadAttrs, QuadList, QuadAttrValue, ...),
+# ocm-struct-adapted.rkt, penalty-struct-adapted.rkt, and the types of the Racket builtins and
+# base libraries used (strings, the csp solver, the drawing context).
+#   Symbols (QuadName, QuadAttrKey and symbol values) are interned Ints (see Sym in lib.mn).
+#   A Quad = (List* QuadName QuadAttrs QuadList) is an IQuad; QuadAttrs is an IAttrList of
+#   (key . value) IAttrs; a QuadList is an IItemList of strings or quads.
+
+# a string (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# QuadAttrValue = (U Float Index String Symbol Boolean Quad QuadAttrs QuadList Integer):
+# Kind 0 Float (F), 1 Integer (I), 2 String (S), 3 Symbol (Sym), 4 Boolean (B), 5 Quad (Q),
+# 6 QuadAttrs (Attrs), 7 QuadList (Items), 8 the gensym attr-missing
+interface IVal
+{
+	fun Kind() : Int;
+	fun F() : Float;
+	fun I() : Int;
+	fun S() : IText;
+	fun Sym() : Int;
+	fun B() : Bool;
+	fun Q() : IQuad;
+	fun Attrs() : IAttrList;
+	fun Items() : IItemList;
+}
+
+# QuadAttr = (Pairof QuadAttrKey QuadAttrValue)
+interface IAttr
+{
+	fun Key() : Int;
+	fun Value() : IVal;
+}
+
+# QuadListItem = (U String Quad)
+interface IItem
+{
+	fun IsString() : Bool;
+	fun Str() : IText;
+	fun Q() : IQuad;
+}
+
+# Quad / GroupQuad
+interface IQuad
+{
+	fun Name() : Int;
+	fun Attrs() : IAttrList;
+	fun Items() : IItemList;
+}
+
+# $penalty (penalty-struct.rkt)
+interface IPenalty
+{
+	fun Hyphens() : Int;
+	fun Width() : Float;
+}
+
+# Entry-Type = Any (here: the entries of the OCM matrix are penalties)
+# Matrix-Proc-Type = (Index-Type Index-Type -> Entry-Type)
+interface IMatrixProc
+{
+	fun this(Int i, Int j) : IPenalty;
+}
+
+# Entry->Value-Type = (Entry-Type -> Value-Type)
+interface IEntryToValue
+{
+	fun this(IPenalty e) : Float;
+}
+
+# $ocm (ocm-struct.rkt, mutable); min-row-indices use -1 for 'none (No-Value-Type)
+interface IOcm
+{
+	fun MinEntrys() : IPenaltyVec;
+	fun SetMinEntrys(IPenaltyVec v) : Int;
+	fun MinRowIndices() : IIntVec;
+	fun SetMinRowIndices(IIntVec v) : Int;
+	fun Finished() : Int;
+	fun SetFinished(Int f) : Int;
+	fun MatrixProc() : IMatrixProc;
+	fun EntryToValue() : IEntryToValue;
+	fun Base() : Int;
+	fun SetBase(Int b) : Int;
+	fun Tentative() : Int;
+	fun SetTentative(Int t) : Int;
+}
+
+# (Vectorof Entry-Type), (Vectorof Index-Type), (Vectorof Float), (Vectorof Boolean)
+interface IPenaltyVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IPenalty;
+	fun Set(Int i, IPenalty p) : Int;
+}
+
+interface IIntVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Int;
+	fun Set(Int i, Int v) : Int;
+}
+
+interface IFloatVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Float;
+	fun Set(Int i, Float v) : Int;
+}
+
+interface IBoolVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Bool;
+	fun Set(Int i, Bool v) : Int;
+}
+
+# (Vectorof PieceQuad)
+interface IQuadVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IQuad;
+}
+
+# (HashTable String (Listof Index)) of hyphenate.rkt (patterns, pattern-cache)
+interface IPatterns
+{
+	fun Has(IText key) : Bool;
+	fun Ref(IText key) : IIntList;
+	fun Set(IText key, IIntList value) : Int;
+	fun Count() : Int;
+}
+
+# the text extents measured by racket/draw: Lookup returns an entry index (-1 if absent) for a
+# key made by Measures.Key
+interface IMeasureTable
+{
+	fun Lookup(IText key) : Int;
+	fun Width(Int e) : Float;
+	fun Height(Int e) : Float;
+	fun Descent(Int e) : Float;
+}
+
+# the module-level state of hyphenate.rkt (patterns, pattern-cache) and measure.rkt (the
+# measurements), created before the timed region and passed down
+interface IEnv
+{
+	fun Measures() : IMeasureTable;
+	fun Patterns() : IPatterns;
+	fun SetPatterns(IPatterns p) : Int;
+	fun PatternCache() : IPatterns;
+	fun HashedPatterns() : IPatterns;
+}
+
+# a constraint function of the csp library on the single variable "column-lines"
+interface IConstraintFn
+{
+	fun this(Int pl) : Bool;
+}
+
+# problem% of base/csp (the subset used by lines->columns)
+interface IProblem
+{
+	fun Reset() : Int;
+	fun AddVariable(IText variable, IIntList domain) : Int;
+	fun AddConstraint(IConstraintFn f, ITextList variables) : Int;
+	fun GetSolution(IText variable) : Int;
+}
+
+# the drawing context of pdf-renderer% (racket/draw's pdf-dc%), replaced by a recorder
+interface IDc
+{
+	fun StartDoc(IText name) : Int;
+	fun StartPage() : Int;
+	fun EndPage() : Int;
+	fun EndDoc() : Int;
+	fun SetFont(IText face, IVal size) : Int;
+	fun MoveTo(Float x, Float y) : Int;
+	fun DrawText(IText text) : Int;
+	fun Count() : Int;
+	fun Hash() : Int;
+}
+
+# the renderer classes of render.rkt (abstract-renderer%, pdf-renderer%)
+interface IRenderer
+{
+	fun Render(IQuad docQuad) : Int;
+	fun RenderElement(IQuad q) : Int;
+	fun Setup(IQuad q) : IQuad;
+	fun RenderPage(IQuadList qs) : Int;
+	fun RenderWord(IQuad x) : Int;
+	fun Finalize(Int x) : Int;
+	fun RenderToFile(IQuad docQuad, IText path) : Int;
+	fun Dc() : IDc;
+}
+
+# (Listof IAttr)
+interface IAttrList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IAttr;
+	fun Rest() : IAttrList;
+}
+
+# (Listof IItem)
+interface IItemList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IItem;
+	fun Rest() : IItemList;
+}
+
+# (Listof IQuad)
+interface IQuadList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IQuad;
+	fun Rest() : IQuadList;
+}
+
+# (Listof IQuadList)
+interface IQuadListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IQuadList;
+	fun Rest() : IQuadListList;
+}
+
+# (Listof IQuadListList)
+interface IQuadListListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IQuadListList;
+	fun Rest() : IQuadListListList;
+}
+
+# (Listof IVal)
+interface IValList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IVal;
+	fun Rest() : IValList;
+}
+
+# (Listof Int)
+interface IIntList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IIntList;
+}
+
+# (Listof Float)
+interface IFloatList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Float;
+	fun Rest() : IFloatList;
+}
+
+# (Listof IText)
+interface ITextList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IText;
+	fun Rest() : ITextList;
+}
+
+# (Listof IIntList)
+interface IIntListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IIntList;
+	fun Rest() : IIntListList;
+}
+
+# (Listof IQuadListListList)
+interface IQuadL4
+{
+	fun IsEmpty() : Bool;
+	fun First() : IQuadListListList;
+	fun Rest() : IQuadL4;
+}
+

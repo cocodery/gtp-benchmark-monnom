@@ -1,0 +1,117 @@
+# data.rkt: structs posn, block, tetra, world and posn=?
+# (also contains consts.rkt, merged here to keep the configuration count down)
+
+class Posn implements IPosn
+{
+	private readonly Float x;
+	private readonly Float y;
+	public constructor(Float x0, Float y0)
+	{
+		x = x0;
+		y = y0;
+	}
+	public fun X() : Float
+	{
+		return x;
+	}
+	public fun Y() : Float
+	{
+		return y;
+	}
+}
+
+class Block implements IBlock
+{
+	private readonly Float x;
+	private readonly Float y;
+	private readonly String color;
+	public constructor(Float x0, Float y0, String c)
+	{
+		x = x0;
+		y = y0;
+		color = c;
+	}
+	public fun X() : Float
+	{
+		return x;
+	}
+	public fun Y() : Float
+	{
+		return y;
+	}
+	public fun Color() : String
+	{
+		return color;
+	}
+}
+
+class Tetra implements ITetra
+{
+	private readonly IPosn center;
+	private readonly IBlockList blocks;
+	public constructor(IPosn c, IBlockList b)
+	{
+		center = c;
+		blocks = b;
+	}
+	public fun Center() : IPosn
+	{
+		return center;
+	}
+	public fun Blocks() : IBlockList
+	{
+		return blocks;
+	}
+}
+
+class World implements IWorld
+{
+	private readonly ITetra tetra;
+	private readonly IBlockList blocks;
+	public constructor(ITetra t, IBlockList b)
+	{
+		tetra = t;
+		blocks = b;
+	}
+	public fun Tetra() : ITetra
+	{
+		return tetra;
+	}
+	public fun Blocks() : IBlockList
+	{
+		return blocks;
+	}
+}
+
+class Data
+{
+	public static fun PosnEq(IPosn p1, IPosn p2) : Bool
+	{
+		if (Data.NumEq(p1.X(), p2.X()))
+		{
+			return Data.NumEq(p1.Y(), p2.Y());
+		}
+		return false;
+	}
+	public static fun NumEq(Float x, Float y) : Bool
+	{
+		return x == y;
+	}
+}
+
+# consts.rkt
+class Consts
+{
+	public static fun BlockSize() : Int
+	{
+		return 20;
+	}
+	public static fun BoardHeight() : Int
+	{
+		return 20;
+	}
+	public static fun BoardWidth() : Int
+	{
+		return 10;
+	}
+}

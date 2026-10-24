@@ -1,0 +1,210 @@
+# main.rkt: read base/test.jpg, extract the dimensions and the EXIF data, write it back as a
+# baseline JPEG
+
+# (values x y exif-main) of jpeg-dimensions-and-exif
+class DimsAndExif
+{
+	public readonly Int X;
+	public readonly Int Y;
+	public readonly IPTList Exif;
+	public constructor(Int x, Int y, IPTList e)
+	{
+		X = x;
+		Y = y;
+		Exif = e;
+	}
+}
+
+class Main
+{
+	public static fun ReadJpeg(IBytes jpeg, IJfifState st) : IJfif
+	{
+		return Jfif.ReadJfif(jpeg, true, true, st);
+	}
+
+	public static fun WriteJpeg(IPort port, IJfif jpeg, IJfifState st) : Int
+	{
+		return Jfif.WriteJfif(port, jpeg, st);
+	}
+
+	public static fun BvPrefix(IBytes prefix, IBytes bv) : Bool
+	{
+		if (bv.Length() < prefix.Length())
+		{
+			return false;
+		}
+		Int n = 0;
+		while (n < prefix.Length())
+		{
+			if (prefix.Ref(n) != bv.Ref(n))
+			{
+				return false;
+			}
+			n = n + 1;
+		}
+		return true;
+	}
+
+	# #"Exif\0\0"
+	public static fun ExifPrefix() : IBytes
+	{
+		IBytes p = Builtins.MakeBytes(6, 0);
+		p.Set(0, 69);
+		p.Set(1, 120);
+		p.Set(2, 105);
+		p.Set(3, 102);
+		return p;
+	}
+
+	public static fun FindExif(IMiscList miscSegments, IExifState st) : IExifList
+	{
+		if (miscSegments.IsEmpty())
+		{
+			return new ExifsNil();
+		}
+		IMisc misc = miscSegments.First();
+		if (misc.Marker() == 65505)
+		{
+			if (Main.BvPrefix(Main.ExifPrefix(), misc.Bytes()))
+			{
+				IPTsList e = Exif.ParseExif(Builtins.Subbytes(misc.Bytes(), 6, misc.Bytes().Length()), st);
+				return new ExifsCons(e, Main.FindExif(miscSegments.Rest(), st));
+			}
+		}
+		return Main.FindExif(miscSegments.Rest(), st);
+	}
+
+	public static fun ExifMain(IExifList found) : IPTList
+	{
+		if (found.IsEmpty())
+		{
+			return new PTNil();
+		}
+		if (!found.Rest().IsEmpty())
+		{
+			return new PTNil();
+		}
+		IPTsList l = found.First();
+		if (l.IsEmpty())
+		{
+			return new PTNil();
+		}
+		if (l.Rest().IsEmpty())
+		{
+			return l.First();
+		}
+		if (l.Rest().Rest().IsEmpty())
+		{
+			return l.First();
+		}
+		return new PTNil();
+	}
+
+	public static fun JpegDimensionsAndExif(IJfif jpeg, IExifState st) : DimsAndExif
+	{
+		IFrame frame = jpeg.Frame();
+		return new DimsAndExif(frame.X(), frame.Y(), Main.ExifMain(Main.FindExif(jpeg.MiscSegments(), st)));
+	}
+
+	public static fun Digest(IInterp v) : Int
+	{
+		Int k = v.Kind();
+		if (k == 0)
+		{
+			return v.Nat() % 1000000007;
+		}
+		if (k == 1)
+		{
+			return v.Str().Length();
+		}
+		if (k == 2)
+		{
+			return v.Bs().Length();
+		}
+		if (k == 3)
+		{
+			return v.Car() % 1000000007 + v.Cdr() % 1000000007;
+		}
+		if (k == 5)
+		{
+			if (v.BoolValue())
+			{
+				return 1;
+			}
+			return 0;
+		}
+		if (k == 6)
+		{
+			Int s = 0;
+			Int i = 0;
+			while (i < v.Vec().Length())
+			{
+				s = s + v.Vec().Ref(i) % 1000000007;
+				i = i + 1;
+			}
+			return s;
+		}
+		if (k == 7)
+		{
+			return Builtins.PTsLength(v.Alist());
+		}
+		return 0;
+	}
+
+	public static fun Run(IBytes bytes, IPort outb, IJfifState jst, IExifState est) : DimsAndExif
+	{
+		IJfif j1 = Main.ReadJpeg(bytes, jst);
+		DimsAndExif d = Main.JpegDimensionsAndExif(j1, est);
+		Main.WriteJpeg(outb, j1, jst);
+		return d;
+	}
+
+	public static fun Print(Int v) : Int
+	{
+		v.ToString().Print();
+		"\n".Print();
+		return 0;
+	}
+
+	public static fun Main() : Void
+	{
+		IBytes bytes = Builtins.FromCodes(TestJpg.AllBytes());
+		# module instantiation of jfif.rkt and exif.rkt
+		IJfifState jst = Jfif.MakeState();
+		IExifState est = Exif.MakeState(new SymbolTable());
+		Timer t = new Timer();
+		# (main bytes), repeated (see NOTES.md); the results of the last run are printed
+		IPort outb = Builtins.OpenOutputBytes();
+		DimsAndExif d = Main.Run(bytes, outb, jst, est);
+		Int iter = 1;
+		while (iter < 15)
+		{
+			outb = Builtins.OpenOutputBytes();
+			d = Main.Run(bytes, outb, jst, est);
+			iter = iter + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		IBytes out1 = outb.Contents();
+		Main.Print(d.X);
+		Main.Print(d.Y);
+		Main.Print(Builtins.PTsLength(d.Exif));
+		Int sum = 0;
+		IPTList l = d.Exif;
+		while (!l.IsEmpty())
+		{
+			sum = sum + Main.Digest(l.First().Value());
+			l = l.Rest();
+		}
+		Main.Print(sum % 1000000007);
+		Main.Print(out1.Length());
+		Int h = 0;
+		Int i = 0;
+		while (i < out1.Length())
+		{
+			h = (h * 31 + out1.Ref(i)) % 1000000007;
+			i = i + 1;
+		}
+		Main.Print(h);
+	}
+}

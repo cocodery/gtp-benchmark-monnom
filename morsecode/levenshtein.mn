@@ -1,0 +1,176 @@
+# levenshtein.rkt: Levenshtein distance (Neil Van Dyke), the typed subset of the GTP version.
+# The union-dispatching `levenshtein` (LType) is not ported: MonNom has no type tests and
+# main does not use it.
+
+# eq? / eqv? / equal? on characters
+class CharEqPred implements ICharPred
+{
+	public constructor()
+	{
+	}
+	public fun this(Int a, Int b) : Bool
+	{
+		return a == b;
+	}
+}
+
+# make-vector as get-scratch
+class MakeVectorScratch implements IGetScratch
+{
+	public constructor()
+	{
+	}
+	public fun this(Int n) : IVec
+	{
+		return Builtins.MakeVector(n);
+	}
+}
+
+class Levenshtein
+{
+	public static fun Min3(Int a, Int b, Int c) : Int
+	{
+		Int m = a;
+		if (b < m)
+		{
+			return Levenshtein.Min2(b, c);
+		}
+		return Levenshtein.Min2(m, c);
+	}
+
+	public static fun Min2(Int a, Int b) : Int
+	{
+		if (a <= b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun StringToVector(IText s) : IVec
+	{
+		return Builtins.ListToVector(Builtins.StringToList(s));
+	}
+
+	public static fun VectorLevenshteinPredicateGetScratch(IVec a, IVec b, ICharPred pred, IGetScratch getScratch) : Int
+	{
+		Int aLen = a.Length();
+		Int bLen = b.Length();
+		if (aLen == 0)
+		{
+			return bLen;
+		}
+		if (bLen == 0)
+		{
+			return aLen;
+		}
+		IVec w = getScratch(1 + bLen);
+		Int next = 0;
+		# (let fill ((k b-len)) ...)
+		Int k = bLen;
+		while (k >= 0)
+		{
+			w.Set(k, k);
+			k = k - 1;
+		}
+		Int i = 0;
+		while (i < aLen)
+		{
+			Int ai = a.Ref(i);
+			Int j = 0;
+			Int cur = 1 + i;
+			while (j < bLen)
+			{
+				Int nextStar = Levenshtein.Min3(1 + w.Ref(1 + j), 1 + cur, Levenshtein.Cost(pred, ai, b.Ref(j), w.Ref(j)));
+				next = nextStar;
+				w.Set(j, cur);
+				cur = next;
+				j = j + 1;
+			}
+			w.Set(bLen, next);
+			i = i + 1;
+		}
+		return next;
+	}
+
+	# (if (pred a-i (vector-ref b j)) (vector-ref w j) (+ 1 (vector-ref w j)))
+	public static fun Cost(ICharPred pred, Int ai, Int bj, Int wj) : Int
+	{
+		if (pred(ai, bj))
+		{
+			return wj;
+		}
+		return 1 + wj;
+	}
+
+	public static fun VectorLevenshteinPredicate(IVec a, IVec b, ICharPred pred) : Int
+	{
+		return Levenshtein.VectorLevenshteinPredicateGetScratch(a, b, pred, new MakeVectorScratch());
+	}
+
+	public static fun VectorLevenshteinEq(IVec a, IVec b) : Int
+	{
+		return Levenshtein.VectorLevenshteinPredicate(a, b, new CharEqPred());
+	}
+
+	public static fun VectorLevenshteinEqv(IVec a, IVec b) : Int
+	{
+		return Levenshtein.VectorLevenshteinPredicate(a, b, new CharEqPred());
+	}
+
+	public static fun VectorLevenshteinEqual(IVec a, IVec b) : Int
+	{
+		return Levenshtein.VectorLevenshteinPredicate(a, b, new CharEqPred());
+	}
+
+	public static fun VectorLevenshtein(IVec a, IVec b) : Int
+	{
+		return Levenshtein.VectorLevenshteinEqual(a, b);
+	}
+
+	public static fun ListLevenshteinPredicate(ICharList a, ICharList b, ICharPred pred) : Int
+	{
+		if (a.IsEmpty())
+		{
+			return Builtins.ListLength(b);
+		}
+		if (b.IsEmpty())
+		{
+			return Builtins.ListLength(a);
+		}
+		return Levenshtein.VectorLevenshteinPredicate(Builtins.ListToVector(a), Builtins.ListToVector(b), pred);
+	}
+
+	public static fun ListLevenshteinEq(ICharList a, ICharList b) : Int
+	{
+		return Levenshtein.ListLevenshteinPredicate(a, b, new CharEqPred());
+	}
+
+	public static fun ListLevenshteinEqv(ICharList a, ICharList b) : Int
+	{
+		return Levenshtein.ListLevenshteinPredicate(a, b, new CharEqPred());
+	}
+
+	public static fun ListLevenshteinEqual(ICharList a, ICharList b) : Int
+	{
+		return Levenshtein.ListLevenshteinPredicate(a, b, new CharEqPred());
+	}
+
+	public static fun ListLevenshtein(ICharList a, ICharList b) : Int
+	{
+		return Levenshtein.ListLevenshteinEqual(a, b);
+	}
+
+	public static fun StringLevenshtein(IText a, IText b) : Int
+	{
+		if (a.Length() == 0)
+		{
+			return b.Length();
+		}
+		if (b.Length() == 0)
+		{
+			return a.Length();
+		}
+		return Levenshtein.VectorLevenshteinEqv(Levenshtein.StringToVector(a), Levenshtein.StringToVector(b));
+	}
+}

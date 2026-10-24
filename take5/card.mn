@@ -1,0 +1,125 @@
+# card.rkt: the card struct, >-face and --face
+# (also contains basics.rkt and stack.rkt, merged here to keep the configuration count down).
+
+class Card implements ICard
+{
+	private readonly Int face;
+	private readonly Int bulls;
+	public constructor(Int f, Int b)
+	{
+		face = f;
+		bulls = b;
+	}
+	public fun Face() : Int
+	{
+		return face;
+	}
+	public fun Bulls() : Int
+	{
+		return bulls;
+	}
+}
+
+class Cards
+{
+	public static fun GtFace(ICard c, ICard d) : Bool
+	{
+		return c.Face() > d.Face();
+	}
+
+	public static fun IsFace(Int f) : Bool
+	{
+		if (f < 0)
+		{
+			return false;
+		}
+		if (0 < f)
+		{
+			return f < 105;
+		}
+		return false;
+	}
+
+	public static fun MinusFace(ICard c, ICard d) : Int
+	{
+		Int f = c.Face() - d.Face();
+		if (!Cards.IsFace(f))
+		{
+			ERROR("assert: face?");
+		}
+		return f;
+	}
+
+	# equal? on two (transparent) cards
+	public static fun Equal(ICard c, ICard d) : Bool
+	{
+		if (c.Face() == d.Face())
+		{
+			return c.Bulls() == d.Bulls();
+		}
+		return false;
+	}
+}
+
+# basics.rkt
+class Basics
+{
+	public static fun Face() : Int
+	{
+		return 104;
+	}
+	public static fun Hand() : Int
+	{
+		return 10;
+	}
+	public static fun Sixtysix() : Int
+	{
+		return 66;
+	}
+	public static fun Stacks() : Int
+	{
+		return 4;
+	}
+	public static fun Five() : Int
+	{
+		return 5;
+	}
+	public static fun MaxBull() : Int
+	{
+		return 7;
+	}
+	public static fun MinBull() : Int
+	{
+		return 2;
+	}
+}
+
+# stack.rkt: Stack = (Listof Card)
+class Stack
+{
+	public static fun CreateStack(ICard c) : ICardList
+	{
+		return new CardCons(c, new CardNil());
+	}
+	public static fun Top(ICardList s) : ICard
+	{
+		return s.First();
+	}
+	public static fun Push(ICard c, ICardList s) : ICardList
+	{
+		return new CardCons(c, s);
+	}
+	public static fun Length(ICardList s) : Int
+	{
+		return Lists.CardsLength(s);
+	}
+	# (foldr + 0 (map card-bulls s))
+	public static fun Bulls(ICardList s) : Int
+	{
+		if (s.IsEmpty())
+		{
+			return 0;
+		}
+		return s.First().Bulls() + Stack.Bulls(s.Rest());
+	}
+}

@@ -1,0 +1,1170 @@
+# Stand-ins for the Racket builtins: strings, `random` (an exact port of Racket CS's
+# generator), the immutable hash tables Board (keyed by tile) and Shares (keyed by hotel), lists.
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Txt
+{
+	public static fun Empty() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+
+	public static fun Append(IText a, IText b) : IText
+	{
+		IText t = Txt.Empty();
+		Int i = 0;
+		while (i < a.Length())
+		{
+			t.Push(a.CharAt(i));
+			i = i + 1;
+		}
+		Int j = 0;
+		while (j < b.Length())
+		{
+			t.Push(b.CharAt(j));
+			j = j + 1;
+		}
+		return t;
+	}
+
+	# number->string of a natural number
+	public static fun Digits(Int n) : IText
+	{
+		if (n < 10)
+		{
+			return Txt.Empty().Push(48 + n);
+		}
+		return Txt.Digits(n / 10).Push(48 + n % 10);
+	}
+
+	public static fun Equal(IText a, IText b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (a.CharAt(i) != b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+
+	# string<=?
+	public static fun Le(IText a, IText b) : Bool
+	{
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (i >= b.Length())
+			{
+				return false;
+			}
+			if (a.CharAt(i) < b.CharAt(i))
+			{
+				return true;
+			}
+			if (a.CharAt(i) > b.CharAt(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+}
+
+# Board: an immutable hash table from tiles to contents, stored as one slot per tile position
+# (row * 13 + column - 1); hash-set copies the slots
+class BoardMap implements IBoard
+{
+	private readonly ArrayList<Int> slots;
+	private readonly ArrayList<ITile> keys;
+	private readonly Int count;
+	public constructor(ArrayList<Int> s, ArrayList<ITile> k, Int c)
+	{
+		slots = s;
+		keys = k;
+		count = c;
+	}
+	public fun Index(ITile t) : Int
+	{
+		return t.Row() * 13 + t.Column() - 1;
+	}
+	public fun Has(ITile t) : Bool
+	{
+		return slots.Get(this.Index(t)) >= 0;
+	}
+	# -1 when absent
+	public fun Ref(ITile t) : Int
+	{
+		return slots.Get(this.Index(t));
+	}
+	public fun Set(ITile t, Int content) : IBoard
+	{
+		ArrayList<Int> s = new ArrayList<Int>();
+		ArrayList<ITile> k = new ArrayList<ITile>();
+		Int i = 0;
+		while (i < slots.Length())
+		{
+			s.Add(slots.Get(i));
+			k.Add(keys.Get(i));
+			i = i + 1;
+		}
+		Int idx = this.Index(t);
+		Int c = count;
+		if (slots.Get(idx) < 0)
+		{
+			c = c + 1;
+			s.Set(idx, content);
+			k.Set(idx, t);
+			return Builtins.NewBoardMap(s, k, c);
+		}
+		s.Set(idx, content);
+		k.Set(idx, t);
+		return Builtins.NewBoardMap(s, k, c);
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+	# the k-th key in iteration order (by position); KeyAt/ValueAt index the present entries
+	public fun KeyAt(Int k) : ITile
+	{
+		return keys.Get(this.Nth(k));
+	}
+	public fun ValueAt(Int k) : Int
+	{
+		return slots.Get(this.Nth(k));
+	}
+	public fun Nth(Int k) : Int
+	{
+		Int i = 0;
+		Int seen = 0;
+		while (i < slots.Length())
+		{
+			if (slots.Get(i) < 0)
+			{
+				i = i + 1;
+				continue;
+			}
+			if (seen == k)
+			{
+				return i;
+			}
+			seen = seen + 1;
+			i = i + 1;
+		}
+		ERROR("hash iteration: index out of range");
+	}
+}
+
+# Shares: an immutable hash table from hotels to counts (one slot per hotel, -1 = absent)
+class SharesMap implements IShares
+{
+	private readonly ArrayList<Int> slots;
+	public constructor(ArrayList<Int> s)
+	{
+		slots = s;
+	}
+	public fun Has(Int h) : Bool
+	{
+		return slots.Get(h) >= 0;
+	}
+	public fun Ref(Int h) : Int
+	{
+		if (slots.Get(h) < 0)
+		{
+			ERROR("hash-ref: no value found for key");
+		}
+		return slots.Get(h);
+	}
+	public fun Set(Int h, Int n) : IShares
+	{
+		ArrayList<Int> s = new ArrayList<Int>();
+		foreach (Int v in slots)
+		{
+			s.Add(v);
+		}
+		s.Set(h, n);
+		return Builtins.NewSharesMap(s);
+	}
+}
+
+# benchmark harness: the checksums of the games (the original discards the results)
+class Totals implements ITotals
+{
+	public Int Done;
+	public Int Exhausted;
+	public Int Score;
+	public Int Impossible;
+	public Int States;
+	public Int Hash;
+	public constructor()
+	{
+		Done = 0;
+		Exhausted = 0;
+		Score = 0;
+		Impossible = 0;
+		States = 0;
+		Hash = 0;
+	}
+	# 0 done, 1 exhausted, 2 score, 3 IMPOSSIBLE, 4 states, 5 hash
+	public fun Get(Int i) : Int
+	{
+		if (i == 0)
+		{
+			return Done;
+		}
+		if (i == 1)
+		{
+			return Exhausted;
+		}
+		if (i == 2)
+		{
+			return Score;
+		}
+		if (i == 3)
+		{
+			return Impossible;
+		}
+		if (i == 4)
+		{
+			return States;
+		}
+		return Hash;
+	}
+	public fun Add(IRunResult r) : Int
+	{
+		Int s = r.Status();
+		if (s == 0)
+		{
+			Done = Done + 1;
+		}
+		if (s == 1)
+		{
+			Exhausted = Exhausted + 1;
+		}
+		if (s == 2)
+		{
+			Score = Score + 1;
+		}
+		if (s == 3)
+		{
+			Impossible = Impossible + 1;
+		}
+		IStateList l = r.States();
+		while (!l.IsEmpty())
+		{
+			States = States + 1;
+			l = l.Rest();
+		}
+		IScoreList sc = r.Score();
+		while (!sc.IsEmpty())
+		{
+			IText name = sc.First().Name();
+			Int i = 0;
+			while (i < name.Length())
+			{
+				Hash = (Hash * 31 + name.CharAt(i)) % 1000000007;
+				i = i + 1;
+			}
+			Hash = (Hash * 31 + sc.First().Cash()) % 1000000007;
+			sc = sc.Rest();
+		}
+		return 0;
+	}
+}
+
+class Builtins
+{
+	public static fun NewBoardMap(ArrayList<Int> s, ArrayList<ITile> k, Int c) : IBoard
+	{
+		return new BoardMap(s, k, c);
+	}
+
+	public static fun NewSharesMap(ArrayList<Int> s) : IShares
+	{
+		return new SharesMap(s);
+	}
+
+	# #hash()
+	public static fun EmptyBoard(ITile dummy) : IBoard
+	{
+		ArrayList<Int> s = new ArrayList<Int>();
+		ArrayList<ITile> k = new ArrayList<ITile>();
+		Int i = 0;
+		while (i < 9 * 13)
+		{
+			s.Add(0 - 1);
+			k.Add(dummy);
+			i = i + 1;
+		}
+		return new BoardMap(s, k, 0);
+	}
+
+	# (make-immutable-hash (map (λ (h) (cons h v)) hotels)) for the 7 hotels
+	public static fun MakeShares(Int v) : IShares
+	{
+		ArrayList<Int> s = new ArrayList<Int>();
+		Int i = 0;
+		while (i < 7)
+		{
+			s.Add(v);
+			i = i + 1;
+		}
+		return new SharesMap(s);
+	}
+
+	public static fun MakeTotals() : ITotals
+	{
+		return new Totals();
+	}
+
+	public static fun MakeRng() : IRng
+	{
+		return new Rng();
+	}
+
+	public static fun IntLength(IIntList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	public static fun IntMember(Int x, IIntList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (l.First() == x)
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	# (remove x l): the first occurrence
+	public static fun IntRemove(Int x, IIntList l) : IIntList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		if (l.First() == x)
+		{
+			return l.Rest();
+		}
+		return new IntCons(l.First(), Builtins.IntRemove(x, l.Rest()));
+	}
+
+	public static fun IntAppend(IIntList a, IIntList b) : IIntList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new IntCons(a.First(), Builtins.IntAppend(a.Rest(), b));
+	}
+
+	public static fun IntReverse(IIntList l) : IIntList
+	{
+		IIntList r = new IntNil();
+		while (!l.IsEmpty())
+		{
+			r = new IntCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun IntRef(IIntList l, Int k) : Int
+	{
+		Int i = 0;
+		while (i < k)
+		{
+			l = l.Rest();
+			i = i + 1;
+		}
+		return l.First();
+	}
+}
+
+# Racket CS pseudo-random generator (MRG32k3a, Chez Scheme c/random.c),
+# re-implemented with exact 64-bit integer arithmetic.
+class Rng implements IRng
+{
+	private Int x10;
+	private Int x11;
+	private Int x12;
+	private Int x20;
+	private Int x21;
+	private Int x22;
+	private Int sx;
+	public constructor()
+	{
+		x10 = 1;
+		x11 = 1;
+		x12 = 1;
+		x20 = 1;
+		x21 = 1;
+		x22 = 1;
+		sx = 0;
+	}
+	# (random-seed k) / pseudo-random-generator-seed!
+	public fun Seed(Int k) : Int
+	{
+		x10 = 1062452522;
+		x11 = 2961816100;
+		x12 = 342112271;
+		x20 = 2854655037;
+		x21 = 3321940838;
+		x22 = 3542344109;
+		this.SrandHalf(k % 65536);
+		this.SrandHalf((k / 65536) % 65536);
+		return k;
+	}
+	public fun RandomM() : Int
+	{
+		Int x = sx;
+		Int y = x % 65536;
+		sx = (30903 * y + x / 65536) % 4294967296;
+		return y;
+	}
+	public fun RandomN(Int n) : Int
+	{
+		Int hi = this.RandomM();
+		Int lo = this.RandomM();
+		return (hi * 65536 + lo) % n;
+	}
+	public fun SrandHalf(Int x) : Void
+	{
+		sx = x;
+		Int z = this.RandomN(4294967086);
+		x10 = 1 + ((x10 + z) % 4294967296) % 4294967086;
+		z = this.RandomN(4294967087);
+		x11 = ((x11 + z) % 4294967296) % 4294967087;
+		z = this.RandomN(4294967087);
+		x12 = ((x12 + z) % 4294967296) % 4294967087;
+		z = this.RandomN(4294944442);
+		x20 = 1 + ((x20 + z) % 4294967296) % 4294944442;
+		z = this.RandomN(4294944443);
+		x21 = ((x21 + z) % 4294967296) % 4294944443;
+		z = this.RandomN(4294944443);
+		x22 = ((x22 + z) % 4294967296) % 4294944443;
+	}
+	public fun Fix(Int v, Int m) : Int
+	{
+		if (v < 0)
+		{
+			return v + m;
+		}
+		return v;
+	}
+	# one step of MRG32k3a, result in {0..m1-1}
+	public fun Next() : Int
+	{
+		Int p1 = 1403580 * x11 - 810728 * x12;
+		p1 = this.Fix(p1 - (p1 / 4294967087) * 4294967087, 4294967087);
+		x12 = x11;
+		x11 = x10;
+		x10 = p1;
+		Int p2 = 527612 * x20 - 1370589 * x22;
+		p2 = this.Fix(p2 - (p2 / 4294944443) * 4294944443, 4294944443);
+		x22 = x21;
+		x21 = x20;
+		x20 = p2;
+		return this.Fix(p1 - p2, 4294967087);
+	}
+	# (random n r) for 1 <= n <= 4294967087
+	public fun NextInt(Int n) : Int
+	{
+		Int q = 4294967087 / n;
+		Int qn = q * n;
+		Int x = this.Next();
+		while (x >= qn)
+		{
+			x = this.Next();
+		}
+		return x / q;
+	}
+	# (random r)
+	public fun NextFloat() : Float
+	{
+		return (this.Next() + 1.0) * 0.0000000002328306549295728;
+	}
+}
+
+class IntNil implements IIntList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntCons implements IIntList
+{
+	private readonly Int first;
+	private readonly IIntList rest;
+	public constructor(Int f, IIntList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IIntList
+	{
+		return rest;
+	}
+}
+
+class IntListNil implements IIntListList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IIntList
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntListList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntListCons implements IIntListList
+{
+	private readonly IIntList first;
+	private readonly IIntListList rest;
+	public constructor(IIntList f, IIntListList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IIntList
+	{
+		return first;
+	}
+	public fun Rest() : IIntListList
+	{
+		return rest;
+	}
+}
+
+class BoolNil implements IBoolList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Bool
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IBoolList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class BoolCons implements IBoolList
+{
+	private readonly Bool first;
+	private readonly IBoolList rest;
+	public constructor(Bool f, IBoolList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Bool
+	{
+		return first;
+	}
+	public fun Rest() : IBoolList
+	{
+		return rest;
+	}
+}
+
+class TileNil implements ITileList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ITile
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITileList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TileCons implements ITileList
+{
+	private readonly ITile first;
+	private readonly ITileList rest;
+	public constructor(ITile f, ITileList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ITile
+	{
+		return first;
+	}
+	public fun Rest() : ITileList
+	{
+		return rest;
+	}
+}
+
+class PlayerNil implements IPlayerList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPlayer
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPlayerList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PlayerCons implements IPlayerList
+{
+	private readonly IPlayer first;
+	private readonly IPlayerList rest;
+	public constructor(IPlayer f, IPlayerList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPlayer
+	{
+		return first;
+	}
+	public fun Rest() : IPlayerList
+	{
+		return rest;
+	}
+}
+
+class StateNil implements IStateList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IState
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IStateList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class StateCons implements IStateList
+{
+	private readonly IState first;
+	private readonly IStateList rest;
+	public constructor(IState f, IStateList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IState
+	{
+		return first;
+	}
+	public fun Rest() : IStateList
+	{
+		return rest;
+	}
+}
+
+class HotelDecisionNil implements IHotelDecisionList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IHotelDecision
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IHotelDecisionList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class HotelDecisionCons implements IHotelDecisionList
+{
+	private readonly IHotelDecision first;
+	private readonly IHotelDecisionList rest;
+	public constructor(IHotelDecision f, IHotelDecisionList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IHotelDecision
+	{
+		return first;
+	}
+	public fun Rest() : IHotelDecisionList
+	{
+		return rest;
+	}
+}
+
+class DecisionNil implements IDecisionList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IDecision
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IDecisionList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class DecisionCons implements IDecisionList
+{
+	private readonly IDecision first;
+	private readonly IDecisionList rest;
+	public constructor(IDecision f, IDecisionList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IDecision
+	{
+		return first;
+	}
+	public fun Rest() : IDecisionList
+	{
+		return rest;
+	}
+}
+
+class ScoreNil implements IScoreList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IScoreEntry
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IScoreList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ScoreCons implements IScoreList
+{
+	private readonly IScoreEntry first;
+	private readonly IScoreList rest;
+	public constructor(IScoreEntry f, IScoreList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IScoreEntry
+	{
+		return first;
+	}
+	public fun Rest() : IScoreList
+	{
+		return rest;
+	}
+}
+
+class TextNil implements ITextList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IText
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextCons implements ITextList
+{
+	private readonly IText first;
+	private readonly ITextList rest;
+	public constructor(IText f, ITextList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IText
+	{
+		return first;
+	}
+	public fun Rest() : ITextList
+	{
+		return rest;
+	}
+}
+
+class PlacedNil implements IPlacedList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPlaced
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPlacedList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PlacedCons implements IPlacedList
+{
+	private readonly IPlaced first;
+	private readonly IPlacedList rest;
+	public constructor(IPlaced f, IPlacedList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPlaced
+	{
+		return first;
+	}
+	public fun Rest() : IPlacedList
+	{
+		return rest;
+	}
+}
+
+class HandOutNil implements IHandOutList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IHandOut
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IHandOutList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class HandOutCons implements IHandOutList
+{
+	private readonly IHandOut first;
+	private readonly IHandOutList rest;
+	public constructor(IHandOut f, IHandOutList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IHandOut
+	{
+		return first;
+	}
+	public fun Rest() : IHandOutList
+	{
+		return rest;
+	}
+}
+
+class TreeNil implements ITreeList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ITree
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITreeList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TreeCons implements ITreeList
+{
+	private readonly ITree first;
+	private readonly ITreeList rest;
+	public constructor(ITree f, ITreeList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ITree
+	{
+		return first;
+	}
+	public fun Rest() : ITreeList
+	{
+		return rest;
+	}
+}
+
+class SharesNil implements ISharesList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IShares
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ISharesList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class SharesCons implements ISharesList
+{
+	private readonly IShares first;
+	private readonly ISharesList rest;
+	public constructor(IShares f, ISharesList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IShares
+	{
+		return first;
+	}
+	public fun Rest() : ISharesList
+	{
+		return rest;
+	}
+}
+
+class PlayerExtNil implements IPlayerExtList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IPlayerExt
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IPlayerExtList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class PlayerExtCons implements IPlayerExtList
+{
+	private readonly IPlayerExt first;
+	private readonly IPlayerExtList rest;
+	public constructor(IPlayerExt f, IPlayerExtList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IPlayerExt
+	{
+		return first;
+	}
+	public fun Rest() : IPlayerExtList
+	{
+		return rest;
+	}
+}
+

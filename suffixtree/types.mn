@@ -1,0 +1,160 @@
+# both/typed-data.rkt (Label, Node, Tree) and the types of the closures and multiple values of
+# structs.rkt / ukkonen.rkt, plus the types of the Racket builtins used (strings, vectors, lists).
+#   A label element (U Char Symbol) is an Int: characters are code points (>= 0), the
+#   sentinel symbols made by gensym are negative numbers.
+#   (U #f Node) is an INode whose IsFalse() is true.
+
+# a string: a sequence of character codes (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# (Vectorof (U Char Symbol))
+interface IVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : Int;
+	fun Set(Int i, Int v) : Int;
+}
+
+# gensym (and eq-hash codes)
+interface IGensym
+{
+	fun Next() : Int;
+}
+
+# label (mutable struct)
+interface ILabel
+{
+	fun Datum() : IVec;
+	fun I() : Int;
+	fun J() : Int;
+	fun SetI(Int i) : Int;
+	fun SetJ(Int j) : Int;
+}
+
+# node (mutable struct)
+interface INode
+{
+	fun IsFalse() : Bool;
+	fun UpLabel() : ILabel;
+	fun Parent() : INode;
+	fun Children() : INodeList;
+	fun SuffixLink() : INode;
+	fun SetUpLabel(ILabel l) : Int;
+	fun SetParent(INode p) : Int;
+	fun SetChildren(INodeList c) : Int;
+	fun SetSuffixLink(INode n) : Int;
+	# the node's eq-hash code (0 until the first eq?-hash table needs it)
+	fun HashId() : Int;
+	fun SetHashId(Int i) : Int;
+}
+
+# suffix-tree
+interface ITree
+{
+	fun Root() : INode;
+}
+
+# (Pairof Node Index) / (values Node Index)
+interface INodeIndex
+{
+	fun Node() : INode;
+	fun Index() : Int;
+}
+
+# (values Node Node)
+interface INodePair
+{
+	fun Fst() : INode;
+	fun Snd() : INode;
+}
+
+# (values Node (U Boolean Integer)) of jump-to-suffix: kind 0 = #f, 1 = #t, 2 = an integer
+interface IJump
+{
+	fun Node() : INode;
+	fun Kind() : Int;
+	fun Offset() : Int;
+}
+
+# (values (U #f Node) (U #f Index) (U #f Index)) of find-next-extension-point/add-suffix-link!
+interface IExtension
+{
+	fun Found() : Bool;
+	fun Node() : INode;
+	fun Offset() : Int;
+	fun I() : Int;
+}
+
+# the arguments (node label label-offset) of mismatched-at-node/k
+interface IMismatchAt
+{
+	fun Node() : INode;
+	fun Label() : ILabel;
+	fun LabelOffset() : Int;
+}
+
+# the arguments (node k label label-offset) of mismatched-in-edge/k
+interface IMismatchIn
+{
+	fun Node() : INode;
+	fun K() : Int;
+	fun Label() : ILabel;
+	fun LabelOffset() : Int;
+}
+
+# the four continuations of node-follow/k (instantiated with (Pairof Node Index) results;
+# closures cannot take more than two arguments in MonNom, so the last two take bundles)
+interface IMatchedAtNodeK
+{
+	fun this(INode n) : INodeIndex;
+}
+
+interface IMatchedInEdgeK
+{
+	fun this(INode n, Int k) : INodeIndex;
+}
+
+interface IMismatchedAtNodeK
+{
+	fun this(IMismatchAt a) : INodeIndex;
+}
+
+interface IMismatchedInEdgeK
+{
+	fun this(IMismatchIn a) : INodeIndex;
+}
+
+# (-> Node Index Void), the first-shot argument of loop-general
+interface IFirstShot
+{
+	fun this(INode n, Int offset) : Int;
+}
+
+# (Listof INode)
+interface INodeList
+{
+	fun IsEmpty() : Bool;
+	fun First() : INode;
+	fun Rest() : INodeList;
+}
+
+# (Listof ILabel)
+interface ILabelList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ILabel;
+	fun Rest() : ILabelList;
+}
+
+# (HashTable Node Boolean) made by make-hasheq
+interface INodeMarks
+{
+	fun Set(INode n, Bool v) : Int;
+	fun Ref(INode n) : Bool;
+}
+

@@ -1,0 +1,384 @@
+# base/types.rkt, board-adapted.rkt, state-adapted.rkt, tree-adapted.rkt: the types shared by the
+# modules, as interfaces, plus the types of the Racket builtins used.
+#   Hotel (a String) is an Int: 0 American, 1 Continental, 2 Festival, 3 Imperial, 4 Sackson,
+#   5 Tower, 6 Worldwide (alphabetical, so hotel<=? is <=); (Option Hotel) uses -1 for #f.
+#   Row (a Symbol A..I) is an Int 0..8; Column is 1..13.
+#   Content (U Hotel 'UNTAKEN 'taken-no-hotel) is an Int: a hotel, 7 UNTAKEN, 8 taken-no-hotel.
+#   SpotType/Kind: 0 FOUNDING, 1 GROWING, 2 MERGING, 3 SINGLETON, 4 IMPOSSIBLE.
+
+# a string (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# the pseudo-random generator behind racket's `random`
+interface IRng
+{
+	fun Seed(Int k) : Int;
+	fun NextInt(Int n) : Int;
+}
+
+# (struct tile (column row))
+interface ITile
+{
+	fun Column() : Int;
+	fun Row() : Int;
+}
+
+# Board = (HashTable Tile Content), immutable
+interface IBoard
+{
+	fun Has(ITile t) : Bool;
+	fun Ref(ITile t) : Int;
+	fun Set(ITile t, Int content) : IBoard;
+	fun Count() : Int;
+	fun KeyAt(Int k) : ITile;
+	fun ValueAt(Int k) : Int;
+}
+
+# Shares = (HashTable Hotel Share), immutable; the keys are the hotels with Has(h)
+interface IShares
+{
+	fun Has(Int h) : Bool;
+	fun Ref(Int h) : Int;
+	fun Set(Int h, Int n) : IShares;
+}
+
+# (values (Pairof Hotel (Listof Hotel)) (Listof Hotel)) of merging-which: acquirers, acquired
+interface IMergingWhich
+{
+	fun Acquirers() : IIntList;
+	fun Acquired() : IIntList;
+}
+
+# (struct player (name tiles money shares external))
+interface IPlayer
+{
+	fun Name() : IText;
+	fun Tiles() : ITileList;
+	fun Money() : Int;
+	fun Shares() : IShares;
+	fun HasExternal() : Bool;
+	fun External() : IPlayerExt;
+}
+
+# (struct state (board players tiles hotels shares bad))
+interface IState
+{
+	fun Board() : IBoard;
+	fun Players() : IPlayerList;
+	fun Tiles() : ITileList;
+	fun Hotels() : IIntList;
+	fun Shares() : IShares;
+	fun Bad() : IPlayerList;
+}
+
+# (List Hotel Boolean) of a decision
+interface IHotelDecision
+{
+	fun Hotel() : Int;
+	fun Keep() : Bool;
+}
+
+# (List Player (Listof (List Hotel Boolean))): one element of Decisions
+interface IDecision
+{
+	fun Player() : IPlayer;
+	fun Choices() : IHotelDecisionList;
+}
+
+# (List String Cash): one element of a Score
+interface IScoreEntry
+{
+	fun Name() : IText;
+	fun Cash() : Int;
+}
+
+# (values (Option Tile) (Option Hotel) (Listof Hotel)) of a strategy / take-turn
+interface ITurnResult
+{
+	fun HasTile() : Bool;
+	fun Tile() : ITile;
+	fun Hotel() : Int;
+	fun Buy() : IIntList;
+}
+
+# (values (Option Tile) (Option Hotel) Decisions) of turn%'s decisions
+interface ITurnDecisions
+{
+	fun HasTile() : Bool;
+	fun Tile() : ITile;
+	fun Hotel() : Int;
+	fun Decisions() : IDecisionList;
+}
+
+# RunResult = (List (U 'done 'exhausted 'score 'IMPOSSIBLE) Any (Listof State));
+# Status 0 done, 1 exhausted, 2 score, 3 IMPOSSIBLE; the Any is a score (or a failure message,
+# HasScore false)
+interface IRunResult
+{
+	fun Status() : Int;
+	fun HasScore() : Bool;
+	fun Score() : IScoreList;
+	fun States() : IStateList;
+}
+
+# the benchmark's checksums of the games
+interface ITotals
+{
+	fun Add(IRunResult r) : Int;
+	fun Get(Int i) : Int;
+}
+
+# (-> (Listof Tile) Tile)
+interface ITilePicker
+{
+	fun this(ITileList l) : ITile;
+}
+
+# (-> (Listof Hotel) Hotel)
+interface IHotelPicker
+{
+	fun this(IIntList l) : Int;
+}
+
+# (-> Natural Natural)
+interface INatFn
+{
+	fun this(Int n) : Int;
+}
+
+# Strategy = (-> (Instance Turn%) (Values (Option Tile) (Option Hotel) (Listof Hotel)))
+interface IStrategy
+{
+	fun this(ITurn turn) : ITurnResult;
+}
+
+# Turn%
+interface ITurn
+{
+	fun Board() : IBoard;
+	fun Current() : IPlayer;
+	fun Cash() : Int;
+	fun Tiles() : ITileList;
+	fun Shares() : IShares;
+	fun Hotels() : IIntList;
+	fun Players() : IPlayerList;
+	fun ReconcileShares(IShares t) : IShares;
+	fun Eliminated() : IPlayerList;
+	fun PlaceCalled() : Bool;
+	fun Decisions() : ITurnDecisions;
+	fun Place(ITile tile, Int hotel) : IPlayerList;
+}
+
+# Player%
+interface IPlayerExt
+{
+	fun Id() : Int;
+	fun Go(IAdministrator a) : Int;
+	fun Setup(IState s) : Int;
+	fun TakeTurn(ITurn turn) : ITurnResult;
+	fun Keep(IIntList hotels) : IBoolList;
+	fun ReceiveTile(ITile t) : Int;
+	fun Inform(IState s) : Int;
+	fun TheEnd(IState s, IScoreList results) : Int;
+}
+
+# Administrator%
+interface IAdministrator
+{
+	fun SignUp(IText name, IPlayerExt player) : IText;
+	fun ShowPlayers() : ITextList;
+	fun Run(Int turns) : IRunResult;
+}
+
+# ATree% (atree%, state%, lplaced%); IsLPlaced stands for (is-a? tree lplaced%)
+interface ITree
+{
+	fun IsLPlaced() : Bool;
+	fun NothingToPlace() : Bool;
+	fun ToState() : IState;
+	fun Next(INextArgs a) : ITileAndTree;
+	fun Founding(Int n, IIntListList orderPolicies) : Int;
+	fun Merging(Int n, IIntListList orderPolicies) : Int;
+	fun Traversal(ITraversalArgs a) : Int;
+	fun LookupTile(ITilePicker pickTile, IHandOutList loHandout) : ITileAndTree;
+}
+
+# the arguments (n order-policies p?) of traversal; p? is (is-action Tag)
+interface ITraversalArgs
+{
+	fun N() : Int;
+	fun Policies() : IIntListList;
+	fun Tag() : Int;
+}
+
+# the arguments (tile hotel decisions shares-to-buy pick-tile) of tree-next / next
+interface INextArgs
+{
+	fun Tile() : ITile;
+	fun Hotel() : Int;
+	fun Decisions() : IDecisionList;
+	fun SharesToBuy() : IIntList;
+	fun PickTile() : ITilePicker;
+}
+
+# (values (Option Tile) (Instance ATree%))
+interface ITileAndTree
+{
+	fun HasTile() : Bool;
+	fun Tile() : ITile;
+	fun Tree() : ITree;
+}
+
+# Placed%
+interface IPlaced
+{
+	fun State() : IState;
+	fun Tile() : ITile;
+	fun Hotel() : Int;
+	fun StateTile() : IState;
+	fun Reason() : Int;
+	fun Purchase(IDecisionList decisions, IIntList shareOrder) : IPurchaseResult;
+	fun ToTrees(IDecisionList decisions, IIntList shareOrder) : ITreeList;
+	fun AcceptablePolicies(IIntListList policies) : IIntListList;
+}
+
+# (U (Instance ATree%) (Listof HandOut)) of purchase
+interface IPurchaseResult
+{
+	fun IsList() : Bool;
+	fun Tree() : ITree;
+	fun HandOuts() : IHandOutList;
+}
+
+# (struct hand-out (tile tree))
+interface IHandOut
+{
+	fun Tile() : ITile;
+	fun Tree() : ITree;
+}
+
+# (Listof Int)
+interface IIntList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IIntList;
+}
+
+# (Listof IIntList)
+interface IIntListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IIntList;
+	fun Rest() : IIntListList;
+}
+
+# (Listof Bool)
+interface IBoolList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Bool;
+	fun Rest() : IBoolList;
+}
+
+# (Listof ITile)
+interface ITileList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ITile;
+	fun Rest() : ITileList;
+}
+
+# (Listof IPlayer)
+interface IPlayerList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPlayer;
+	fun Rest() : IPlayerList;
+}
+
+# (Listof IState)
+interface IStateList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IState;
+	fun Rest() : IStateList;
+}
+
+# (Listof IHotelDecision)
+interface IHotelDecisionList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IHotelDecision;
+	fun Rest() : IHotelDecisionList;
+}
+
+# (Listof IDecision)
+interface IDecisionList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IDecision;
+	fun Rest() : IDecisionList;
+}
+
+# (Listof IScoreEntry)
+interface IScoreList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IScoreEntry;
+	fun Rest() : IScoreList;
+}
+
+# (Listof IText)
+interface ITextList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IText;
+	fun Rest() : ITextList;
+}
+
+# (Listof IPlaced)
+interface IPlacedList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPlaced;
+	fun Rest() : IPlacedList;
+}
+
+# (Listof IHandOut)
+interface IHandOutList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IHandOut;
+	fun Rest() : IHandOutList;
+}
+
+# (Listof ITree)
+interface ITreeList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ITree;
+	fun Rest() : ITreeList;
+}
+
+# (Listof IShares)
+interface ISharesList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IShares;
+	fun Rest() : ISharesList;
+}
+
+# (Listof IPlayerExt)
+interface IPlayerExtList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPlayerExt;
+	fun Rest() : IPlayerExtList;
+}
+

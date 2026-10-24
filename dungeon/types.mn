@@ -1,0 +1,203 @@
+# base/cell-types.rkt (Cell%, Door%, Pos, Grid) and the types used by main.rkt, plus the types of
+# the Racket builtins: vectors, lists, hash tables, boxes.
+# Racket classes are first-class values here: a class is an ICellClass object (with its
+# superclass, for is-a?), an instance an ICell. Characters are Int codes.
+
+interface ICellClass
+{
+	fun Id() : Int;
+	fun HasSuper() : Bool;
+	fun Super() : ICellClass;
+	# which class body defines show / free? (see cell.mn)
+	fun Kind() : Int;
+	fun SingleBar() : Int;
+	fun DoubleBar() : Int;
+	# (new this-class)
+	fun New() : ICell;
+}
+
+# (Instance Cell%)
+interface ICell
+{
+	fun Class() : ICellClass;
+	fun IsFalse() : Bool;
+	fun Free() : Bool;
+	fun Show() : Int;
+	fun Open(IMessageQueue q) : Int;
+	fun Close(IMessageQueue q) : Int;
+}
+
+# message-queue.rkt's queue
+interface IMessageQueue
+{
+	fun Enqueue(String m) : Int;
+	fun Reset() : Int;
+	fun Count() : Int;
+}
+
+# the cell classes defined by cell.rkt (module-level values)
+interface ICellClasses
+{
+	fun Cell() : ICellClass;
+	fun EmptyCell() : ICellClass;
+	fun VoidCell() : ICellClass;
+	fun Wall() : ICellClass;
+	fun Door() : ICellClass;
+	fun VerticalDoor() : ICellClass;
+	fun HorizontalDoor() : ICellClass;
+	fun Pillar() : ICellClass;
+	fun VerticalWall() : ICellClass;
+	fun HorizontalWall() : ICellClass;
+	fun FourCornerWall() : ICellClass;
+	fun NorthEastWall() : ICellClass;
+	fun NorthWestWall() : ICellClass;
+	fun SouthEastWall() : ICellClass;
+	fun SouthWestWall() : ICellClass;
+	fun NorthTeeWall() : ICellClass;
+	fun SouthTeeWall() : ICellClass;
+	fun EastTeeWall() : ICellClass;
+	fun WestTeeWall() : ICellClass;
+	# the #f that grid-ref returns for positions outside the grid
+	fun NoCell() : ICell;
+}
+
+# Pos = (Vector Index Index)
+interface IPos
+{
+	fun X() : Int;
+	fun Y() : Int;
+}
+
+# Grid = (Vectorof (Vectorof (Instance Cell%)))
+interface IGrid
+{
+	fun Height() : Int;
+	fun Width() : Int;
+	fun Ref(Int x, Int y) : ICell;
+	fun Set(IPos p, ICell c) : Int;
+}
+
+# (-> Pos (Instance Cell%)), the argument of build-array
+interface IPosToCell
+{
+	fun this(IPos p) : ICell;
+}
+
+# Direction = (->* (Pos) (Index) Pos): left, right, up, down; Kind identifies the function
+interface IDirection
+{
+	fun this(IPos p, Int n) : IPos;
+	fun Kind() : Int;
+}
+
+# Cache = (HashTable Pos Boolean)
+interface IPosCache
+{
+	fun Ref(IPos p) : Bool;
+	fun Set(IPos p, Bool b) : Int;
+}
+
+# the box r* of utils.rkt with the "random" numbers
+interface IRandomBox
+{
+	fun Next() : Int;
+	fun Reset() : Int;
+}
+
+# (Pairof Pos Cell%)
+interface IPosCell
+{
+	fun Pos() : IPos;
+	fun CellClass() : ICellClass;
+}
+
+# the room struct of main.rkt
+interface IRoom
+{
+	# false for the #f result of try-add-rectangle
+	fun Exists() : Bool;
+	fun Height() : Int;
+	fun Width() : Int;
+	fun PossToCells() : IPosCellList;
+	fun FreeCells() : IPosList;
+	fun ExtensionPoints() : IPosList;
+}
+
+# (Pairof Pos Room)
+interface IExtPoint
+{
+	fun Pos() : IPos;
+	fun Room() : IRoom;
+}
+
+# (Pairof Room Room)
+interface IRoomPair
+{
+	fun Fst() : IRoom;
+	fun Snd() : IRoom;
+}
+
+# (Listof IPos)
+interface IPosList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPos;
+	fun Rest() : IPosList;
+}
+
+# (Listof IPosCell)
+interface IPosCellList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPosCell;
+	fun Rest() : IPosCellList;
+}
+
+# (Listof IRoom)
+interface IRoomList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IRoom;
+	fun Rest() : IRoomList;
+}
+
+# (Listof IExtPoint)
+interface IExtPointList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IExtPoint;
+	fun Rest() : IExtPointList;
+}
+
+# (Listof IRoomPair)
+interface IRoomPairList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IRoomPair;
+	fun Rest() : IRoomPairList;
+}
+
+# (Listof IDirection)
+interface IDirectionList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IDirection;
+	fun Rest() : IDirectionList;
+}
+
+# (Listof Int)
+interface IIntList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IIntList;
+}
+
+# (Listof String)
+interface IStringList
+{
+	fun IsEmpty() : Bool;
+	fun First() : String;
+	fun Rest() : IStringList;
+}
+

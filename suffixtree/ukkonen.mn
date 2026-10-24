@@ -1,0 +1,361 @@
+# ukkonen.rkt: Ukkonen's suffix-tree construction.
+
+class NodeIndex implements INodeIndex
+{
+	private readonly INode node;
+	private readonly Int index;
+	public constructor(INode n, Int i)
+	{
+		node = n;
+		index = i;
+	}
+	public fun Node() : INode
+	{
+		return node;
+	}
+	public fun Index() : Int
+	{
+		return index;
+	}
+}
+
+class Jump implements IJump
+{
+	private readonly INode node;
+	private readonly Int kind;
+	private readonly Int offset;
+	public constructor(INode n, Int k, Int o)
+	{
+		node = n;
+		kind = k;
+		offset = o;
+	}
+	public fun Node() : INode
+	{
+		return node;
+	}
+	public fun Kind() : Int
+	{
+		return kind;
+	}
+	public fun Offset() : Int
+	{
+		return offset;
+	}
+}
+
+class Extension implements IExtension
+{
+	private readonly Bool found;
+	private readonly INode node;
+	private readonly Int offset;
+	private readonly Int i;
+	public constructor(Bool f, INode n, Int o, Int i0)
+	{
+		found = f;
+		node = n;
+		offset = o;
+		i = i0;
+	}
+	public fun Found() : Bool
+	{
+		return found;
+	}
+	public fun Node() : INode
+	{
+		return node;
+	}
+	public fun Offset() : Int
+	{
+		return offset;
+	}
+	public fun I() : Int
+	{
+		return i;
+	}
+}
+
+# loop-first's first-shot: set the suffix link of `node` when the skip ends at a node
+class FirstShotLink implements IFirstShot
+{
+	private readonly INode node;
+	public constructor(INode n)
+	{
+		node = n;
+	}
+	public fun this(INode skippedNode, Int skipOffset) : Int
+	{
+		if (Structs.NodePositionAtEnd(skippedNode, skipOffset))
+		{
+			return Ukkonen.TryToSetSuffixEdge(node, skippedNode);
+		}
+		return 0;
+	}
+}
+
+# loop-rest's first-shot: (void)
+class FirstShotNoop implements IFirstShot
+{
+	public constructor()
+	{
+	}
+	public fun this(INode skippedNode, Int skipOffset) : Int
+	{
+		return 0;
+	}
+}
+
+# the continuations of add-first-suffix!
+class MatchedAtNode implements IMatchedAtNodeK
+{
+	public constructor()
+	{
+	}
+	public fun this(INode n) : INodeIndex
+	{
+		return Ukkonen.ReportImplicitTreeConstructed();
+	}
+}
+
+class MatchedInNode implements IMatchedInEdgeK
+{
+	public constructor()
+	{
+	}
+	public fun this(INode n, Int offset) : INodeIndex
+	{
+		return Ukkonen.ReportImplicitTreeConstructed();
+	}
+}
+
+class MismatchedAtNode implements IMismatchedAtNodeK
+{
+	public constructor()
+	{
+	}
+	public fun this(IMismatchAt a) : INodeIndex
+	{
+		INode leaf = Structs.NodeAddLeaf(a.Node(), Labels.Sublabel(a.Label(), a.LabelOffset()));
+		return new NodeIndex(a.Node(), a.LabelOffset());
+	}
+}
+
+class MismatchedInNode implements IMismatchedInEdgeK
+{
+	public constructor()
+	{
+	}
+	public fun this(IMismatchIn a) : INodeIndex
+	{
+		INodePair jl = Structs.NodeUpSpliceLeaf(a.Node(), a.K(), Labels.Sublabel(a.Label(), a.LabelOffset()));
+		return new NodeIndex(jl.Fst(), a.LabelOffset());
+	}
+}
+
+class Ukkonen
+{
+	# (define dummy-node (node (make-label "dummy") #f '() #f)) (a module-level value; a new
+	# node is made where it is used)
+	public static fun DummyNode() : INode
+	{
+		IText s = Builtins.EmptyText();
+		s.Push(100);
+		s.Push(117);
+		s.Push(109);
+		s.Push(109);
+		s.Push(121);
+		return Data.MakeNode(Labels.MakeLabelFromString(s), Data.False(), new NodeNil(), Data.False());
+	}
+
+	public static fun SkipCount(INode n, ILabel label) : INodeIndex
+	{
+		return Ukkonen.SkipCountHelper(n, label, 0, Labels.LabelLength(label));
+	}
+
+	public static fun SkipCountHelper(INode n, ILabel label, Int k, Int bigN) : INodeIndex
+	{
+		if (k >= bigN)
+		{
+			return new NodeIndex(n, Labels.LabelLength(n.UpLabel()));
+		}
+		INode node = n;
+		Int kk = k;
+		while (true)
+		{
+			INode child = Structs.NodeFindChild(node, Labels.LabelRef(label, kk));
+			if (child.IsFalse())
+			{
+				ERROR("skip-count-hlper");
+			}
+			Int childLabelLength = Labels.LabelLength(child.UpLabel());
+			Int rest = bigN - kk;
+			if (rest > childLabelLength)
+			{
+				node = child;
+				kk = kk + childLabelLength;
+				continue;
+			}
+			return new NodeIndex(child, rest);
+		}
+		ERROR("unreachable");
+	}
+
+	public static fun JumpToSuffix(INode n) : IJump
+	{
+		INode parent = n.Parent();
+		if (Structs.NodeIsRoot(n))
+		{
+			return new Jump(n, 0, 0);
+		}
+		if (!n.SuffixLink().IsFalse())
+		{
+			return new Jump(n.SuffixLink(), 2, 0);
+		}
+		if (!parent.IsFalse())
+		{
+			if (Structs.NodeIsRoot(parent))
+			{
+				return new Jump(parent, 0, 0);
+			}
+		}
+		INode sl = parent.SuffixLink();
+		if (sl.IsFalse())
+		{
+			ERROR("j2s whoahao");
+		}
+		return new Jump(sl, 2, Labels.LabelLength(n.UpLabel()));
+	}
+
+	public static fun TryToSetSuffixEdge(INode fromNode, INode toNode) : Int
+	{
+		if (fromNode.SuffixLink().IsFalse())
+		{
+			return fromNode.SetSuffixLink(toNode);
+		}
+		return 0;
+	}
+
+	public static fun FindNextExtensionPointAddSuffixLink(INode node, ILabel label, Int initialI, Int j) : IExtension
+	{
+		IJump jump = Ukkonen.JumpToSuffix(node);
+		INode suffixNode = jump.Node();
+		Int bigK = Ukkonen.FixedStart(jump, initialI, j);
+		Int bigN = Labels.LabelLength(label);
+		IFirstShot firstShot = new FirstShotLink(node);
+		Int i = initialI;
+		# loop-first / loop-rest / loop-general (tail calls in Racket)
+		while (true)
+		{
+			if (i >= bigN)
+			{
+				return new Extension(false, Data.False(), 0, 0);
+			}
+			INodeIndex skipped = Ukkonen.SkipCountHelper(suffixNode, label, bigK, i);
+			INode skippedNode = skipped.Node();
+			Int skippedOffset = skipped.Index();
+			firstShot(skippedNode, skippedOffset);
+			if (Structs.NodePositionAtEnd(skippedNode, skippedOffset))
+			{
+				# find-extension-at-end!
+				if (!Structs.NodeFindChild(skippedNode, Labels.LabelRef(label, i)).IsFalse())
+				{
+					i = i + 1;
+					firstShot = new FirstShotNoop();
+					continue;
+				}
+				return new Extension(true, skippedNode, skippedOffset, i);
+			}
+			# find-extension-in-edge
+			if (Labels.ElementEqual(Labels.LabelRef(label, i), Labels.LabelRef(skippedNode.UpLabel(), skippedOffset)))
+			{
+				i = i + 1;
+				firstShot = new FirstShotNoop();
+				continue;
+			}
+			return new Extension(true, skippedNode, skippedOffset, i);
+		}
+		ERROR("unreachable");
+	}
+
+	# (fixed-start suffix-offset)
+	public static fun FixedStart(IJump jump, Int initialI, Int j) : Int
+	{
+		if (jump.Kind() == 2)
+		{
+			return initialI - jump.Offset();
+		}
+		if (jump.Kind() == 1)
+		{
+			return initialI - 1;
+		}
+		return j;
+	}
+
+	public static fun ExtendAtPoint(INode node, Int offset, ILabel label, Int i) : INode
+	{
+		if (Structs.NodePositionAtEnd(node, offset))
+		{
+			# attach-as-leaf!
+			INode leaf = Structs.NodeAddLeaf(node, Labels.Sublabel(label, i));
+			return node;
+		}
+		# splice-with-internal-node!
+		INodePair sl = Structs.NodeUpSpliceLeaf(node, offset, Labels.Sublabel(label, i));
+		return sl.Fst();
+	}
+
+	public static fun SuffixTreeAdd(ITree tree, ILabel label) : Int
+	{
+		INodeIndex pr = Ukkonen.AddFirstSuffix(tree, label);
+		return Ukkonen.AddRestSuffixes(label, pr.Node(), pr.Index());
+	}
+
+	public static fun AddFirstSuffix(ITree tree, ILabel label) : INodeIndex
+	{
+		return Structs.NodeFollowK(tree.Root(), label, new MatchedAtNode(), new MatchedInNode(), new MismatchedAtNode(), new MismatchedInNode());
+	}
+
+	public static fun AddRestSuffixes(ILabel label, INode startingNode, Int startingOffset) : Int
+	{
+		Int bigN = Labels.LabelLength(label);
+		Int i = Ukkonen.Max(startingOffset, 1);
+		Int j = 1;
+		INode activeNode = startingNode;
+		while (j < bigN)
+		{
+			IExtension ext = Ukkonen.FindNextExtensionPointAddSuffixLink(activeNode, label, i, j);
+			if (ext.Found())
+			{
+				INode newActiveNode = Ukkonen.ExtendAtPoint(ext.Node(), ext.Offset(), label, ext.I());
+				Ukkonen.TryToSetSuffixEdge(activeNode, newActiveNode);
+				i = Ukkonen.Max(ext.I(), j + 1);
+				j = j + 1;
+				activeNode = newActiveNode;
+				continue;
+			}
+			Ukkonen.ReportImplicitTreeConstructed();
+			break;
+		}
+		return 0;
+	}
+
+	public static fun Max(Int a, Int b) : Int
+	{
+		if (a >= b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun ReportImplicitTreeConstructed() : INodeIndex
+	{
+		return new NodeIndex(Ukkonen.DummyNode(), 0);
+	}
+
+	# (define tree-add! suffix-tree-add!)
+	public static fun TreeAdd(ITree tree, ILabel label) : Int
+	{
+		return Ukkonen.SuffixTreeAdd(tree, label);
+	}
+}

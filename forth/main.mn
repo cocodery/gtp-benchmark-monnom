@@ -1,0 +1,57 @@
+# main.rkt: evaluate the history LOOPS times.
+# The input file (base/history-100.txt) is embedded in the library file history.mn.
+
+class Main
+{
+	public static fun EnvLength(IEnv e) : Int
+	{
+		Int n = 0;
+		while (!e.IsEmpty())
+		{
+			n = n + 1;
+			e = e.Rest();
+		}
+		return n;
+	}
+
+	public static fun StackLength(IStack s) : Int
+	{
+		Int n = 0;
+		while (!s.IsEmpty())
+		{
+			n = n + 1;
+			s = s.Rest();
+		}
+		return n;
+	}
+
+	public static fun Main() : Void
+	{
+		ArrayList<ArrayList<Int>> lines = ForthHistory.Lines();
+		ISymTable st = new SymTable();
+		Int loops = 2000;
+		IEvalResult last = new EvalResult(false, new CmdNil(), Stack.StackInit());
+		Timer t = new Timer();
+		Int i = 0;
+		while (i < loops)
+		{
+			last = Eval.ForthEvalStar(lines, st);
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		if (last.HasEnv())
+		{
+			Main.EnvLength(last.Env()).ToString().Print();
+		}
+		else
+		{
+			"#f".Print();
+		}
+		"\n".Print();
+		Main.StackLength(last.Stack()).ToString().Print();
+		"\n".Print();
+		Txt.Print(Txt.FormatStack(last.Stack()));
+		"\n".Print();
+	}
+}

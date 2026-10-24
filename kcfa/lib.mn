@@ -1,0 +1,1182 @@
+# Stand-ins for the Racket builtins used by kcfa: symbols (interning and gensym), eq?-based
+# immutable hash tables (a persistent 16-way trie over eq-hash codes), immutable sets of
+# opaque structs (compared with eq?, so a list without duplicates), cons lists.
+
+class Sym implements ISymbol
+{
+	private readonly Int id;
+	public constructor(Int i)
+	{
+		id = i;
+	}
+	public fun Id() : Int
+	{
+		return id;
+	}
+}
+
+class Counter implements IIdGen
+{
+	private Int n;
+	public constructor(Int start)
+	{
+		n = start;
+	}
+	public fun Next() : Int
+	{
+		n = n + 1;
+		return n;
+	}
+}
+
+class SymTable implements ISymTable
+{
+	private readonly ArrayList<ISymbol> vars;
+	private readonly IIdGen ids;
+	public constructor(IIdGen g)
+	{
+		vars = new ArrayList<ISymbol>();
+		ids = g;
+	}
+	# the symbol with (generator-assigned) name number n
+	public fun Var(Int n) : ISymbol
+	{
+		while (vars.Length() <= n)
+		{
+			vars.Add(new Sym(ids.Next()));
+		}
+		return vars.Get(n);
+	}
+	public fun Gensym() : ISymbol
+	{
+		return new Sym(ids.Next());
+	}
+}
+
+# ---------------------------------------------------------------- persistent trie
+# an empty subtrie at the level that consumes the base-16 digit `div` of the id
+class BEnvTrieEmpty implements IBEnvTrie
+{
+	private readonly Int div;
+	public constructor(Int d)
+	{
+		div = d;
+	}
+	public fun Get(Int id, IBEnvEntry dflt) : IBEnvEntry
+	{
+		return dflt;
+	}
+	public fun Put(Int id, IBEnvEntry e) : IBEnvTrie
+	{
+		return new BEnvTrieLeaf(id, e, div);
+	}
+	public fun Collect(IBEnvEntryList acc) : IBEnvEntryList
+	{
+		return acc;
+	}
+}
+
+# a subtrie with a single entry (split into a node when a second id arrives)
+class BEnvTrieLeaf implements IBEnvTrie
+{
+	private readonly Int key;
+	private readonly IBEnvEntry entry;
+	private readonly Int div;
+	public constructor(Int k, IBEnvEntry e, Int d)
+	{
+		key = k;
+		entry = e;
+		div = d;
+	}
+	public fun Get(Int id, IBEnvEntry dflt) : IBEnvEntry
+	{
+		if (id == key)
+		{
+			return entry;
+		}
+		return dflt;
+	}
+	public fun Put(Int id, IBEnvEntry e) : IBEnvTrie
+	{
+		if (id == key)
+		{
+			return Tries.NewBEnvLeaf(id, e, div);
+		}
+		IBEnvTrie empty = Tries.NewBEnvEmpty(div * 16);
+		ArrayList<IBEnvTrie> kids = new ArrayList<IBEnvTrie>();
+		Int i = 0;
+		while (i < 16)
+		{
+			kids.Add(empty);
+			i = i + 1;
+		}
+		IBEnvTrie node = Tries.NewBEnvNode(kids, div);
+		return node.Put(key, entry).Put(id, e);
+	}
+	public fun Collect(IBEnvEntryList acc) : IBEnvEntryList
+	{
+		return Tries.ConsBEnv(entry, acc);
+	}
+}
+
+class BEnvTrieNode implements IBEnvTrie
+{
+	private readonly ArrayList<IBEnvTrie> kids;
+	private readonly Int div;
+	public constructor(ArrayList<IBEnvTrie> k, Int d)
+	{
+		kids = k;
+		div = d;
+	}
+	public fun Get(Int id, IBEnvEntry dflt) : IBEnvEntry
+	{
+		return kids.Get((id / div) % 16).Get(id, dflt);
+	}
+	public fun Put(Int id, IBEnvEntry e) : IBEnvTrie
+	{
+		Int slot = (id / div) % 16;
+		ArrayList<IBEnvTrie> copy = new ArrayList<IBEnvTrie>();
+		Int i = 0;
+		while (i < 16)
+		{
+			copy.Add(kids.Get(i));
+			i = i + 1;
+		}
+		copy.Set(slot, kids.Get(slot).Put(id, e));
+		return Tries.NewBEnvNode(copy, div);
+	}
+	public fun Collect(IBEnvEntryList acc) : IBEnvEntryList
+	{
+		foreach (IBEnvTrie k in kids)
+		{
+			acc = k.Collect(acc);
+		}
+		return acc;
+	}
+}
+
+# an empty subtrie at the level that consumes the base-16 digit `div` of the id
+class StoreTrieEmpty implements IStoreTrie
+{
+	private readonly Int div;
+	public constructor(Int d)
+	{
+		div = d;
+	}
+	public fun Get(Int id, IStoreEntry dflt) : IStoreEntry
+	{
+		return dflt;
+	}
+	public fun Put(Int id, IStoreEntry e) : IStoreTrie
+	{
+		return new StoreTrieLeaf(id, e, div);
+	}
+	public fun Collect(IStoreEntryList acc) : IStoreEntryList
+	{
+		return acc;
+	}
+}
+
+# a subtrie with a single entry (split into a node when a second id arrives)
+class StoreTrieLeaf implements IStoreTrie
+{
+	private readonly Int key;
+	private readonly IStoreEntry entry;
+	private readonly Int div;
+	public constructor(Int k, IStoreEntry e, Int d)
+	{
+		key = k;
+		entry = e;
+		div = d;
+	}
+	public fun Get(Int id, IStoreEntry dflt) : IStoreEntry
+	{
+		if (id == key)
+		{
+			return entry;
+		}
+		return dflt;
+	}
+	public fun Put(Int id, IStoreEntry e) : IStoreTrie
+	{
+		if (id == key)
+		{
+			return Tries.NewStoreLeaf(id, e, div);
+		}
+		IStoreTrie empty = Tries.NewStoreEmpty(div * 16);
+		ArrayList<IStoreTrie> kids = new ArrayList<IStoreTrie>();
+		Int i = 0;
+		while (i < 16)
+		{
+			kids.Add(empty);
+			i = i + 1;
+		}
+		IStoreTrie node = Tries.NewStoreNode(kids, div);
+		return node.Put(key, entry).Put(id, e);
+	}
+	public fun Collect(IStoreEntryList acc) : IStoreEntryList
+	{
+		return Tries.ConsStore(entry, acc);
+	}
+}
+
+class StoreTrieNode implements IStoreTrie
+{
+	private readonly ArrayList<IStoreTrie> kids;
+	private readonly Int div;
+	public constructor(ArrayList<IStoreTrie> k, Int d)
+	{
+		kids = k;
+		div = d;
+	}
+	public fun Get(Int id, IStoreEntry dflt) : IStoreEntry
+	{
+		return kids.Get((id / div) % 16).Get(id, dflt);
+	}
+	public fun Put(Int id, IStoreEntry e) : IStoreTrie
+	{
+		Int slot = (id / div) % 16;
+		ArrayList<IStoreTrie> copy = new ArrayList<IStoreTrie>();
+		Int i = 0;
+		while (i < 16)
+		{
+			copy.Add(kids.Get(i));
+			i = i + 1;
+		}
+		copy.Set(slot, kids.Get(slot).Put(id, e));
+		return Tries.NewStoreNode(copy, div);
+	}
+	public fun Collect(IStoreEntryList acc) : IStoreEntryList
+	{
+		foreach (IStoreTrie k in kids)
+		{
+			acc = k.Collect(acc);
+		}
+		return acc;
+	}
+}
+
+# an empty subtrie at the level that consumes the base-16 digit `div` of the id
+class MonoTrieEmpty implements IMonoTrie
+{
+	private readonly Int div;
+	public constructor(Int d)
+	{
+		div = d;
+	}
+	public fun Get(Int id, IMonoEntry dflt) : IMonoEntry
+	{
+		return dflt;
+	}
+	public fun Put(Int id, IMonoEntry e) : IMonoTrie
+	{
+		return new MonoTrieLeaf(id, e, div);
+	}
+	public fun Collect(IMonoEntryList acc) : IMonoEntryList
+	{
+		return acc;
+	}
+}
+
+# a subtrie with a single entry (split into a node when a second id arrives)
+class MonoTrieLeaf implements IMonoTrie
+{
+	private readonly Int key;
+	private readonly IMonoEntry entry;
+	private readonly Int div;
+	public constructor(Int k, IMonoEntry e, Int d)
+	{
+		key = k;
+		entry = e;
+		div = d;
+	}
+	public fun Get(Int id, IMonoEntry dflt) : IMonoEntry
+	{
+		if (id == key)
+		{
+			return entry;
+		}
+		return dflt;
+	}
+	public fun Put(Int id, IMonoEntry e) : IMonoTrie
+	{
+		if (id == key)
+		{
+			return Tries.NewMonoLeaf(id, e, div);
+		}
+		IMonoTrie empty = Tries.NewMonoEmpty(div * 16);
+		ArrayList<IMonoTrie> kids = new ArrayList<IMonoTrie>();
+		Int i = 0;
+		while (i < 16)
+		{
+			kids.Add(empty);
+			i = i + 1;
+		}
+		IMonoTrie node = Tries.NewMonoNode(kids, div);
+		return node.Put(key, entry).Put(id, e);
+	}
+	public fun Collect(IMonoEntryList acc) : IMonoEntryList
+	{
+		return Tries.ConsMono(entry, acc);
+	}
+}
+
+class MonoTrieNode implements IMonoTrie
+{
+	private readonly ArrayList<IMonoTrie> kids;
+	private readonly Int div;
+	public constructor(ArrayList<IMonoTrie> k, Int d)
+	{
+		kids = k;
+		div = d;
+	}
+	public fun Get(Int id, IMonoEntry dflt) : IMonoEntry
+	{
+		return kids.Get((id / div) % 16).Get(id, dflt);
+	}
+	public fun Put(Int id, IMonoEntry e) : IMonoTrie
+	{
+		Int slot = (id / div) % 16;
+		ArrayList<IMonoTrie> copy = new ArrayList<IMonoTrie>();
+		Int i = 0;
+		while (i < 16)
+		{
+			copy.Add(kids.Get(i));
+			i = i + 1;
+		}
+		copy.Set(slot, kids.Get(slot).Put(id, e));
+		return Tries.NewMonoNode(copy, div);
+	}
+	public fun Collect(IMonoEntryList acc) : IMonoEntryList
+	{
+		foreach (IMonoTrie k in kids)
+		{
+			acc = k.Collect(acc);
+		}
+		return acc;
+	}
+}
+
+# factories: a class that the benchmark generator turns into a record must not instantiate
+# itself in its own methods (the generator recurses forever)
+class Tries
+{
+	public static fun NewBEnvEmpty(Int div) : IBEnvTrie
+	{
+		return new BEnvTrieEmpty(div);
+	}
+	public static fun NewBEnvLeaf(Int id, IBEnvEntry e, Int div) : IBEnvTrie
+	{
+		return new BEnvTrieLeaf(id, e, div);
+	}
+	public static fun ConsBEnv(IBEnvEntry e, IBEnvEntryList l) : IBEnvEntryList
+	{
+		return new BEnvEntryCons(e, l);
+	}
+	public static fun NewBEnvNode(ArrayList<IBEnvTrie> kids, Int div) : IBEnvTrie
+	{
+		return new BEnvTrieNode(kids, div);
+	}
+	public static fun NewStoreEmpty(Int div) : IStoreTrie
+	{
+		return new StoreTrieEmpty(div);
+	}
+	public static fun NewStoreLeaf(Int id, IStoreEntry e, Int div) : IStoreTrie
+	{
+		return new StoreTrieLeaf(id, e, div);
+	}
+	public static fun ConsStore(IStoreEntry e, IStoreEntryList l) : IStoreEntryList
+	{
+		return new StoreEntryCons(e, l);
+	}
+	public static fun NewStoreNode(ArrayList<IStoreTrie> kids, Int div) : IStoreTrie
+	{
+		return new StoreTrieNode(kids, div);
+	}
+	public static fun NewMonoEmpty(Int div) : IMonoTrie
+	{
+		return new MonoTrieEmpty(div);
+	}
+	public static fun NewMonoLeaf(Int id, IMonoEntry e, Int div) : IMonoTrie
+	{
+		return new MonoTrieLeaf(id, e, div);
+	}
+	public static fun ConsMono(IMonoEntry e, IMonoEntryList l) : IMonoEntryList
+	{
+		return new MonoEntryCons(e, l);
+	}
+	public static fun NewMonoNode(ArrayList<IMonoTrie> kids, Int div) : IMonoTrie
+	{
+		return new MonoTrieNode(kids, div);
+	}
+}
+
+# ---------------------------------------------------------------- BEnv = (HashTable Var Addr)
+class BEnvEntry implements IBEnvEntry
+{
+	private readonly ISymbol key;
+	private readonly IBinding value;
+	public constructor(ISymbol k, IBinding v)
+	{
+		key = k;
+		value = v;
+	}
+	public fun Key() : ISymbol
+	{
+		return key;
+	}
+	public fun Value() : IBinding
+	{
+		return value;
+	}
+}
+
+class BEnvMap implements IBEnv
+{
+	private readonly IBEnvTrie trie;
+	private readonly IBEnvEntry missing;
+	public constructor(IBEnvTrie t, IBEnvEntry m)
+	{
+		trie = t;
+		missing = m;
+	}
+	# hash-ref without a default
+	public fun Lookup(ISymbol v) : IBinding
+	{
+		IBEnvEntry e = trie.Get(v.Id(), missing);
+		if (e == missing)
+		{
+			ERROR("hash-ref: no value found for key");
+		}
+		return e.Value();
+	}
+	# hash-set
+	public fun Extend(ISymbol v, IBinding a) : IBEnv
+	{
+		return Builtins.NewBEnvMap(trie.Put(v.Id(), new BEnvEntry(v, a)), missing);
+	}
+}
+
+# ---------------------------------------------------------------- Store = (HashTable Addr Denotable)
+class StoreEntry implements IStoreEntry
+{
+	private readonly IBinding key;
+	private readonly IDenotable value;
+	public constructor(IBinding k, IDenotable v)
+	{
+		key = k;
+		value = v;
+	}
+	public fun Key() : IBinding
+	{
+		return key;
+	}
+	public fun Value() : IDenotable
+	{
+		return value;
+	}
+}
+
+class StoreMap implements IStore
+{
+	private readonly IStoreTrie trie;
+	private readonly IStoreEntry missing;
+	public constructor(IStoreTrie t, IStoreEntry m)
+	{
+		trie = t;
+		missing = m;
+	}
+	public fun Ref(IBinding a, IDenotable dflt) : IDenotable
+	{
+		IStoreEntry e = trie.Get(a.Id(), missing);
+		if (e == missing)
+		{
+			return dflt;
+		}
+		return e.Value();
+	}
+	public fun Set(IBinding a, IDenotable d) : IStore
+	{
+		return Builtins.NewStoreMap(trie.Put(a.Id(), new StoreEntry(a, d)), missing);
+	}
+	public fun Entries() : IStoreEntryList
+	{
+		return trie.Collect(new StoreEntryNil());
+	}
+}
+
+# ---------------------------------------------------------------- MonoStore = (HashTable Var (Setof Exp))
+class MonoEntry implements IMonoEntry
+{
+	private readonly ISymbol key;
+	private readonly IExpSet value;
+	public constructor(ISymbol k, IExpSet v)
+	{
+		key = k;
+		value = v;
+	}
+	public fun Key() : ISymbol
+	{
+		return key;
+	}
+	public fun Value() : IExpSet
+	{
+		return value;
+	}
+}
+
+class MonoMap implements IMonoStore
+{
+	private readonly IMonoTrie trie;
+	private readonly IMonoEntry missing;
+	private readonly Int count;
+	public constructor(IMonoTrie t, IMonoEntry m, Int c)
+	{
+		trie = t;
+		missing = m;
+		count = c;
+	}
+	public fun Ref(ISymbol v, IExpSet dflt) : IExpSet
+	{
+		IMonoEntry e = trie.Get(v.Id(), missing);
+		if (e == missing)
+		{
+			return dflt;
+		}
+		return e.Value();
+	}
+	public fun Set(ISymbol v, IExpSet s) : IMonoStore
+	{
+		IMonoEntry e = trie.Get(v.Id(), missing);
+		if (e == missing)
+		{
+			return Builtins.NewMonoMap(trie.Put(v.Id(), new MonoEntry(v, s)), missing, count + 1);
+		}
+		return Builtins.NewMonoMap(trie.Put(v.Id(), new MonoEntry(v, s)), missing, count);
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+	public fun Entries() : IMonoEntryList
+	{
+		return trie.Collect(new MonoEntryNil());
+	}
+}
+
+# ---------------------------------------------------------------- sets of opaque structs
+class ClosureSet implements IDenotable
+{
+	private readonly IClosureList elems;
+	private readonly Int count;
+	public constructor(IClosureList e, Int c)
+	{
+		elems = e;
+		count = c;
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+	public fun Contains(IClosure c) : Bool
+	{
+		IClosureList l = elems;
+		while (!l.IsEmpty())
+		{
+			if (l.First() == c)
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+	public fun Add(IClosure c) : IDenotable
+	{
+		if (this.Contains(c))
+		{
+			return this;
+		}
+		return Builtins.NewClosureSet(new ClosureCons(c, elems), count + 1);
+	}
+	public fun Union(IDenotable other) : IDenotable
+	{
+		IDenotable res = this;
+		IClosureList l = other.Elems();
+		while (!l.IsEmpty())
+		{
+			res = res.Add(l.First());
+			l = l.Rest();
+		}
+		return res;
+	}
+	public fun Elems() : IClosureList
+	{
+		return elems;
+	}
+}
+
+class StateSet implements IStateSet
+{
+	private readonly IStateList elems;
+	private readonly Int count;
+	public constructor(IStateList e, Int c)
+	{
+		elems = e;
+		count = c;
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+	public fun Member(IState s) : Bool
+	{
+		IStateList l = elems;
+		while (!l.IsEmpty())
+		{
+			if (l.First() == s)
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+	public fun Add(IState s) : IStateSet
+	{
+		if (this.Member(s))
+		{
+			return this;
+		}
+		return Builtins.NewStateSet(new StateCons(s, elems), count + 1);
+	}
+	public fun Elems() : IStateList
+	{
+		return elems;
+	}
+}
+
+class ExpSet implements IExpSet
+{
+	private readonly IExpList elems;
+	private readonly Int count;
+	public constructor(IExpList e, Int c)
+	{
+		elems = e;
+		count = c;
+	}
+	public fun Count() : Int
+	{
+		return count;
+	}
+	public fun Contains(IExp x) : Bool
+	{
+		IExpList l = elems;
+		while (!l.IsEmpty())
+		{
+			if (l.First() == x)
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+	public fun Add(IExp x) : IExpSet
+	{
+		if (this.Contains(x))
+		{
+			return this;
+		}
+		return Builtins.NewExpSet(new ExpCons(x, elems), count + 1);
+	}
+	public fun Union(IExpSet other) : IExpSet
+	{
+		IExpSet res = other;
+		IExpList l = elems;
+		while (!l.IsEmpty())
+		{
+			res = res.Add(l.First());
+			l = l.Rest();
+		}
+		return res;
+	}
+}
+
+# Classes that would otherwise instantiate themselves in their own methods go through these
+# factories: the benchmark generator recurses forever when it turns such a class into a record.
+class Builtins
+{
+	public static fun NewBEnvMap(IBEnvTrie t, IBEnvEntry m) : IBEnv
+	{
+		return new BEnvMap(t, m);
+	}
+	public static fun NewStoreMap(IStoreTrie t, IStoreEntry m) : IStore
+	{
+		return new StoreMap(t, m);
+	}
+	public static fun NewMonoMap(IMonoTrie t, IMonoEntry m, Int c) : IMonoStore
+	{
+		return new MonoMap(t, m, c);
+	}
+	public static fun NewClosureSet(IClosureList e, Int c) : IDenotable
+	{
+		return new ClosureSet(e, c);
+	}
+	public static fun NewStateSet(IStateList e, Int c) : IStateSet
+	{
+		return new StateSet(e, c);
+	}
+	public static fun NewExpSet(IExpList e, Int c) : IExpSet
+	{
+		return new ExpSet(e, c);
+	}
+	# (make-immutable-hasheq '())
+	public static fun EmptyBEnvMap() : IBEnv
+	{
+		IBEnvTrie t = new BEnvTrieEmpty(1);
+		return new BEnvMap(t, new BEnvEntry(new Sym(-1), new Missing()));
+	}
+	public static fun EmptyStoreMap() : IStore
+	{
+		IStoreTrie t = new StoreTrieEmpty(1);
+		return new StoreMap(t, new StoreEntry(new Missing(), Builtins.EmptyClosureSet()));
+	}
+	public static fun EmptyMonoMap() : IMonoStore
+	{
+		IMonoTrie t = new MonoTrieEmpty(1);
+		return new MonoMap(t, new MonoEntry(new Sym(-1), Builtins.EmptyExpSet()), 0);
+	}
+	# (set)
+	public static fun EmptyClosureSet() : IDenotable
+	{
+		return new ClosureSet(new ClosureNil(), 0);
+	}
+	public static fun EmptyStateSet() : IStateSet
+	{
+		return new StateSet(new StateNil(), 0);
+	}
+	public static fun EmptyExpSet() : IExpSet
+	{
+		return new ExpSet(new ExpNil(), 0);
+	}
+	# list->set
+	public static fun StateListToSet(IStateList l) : IStateSet
+	{
+		IStateSet s = Builtins.EmptyStateSet();
+		while (!l.IsEmpty())
+		{
+			s = s.Add(l.First());
+			l = l.Rest();
+		}
+		return s;
+	}
+	# (append a b)
+	public static fun AppendStates(IStateList a, IStateList b) : IStateList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new StateCons(a.First(), Builtins.AppendStates(a.Rest(), b));
+	}
+}
+
+# placeholder binding used as the key of the "missing" sentinel entries
+class Missing implements IBinding
+{
+	public constructor()
+	{
+	}
+	public fun Var() : ISymbol
+	{
+		ERROR("missing");
+	}
+	public fun Time() : ISymList
+	{
+		ERROR("missing");
+	}
+	public fun Id() : Int
+	{
+		return -1;
+	}
+}
+
+class SymNil implements ISymList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ISymbol
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ISymList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class SymCons implements ISymList
+{
+	private readonly ISymbol first;
+	private readonly ISymList rest;
+	public constructor(ISymbol f, ISymList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ISymbol
+	{
+		return first;
+	}
+	public fun Rest() : ISymList
+	{
+		return rest;
+	}
+}
+
+class ExpNil implements IExpList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IExp
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IExpList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ExpCons implements IExpList
+{
+	private readonly IExp first;
+	private readonly IExpList rest;
+	public constructor(IExp f, IExpList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IExp
+	{
+		return first;
+	}
+	public fun Rest() : IExpList
+	{
+		return rest;
+	}
+}
+
+class ClosureNil implements IClosureList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IClosure
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IClosureList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ClosureCons implements IClosureList
+{
+	private readonly IClosure first;
+	private readonly IClosureList rest;
+	public constructor(IClosure f, IClosureList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IClosure
+	{
+		return first;
+	}
+	public fun Rest() : IClosureList
+	{
+		return rest;
+	}
+}
+
+class DenotableNil implements IDenotableList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IDenotable
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IDenotableList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class DenotableCons implements IDenotableList
+{
+	private readonly IDenotable first;
+	private readonly IDenotableList rest;
+	public constructor(IDenotable f, IDenotableList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IDenotable
+	{
+		return first;
+	}
+	public fun Rest() : IDenotableList
+	{
+		return rest;
+	}
+}
+
+class BindingNil implements IBindingList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IBinding
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IBindingList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class BindingCons implements IBindingList
+{
+	private readonly IBinding first;
+	private readonly IBindingList rest;
+	public constructor(IBinding f, IBindingList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IBinding
+	{
+		return first;
+	}
+	public fun Rest() : IBindingList
+	{
+		return rest;
+	}
+}
+
+class StateNil implements IStateList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IState
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IStateList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class StateCons implements IStateList
+{
+	private readonly IState first;
+	private readonly IStateList rest;
+	public constructor(IState f, IStateList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IState
+	{
+		return first;
+	}
+	public fun Rest() : IStateList
+	{
+		return rest;
+	}
+}
+
+class StoreEntryNil implements IStoreEntryList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IStoreEntry
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IStoreEntryList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class StoreEntryCons implements IStoreEntryList
+{
+	private readonly IStoreEntry first;
+	private readonly IStoreEntryList rest;
+	public constructor(IStoreEntry f, IStoreEntryList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IStoreEntry
+	{
+		return first;
+	}
+	public fun Rest() : IStoreEntryList
+	{
+		return rest;
+	}
+}
+
+class MonoEntryNil implements IMonoEntryList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IMonoEntry
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IMonoEntryList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class MonoEntryCons implements IMonoEntryList
+{
+	private readonly IMonoEntry first;
+	private readonly IMonoEntryList rest;
+	public constructor(IMonoEntry f, IMonoEntryList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IMonoEntry
+	{
+		return first;
+	}
+	public fun Rest() : IMonoEntryList
+	{
+		return rest;
+	}
+}
+
+class BEnvEntryNil implements IBEnvEntryList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IBEnvEntry
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IBEnvEntryList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class BEnvEntryCons implements IBEnvEntryList
+{
+	private readonly IBEnvEntry first;
+	private readonly IBEnvEntryList rest;
+	public constructor(IBEnvEntry f, IBEnvEntryList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IBEnvEntry
+	{
+		return first;
+	}
+	public fun Rest() : IBEnvEntryList
+	{
+		return rest;
+	}
+}
+

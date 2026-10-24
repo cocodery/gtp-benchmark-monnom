@@ -1,0 +1,78 @@
+# tetras.rkt: tetra operations
+# (also contains aux.rkt, merged here to keep the configuration count down)
+
+class Tetras
+{
+	# Move the Tetra by the given X & Y displacement.
+	public static fun TetraMove(Float dx, Float dy, ITetra t) : ITetra
+	{
+		return new Tetra(new Posn(dx + t.Center().X(), dy + t.Center().Y()), BSet.BlocksMove(dx, dy, t.Blocks()));
+	}
+
+	# Rotate the tetra 90 degrees counterclockwise around its center.
+	public static fun TetraRotateCcw(ITetra t) : ITetra
+	{
+		return new Tetra(t.Center(), BSet.BlocksRotateCcw(t.Center(), t.Blocks()));
+	}
+
+	# Rotate the tetra 90 degrees clockwise around its center.
+	public static fun TetraRotateCw(ITetra t) : ITetra
+	{
+		return new Tetra(t.Center(), BSet.BlocksRotateCw(t.Center(), t.Blocks()));
+	}
+
+	# Is the tetra on any of the blocks?
+	public static fun TetraOverlapsBlocks(ITetra t, IBlockList bs) : Bool
+	{
+		return !BSet.BlocksIntersect(t.Blocks(), bs).IsEmpty();
+	}
+
+	# Change the color of the given tetra.
+	public static fun TetraChangeColor(ITetra t, String c) : ITetra
+	{
+		return new Tetra(t.Center(), BSet.BlocksChangeColor(t.Blocks(), c));
+	}
+
+	public static fun BuildTetraBlocks(String color, Float xc, Float yc, Float x1, Float y1, Float x2, Float y2, Float x3, Float y3, Float x4, Float y4) : ITetra
+	{
+		IBlockList bs = new BlockCons(new Block(x1, y1, color), new BlockCons(new Block(x2, y2, color), new BlockCons(new Block(x3, y3, color), new BlockCons(new Block(x4, y4, color), new BlockNil()))));
+		return Tetras.TetraMove(3.0, 0.0, new Tetra(new Posn(xc, yc), bs));
+	}
+}
+
+# aux.rkt
+class Aux
+{
+	# (define r (make-pseudo-random-generator)) seeded with 43453 when the module is instantiated;
+	# here the generator is made once by main and passed to the functions that use it
+	public static fun MakeR() : IRng
+	{
+		IRng r = new Rng();
+		r.Seed(43453);
+		return r;
+	}
+
+	public static fun ListPickRandom(ITetraList ls, IRng r) : ITetra
+	{
+		return Lists.TetraRef(ls, r.NextInt(Lists.TetrasLength(ls)));
+	}
+
+	public static fun Neg1() : Float
+	{
+		return -1.0;
+	}
+
+	# the module-level list `tetras` (built once by main)
+	public static fun Tetras() : ITetraList
+	{
+		ITetraList l = new TetraNil();
+		l = new TetraCons(Tetras.BuildTetraBlocks("pink", 1.0, -1.0, 0.0, -2.0, 1.0, -2.0, 1.0, -1.0, 2.0, -1.0), l);
+		l = new TetraCons(Tetras.BuildTetraBlocks("red", 1.0, -1.0, 0.0, -1.0, 1.0, -1.0, 1.0, -2.0, 2.0, -2.0), l);
+		l = new TetraCons(Tetras.BuildTetraBlocks("orange", 1.0, -1.0, 0.0, -1.0, 1.0, -1.0, 2.0, -1.0, 1.0, -2.0), l);
+		l = new TetraCons(Tetras.BuildTetraBlocks("cyan", 1.0, -1.0, 0.0, -1.0, 1.0, -1.0, 2.0, -1.0, 0.0, -2.0), l);
+		l = new TetraCons(Tetras.BuildTetraBlocks("purple", 1.0, -1.0, 0.0, -1.0, 1.0, -1.0, 2.0, -1.0, 2.0, -2.0), l);
+		l = new TetraCons(Tetras.BuildTetraBlocks("blue", 1.0, -1.0, 0.0, -1.0, 1.0, -1.0, 2.0, -1.0, 3.0, -1.0), l);
+		l = new TetraCons(Tetras.BuildTetraBlocks("green", 0.5, -1.5, 0.0, -1.0, 0.0, -2.0, 1.0, -1.0, 1.0, -2.0), l);
+		return l;
+	}
+}

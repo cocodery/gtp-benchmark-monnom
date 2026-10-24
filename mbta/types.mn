@@ -1,0 +1,175 @@
+# base/t-graph-types.rkt (Graph, MBTA, Path, Station-x-Line, Station*, Station, Line*, Line,
+# Colors->Lines) and base/t-view-types.rkt (Manage), plus the types of the Racket builtins
+# (strings, sets, hash tables) and of the graph library (base/my-graph.rkt, base/graph).
+#   Station = String -> IText
+#   Line = one of the 10 line names -> Int index 0..9 ("green" "E" "D" "C" "B" "red"
+#          "Mattapan" "Braintree" "orange" "blue"); (Setof Line) -> Int bit set
+
+# a string: a sequence of character codes (MonNom strings are opaque)
+interface IText
+{
+	fun Length() : Int;
+	fun CharAt(Int i) : Int;
+	fun Push(Int c) : IText;
+}
+
+# (U False String)
+interface IOptText
+{
+	fun IsFalse() : Bool;
+	fun Text() : IText;
+}
+
+# Station-x-Line = (List Station (Setof Line))
+interface IStationLine
+{
+	fun Station() : IText;
+	fun Lines() : Int;
+}
+
+# an element of Path* = (U String Station-x-Line)
+interface IPathElem
+{
+	fun IsString() : Bool;
+	fun Str() : IText;
+	fun StationLine() : IStationLine;
+}
+
+# (List String (Setof Line)), an element of Colors->Lines
+interface IColorLines
+{
+	fun Color() : IText;
+	fun Lines() : Int;
+}
+
+# (List Station Station)
+interface IConnection
+{
+	fun From() : IText;
+	fun To() : IText;
+}
+
+# (List Line Connection*)
+interface ILineConnections
+{
+	fun Line() : Int;
+	fun Connections() : IConnectionList;
+}
+
+# the result of the station method: (U Station (Listof Station))
+interface IStationChoice
+{
+	fun IsStation() : Bool;
+	fun Station() : IText;
+	fun Candidates() : ITextList;
+}
+
+# Graph (opaque, from the graph library)
+interface IGraph
+{
+	fun InNeighbors(IText v) : ITextList;
+}
+
+# the connection-on edge property (-> Station Station (Setof Line)) and its setter
+interface IEdgeProperty
+{
+	fun Get(IText from, IText to) : Int;
+	fun Set(IConnection edge, Int lines) : Int;
+}
+
+# (Instance MBTA)
+interface IMBTA
+{
+	fun FindPath(IText from, IText to) : IPathList;
+	fun Render(Int b) : IText;
+	fun IsStation(IText s) : Bool;
+	fun Station(IText word) : IStationChoice;
+}
+
+# (Instance Manage)
+interface IManage
+{
+	fun AddToDisabled(IText s) : IOptText;
+	fun RemoveFromDisabled(IText s) : IOptText;
+	fun Find(IText from, IText to) : IText;
+}
+
+# (Setof Station)
+interface ITextSet
+{
+	fun Member(IText s) : Bool;
+	fun Elems() : ITextList;
+}
+
+# (Listof IText)
+interface ITextList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IText;
+	fun Rest() : ITextList;
+}
+
+# (Listof IStationLine)
+interface IPath
+{
+	fun IsEmpty() : Bool;
+	fun First() : IStationLine;
+	fun Rest() : IPath;
+}
+
+# (Listof IPath)
+interface IPathList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPath;
+	fun Rest() : IPathList;
+}
+
+# (Listof IPathElem)
+interface IPathStar
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPathElem;
+	fun Rest() : IPathStar;
+}
+
+# (Listof IPathStar)
+interface IPathStarList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPathStar;
+	fun Rest() : IPathStarList;
+}
+
+# (Listof IColorLines)
+interface IColorLinesList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IColorLines;
+	fun Rest() : IColorLinesList;
+}
+
+# (Listof IConnection)
+interface IConnectionList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IConnection;
+	fun Rest() : IConnectionList;
+}
+
+# (Listof ILineConnections)
+interface ILineConnectionsList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ILineConnections;
+	fun Rest() : ILineConnectionsList;
+}
+
+# (Listof ITextList)
+interface ITextListList
+{
+	fun IsEmpty() : Bool;
+	fun First() : ITextList;
+	fun Rest() : ITextListList;
+}
+

@@ -1,0 +1,1618 @@
+# jfif.rkt: readers and writers for the JPEG File Interchange Format
+# Keyword arguments are explicit; multiple values are small result objects; (U #f ...) in vectors
+# is -1 (or an empty vector for (U #f (Vectorof Natural)) in q-tables-for-mcu-array).
+
+class JfifS implements IJfif
+{
+	private readonly IFrame frame;
+	private readonly IMiscList miscSegments;
+	private readonly IMcuArray mcuArray;
+	public constructor(IFrame f, IMiscList m, IMcuArray a)
+	{
+		frame = f;
+		miscSegments = m;
+		mcuArray = a;
+	}
+	public fun Frame() : IFrame
+	{
+		return frame;
+	}
+	public fun MiscSegments() : IMiscList
+	{
+		return miscSegments;
+	}
+	public fun McuArray() : IMcuArray
+	{
+		return mcuArray;
+	}
+}
+
+class FrameS implements IFrame
+{
+	private readonly Int marker;
+	private readonly Int precision;
+	private readonly Int y;
+	private readonly Int x;
+	private readonly IComponentVec components;
+	private readonly Int sampX;
+	private readonly Int sampY;
+	public constructor(Int m, Int p, Int yy, Int xx, IComponentVec c, Int sx, Int sy)
+	{
+		marker = m;
+		precision = p;
+		y = yy;
+		x = xx;
+		components = c;
+		sampX = sx;
+		sampY = sy;
+	}
+	public fun Marker() : Int
+	{
+		return marker;
+	}
+	public fun Precision() : Int
+	{
+		return precision;
+	}
+	public fun Y() : Int
+	{
+		return y;
+	}
+	public fun X() : Int
+	{
+		return x;
+	}
+	public fun Components() : IComponentVec
+	{
+		return components;
+	}
+	public fun SampX() : Int
+	{
+		return sampX;
+	}
+	public fun SampY() : Int
+	{
+		return sampY;
+	}
+}
+
+class ComponentS implements IComponent
+{
+	private readonly Int id;
+	private readonly Int index;
+	private readonly Int sampX;
+	private readonly Int sampY;
+	private readonly Int qTable;
+	public constructor(Int i, Int n, Int sx, Int sy, Int q)
+	{
+		id = i;
+		index = n;
+		sampX = sx;
+		sampY = sy;
+		qTable = q;
+	}
+	public fun Id() : Int
+	{
+		return id;
+	}
+	public fun Index() : Int
+	{
+		return index;
+	}
+	public fun SampX() : Int
+	{
+		return sampX;
+	}
+	public fun SampY() : Int
+	{
+		return sampY;
+	}
+	public fun QTable() : Int
+	{
+		return qTable;
+	}
+}
+
+# (Vectorof component)
+class ComponentVecS implements IComponentVec
+{
+	private readonly ArrayList<IComponent> elems;
+	public constructor()
+	{
+		elems = new ArrayList<IComponent>();
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : IComponent
+	{
+		return elems.Get(i);
+	}
+	public fun Add(IComponent c) : Int
+	{
+		elems.Add(c);
+		return 0;
+	}
+}
+
+class MiscS implements IMisc
+{
+	private readonly Int marker;
+	private readonly IBytes bytes;
+	public constructor(Int m, IBytes b)
+	{
+		marker = m;
+		bytes = b;
+	}
+	public fun Marker() : Int
+	{
+		return marker;
+	}
+	public fun Bytes() : IBytes
+	{
+		return bytes;
+	}
+}
+
+class ParamsS implements IParams
+{
+	private readonly IQTables qTables;
+	private readonly IHTables dcTables;
+	private readonly IHTables acTables;
+	private readonly Int restartInterval;
+	private readonly IMiscList miscSegments;
+	public constructor(IQTables q, IHTables d, IHTables a, Int r, IMiscList m)
+	{
+		qTables = q;
+		dcTables = d;
+		acTables = a;
+		restartInterval = r;
+		miscSegments = m;
+	}
+	public fun QTables() : IQTables
+	{
+		return qTables;
+	}
+	public fun DcTables() : IHTables
+	{
+		return dcTables;
+	}
+	public fun AcTables() : IHTables
+	{
+		return acTables;
+	}
+	public fun RestartInterval() : Int
+	{
+		return restartInterval;
+	}
+	public fun MiscSegments() : IMiscList
+	{
+		return miscSegments;
+	}
+}
+
+# Scan-Component = (Vector Component Integer Q-Table Huffman Huffman)
+class ScanComponentV implements IScanComponent
+{
+	private readonly IComponent component;
+	private Int prevDc;
+	private readonly IVec qTable;
+	private readonly IHuffman dcTable;
+	private readonly IHuffman acTable;
+	public constructor(IComponent c, Int p, IVec q, IHuffman d, IHuffman a)
+	{
+		component = c;
+		prevDc = p;
+		qTable = q;
+		dcTable = d;
+		acTable = a;
+	}
+	public fun Component() : IComponent
+	{
+		return component;
+	}
+	public fun PrevDc() : Int
+	{
+		return prevDc;
+	}
+	public fun SetPrevDc(Int dc) : Int
+	{
+		prevDc = dc;
+		return dc;
+	}
+	public fun QTable() : IVec
+	{
+		return qTable;
+	}
+	public fun DcTable() : IHuffman
+	{
+		return dcTable;
+	}
+	public fun AcTable() : IHuffman
+	{
+		return acTable;
+	}
+}
+
+# SC*
+class ScanComponentsV implements IScanComponents
+{
+	private readonly ArrayList<IScanComponent> elems;
+	public constructor()
+	{
+		elems = new ArrayList<IScanComponent>();
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : IScanComponent
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, IScanComponent sc) : Int
+	{
+		elems.Set(i, sc);
+		return i;
+	}
+	public fun Add(IScanComponent sc) : Int
+	{
+		elems.Add(sc);
+		return 0;
+	}
+}
+
+# jfif.rkt's module-level constants
+class JfifStateS implements IJfifState
+{
+	private readonly IBytes normalOrder;
+	private readonly IParams initialParams;
+	private readonly IHuffman fakeHuff;
+	public constructor(IBytes n, IParams p, IHuffman h)
+	{
+		normalOrder = n;
+		initialParams = p;
+		fakeHuff = h;
+	}
+	public fun NormalOrder() : IBytes
+	{
+		return normalOrder;
+	}
+	public fun InitialParams() : IParams
+	{
+		return initialParams;
+	}
+	public fun FakeHuffman() : IHuffman
+	{
+		return fakeHuff;
+	}
+}
+
+# (values params marker) of read-params
+class ParamsAndMarker
+{
+	public readonly IParams P;
+	public readonly Int Marker;
+	public constructor(IParams p, Int m)
+	{
+		P = p;
+		Marker = m;
+	}
+}
+
+# (values dc codes) of compute-block-codes
+class DcAndCodes
+{
+	public readonly Int Dc;
+	public readonly IIntList Codes;
+	public constructor(Int d, IIntList c)
+	{
+		Dc = d;
+		Codes = c;
+	}
+}
+
+# (values q-tables codes) of compute-code-sequences
+class QtAndCodes
+{
+	public readonly IQTables Q;
+	public readonly ICodesArray Codes;
+	public constructor(IQTables q, ICodesArray c)
+	{
+		Q = q;
+		Codes = c;
+	}
+}
+
+# allocate-dct-matrix's inner (match-lambda ((vector i j) (make-vector (* 8 8) 0)))
+class ZeroBlockProc implements IBlockProc
+{
+	public constructor()
+	{
+	}
+	public fun this(IVec js) : IVec
+	{
+		return Builtins.MakeVector(64, 0);
+	}
+}
+
+# allocate-dct-matrix's outer (match-lambda ((vector i j) (for/vector ...)))
+class McuProc implements IMcuProc
+{
+	private readonly IFrame frame;
+	public constructor(IFrame f)
+	{
+		frame = f;
+	}
+	public fun this(IVec js) : IMcu
+	{
+		IComponentVec cs = frame.Components();
+		IMcu mcu = Arrays.MakeMcu(cs.Length());
+		Int i = 0;
+		while (i < cs.Length())
+		{
+			IComponent c = cs.Ref(i);
+			IVec ds = Builtins.MakeVector(2, c.SampY());
+			ds.Set(1, c.SampX());
+			mcu.Set(i, Arrays.BuildBlockArray(ds, new ZeroBlockProc()));
+			i = i + 1;
+		}
+		return mcu;
+	}
+}
+
+class Jfif
+{
+	public static fun MakeState() : IJfifState
+	{
+		IParams init = new ParamsS(Builtins.MakeQTables(4), Builtins.MakeHTables(4), Builtins.MakeHTables(4), 0, new MiscNil());
+		return new JfifStateS(Jfif.NormalOrder(), init, Builtins.FakeHuffman());
+	}
+
+	# normal-order (computed at compile time in the original)
+	public static fun NormalOrder() : IBytes
+	{
+		IBytes res = Builtins.MakeBytes(64 + 16, 63);
+		Int x = 0;
+		Int y = 0;
+		Int xInc = 1;
+		Int yInc = 0 - 1;
+		Int pos = 0;
+		while (pos < 64)
+		{
+			if (x < 0)
+			{
+				x = 0;
+				xInc = 0 - xInc;
+				yInc = 0 - yInc;
+				continue;
+			}
+			if (y < 0)
+			{
+				y = 0;
+				xInc = 0 - xInc;
+				yInc = 0 - yInc;
+				continue;
+			}
+			if (Jfif.InBlock(x, y))
+			{
+				res.Set(pos, y * 8 + x);
+				x = x + xInc;
+				y = y + yInc;
+				pos = pos + 1;
+				continue;
+			}
+			x = x + xInc;
+			y = y + yInc;
+		}
+		return res;
+	}
+
+	public static fun InBlock(Int x, Int y) : Bool
+	{
+		if (x < 8)
+		{
+			return y < 8;
+		}
+		return false;
+	}
+
+	public static fun ReadMarker(IPort port) : Int
+	{
+		Int u8 = port.ReadByte();
+		if (u8 != 255)
+		{
+			ERROR("Unexpected byte while reading marker");
+		}
+		while (true)
+		{
+			Int b = port.ReadByte();
+			if (b < 0)
+			{
+				ERROR("End of file while reading marker");
+			}
+			if (b == 255)
+			{
+				continue;
+			}
+			if (b == 0)
+			{
+				ERROR("Expected a marker, got #xFF00");
+			}
+			return Bits.Or(65280, b);
+		}
+		return 0;
+	}
+
+	public static fun AssertMarker(IPort port, Int expected) : Int
+	{
+		Int marker = Jfif.ReadMarker(port);
+		if (expected != marker)
+		{
+			ERROR("Unexpected marker");
+		}
+		return 0;
+	}
+
+	public static fun ReadU8(IPort port) : Int
+	{
+		Int u8 = port.ReadByte();
+		if (u8 < 0)
+		{
+			ERROR("EOF while reading byte from port");
+		}
+		return u8;
+	}
+
+	public static fun ReadU16(IPort port) : Int
+	{
+		Int msb = port.ReadByte();
+		Int lsb = port.ReadByte();
+		if (msb < 0)
+		{
+			ERROR("EOF while reading two-byte value");
+		}
+		if (lsb < 0)
+		{
+			ERROR("EOF while reading two-byte value");
+		}
+		return Bits.Or(Bits.Shift(msb, 8), lsb);
+	}
+
+	public static fun ReadBytesExactly(Int n, IPort port) : IBytes
+	{
+		IBytes bytes = port.ReadBytes(n);
+		if (bytes.Length() != n)
+		{
+			ERROR("EOF while reading bytes");
+		}
+		return bytes;
+	}
+
+	public static fun ReadSoi(IPort port) : Int
+	{
+		return Jfif.AssertMarker(port, 65496);
+	}
+
+	public static fun ReadQTable(IPort port, Int len, IQTables qTables, IJfifState st) : Int
+	{
+		if (len <= 2)
+		{
+			ERROR("Invalid DQT segment length");
+		}
+		IBytes normal = st.NormalOrder();
+		Int remaining = len - 2;
+		while (remaining != 0)
+		{
+			if (remaining < 1)
+			{
+				ERROR("Invalid DQT segment length");
+			}
+			Int pt = Jfif.ReadU8(port);
+			Int pq = Bits.Shift(pt, 0 - 4);
+			Int tq = Bits.And(pt, 15);
+			IVec table = Builtins.MakeVector(64, 0 - 1);
+			remaining = remaining - (1 + 64 * (pq + 1));
+			if (tq >= 4)
+			{
+				ERROR("Bad Tq value");
+			}
+			if (remaining < 0)
+			{
+				ERROR("Invalid DQT segment length");
+			}
+			if (pq == 0)
+			{
+				Int n = 0;
+				while (n < 64)
+				{
+					table.Set(normal.Ref(n), Jfif.ReadU8(port));
+					n = n + 1;
+				}
+			}
+			if (pq == 1)
+			{
+				Int n2 = 0;
+				while (n2 < 64)
+				{
+					table.Set(normal.Ref(n2), Jfif.ReadU16(port));
+					n2 = n2 + 1;
+				}
+			}
+			if (pq > 1)
+			{
+				ERROR("Bad Pq value");
+			}
+			qTables.Set(tq, table);
+		}
+		return 0;
+	}
+
+	public static fun ReadHuffmanTable(IPort port, Int len, IHTables dcTables, IHTables acTables) : Int
+	{
+		if (len <= 2)
+		{
+			ERROR("Invalid DHT segment length");
+		}
+		Int remaining = len - 2;
+		while (remaining != 0)
+		{
+			if (remaining < 17)
+			{
+				ERROR("Invalid DHT segment length");
+			}
+			Int t = Jfif.ReadU8(port);
+			Int tc = Bits.Shift(t, 0 - 4);
+			Int th = Bits.And(t, 15);
+			IBytes sizeCounts = Jfif.ReadBytesExactly(16, port);
+			Int count = 0;
+			Int i = 0;
+			while (i < 16)
+			{
+				count = count + sizeCounts.Ref(i);
+				i = i + 1;
+			}
+			remaining = remaining - (17 + count);
+			if (th >= 4)
+			{
+				ERROR("Bad Th value");
+			}
+			if (remaining < 0)
+			{
+				ERROR("Invalid DHT segment length");
+			}
+			IBytes values = Jfif.ReadBytesExactly(count, port);
+			IHuffman table = Huffman.MakeHuffmanTable(sizeCounts, values);
+			if (tc == 0)
+			{
+				dcTables.Set(th, table);
+			}
+			if (tc == 1)
+			{
+				acTables.Set(th, table);
+			}
+			if (tc > 1)
+			{
+				ERROR("Bad Tc value");
+			}
+		}
+		return 0;
+	}
+
+	# COM, APP0-APP15
+	public static fun IsMiscMarker(Int m) : Bool
+	{
+		if (m == 65534)
+		{
+			return true;
+		}
+		if (m >= 65504)
+		{
+			return m <= 65519;
+		}
+		return false;
+	}
+
+	public static fun ReadParams(IPort port, IParams previous, Bool withMisc, IJfifState st) : ParamsAndMarker
+	{
+		IQTables qTables = Builtins.CopyQTables(previous.QTables());
+		IHTables dcTables = Builtins.CopyHTables(previous.DcTables());
+		IHTables acTables = Builtins.CopyHTables(previous.AcTables());
+		Int restartInterval = previous.RestartInterval();
+		IMiscList miscSegments = new MiscNil();
+		while (true)
+		{
+			Int marker = BitPorts.AssertNatural(Jfif.ReadMarker(port));
+			if (marker == 65499)
+			{
+				Jfif.ReadQTable(port, Jfif.ReadU16(port), qTables, st);
+				continue;
+			}
+			if (marker == 65476)
+			{
+				Jfif.ReadHuffmanTable(port, Jfif.ReadU16(port), dcTables, acTables);
+				continue;
+			}
+			if (marker == 65484)
+			{
+				ERROR("Arithmetic coding currently unsupported.");
+			}
+			if (marker == 65501)
+			{
+				Int len = Jfif.ReadU16(port);
+				if (len != 4)
+				{
+					ERROR("Unexpected DRI len");
+				}
+				restartInterval = BitPorts.AssertNatural(Jfif.ReadU16(port));
+				continue;
+			}
+			if (Jfif.IsMiscMarker(marker))
+			{
+				Int len2 = Jfif.ReadU16(port);
+				Int payloadLen = len2 - 2;
+				if (payloadLen < 0)
+				{
+					ERROR("Invalid comment/app segment length");
+				}
+				miscSegments = new MiscCons(new MiscS(marker, Jfif.ReadBytesExactly(payloadLen, port)), miscSegments);
+				continue;
+			}
+			return new ParamsAndMarker(new ParamsS(qTables, dcTables, acTables, restartInterval, Builtins.ReverseMiscs(miscSegments)), marker);
+		}
+		ERROR("unreachable");
+	}
+
+	public static fun IsSkippable(Int m) : Bool
+	{
+		if (m == 65499)
+		{
+			return true;
+		}
+		if (m == 65476)
+		{
+			return true;
+		}
+		if (m == 65484)
+		{
+			return true;
+		}
+		if (m == 65501)
+		{
+			return true;
+		}
+		return Jfif.IsMiscMarker(m);
+	}
+
+	public static fun SkipParams(IPort port) : Int
+	{
+		Int marker = Jfif.ReadMarker(port);
+		if (Jfif.IsSkippable(marker))
+		{
+			Int len = Jfif.ReadU16(port);
+			Int payloadLen = len - 2;
+			if (payloadLen < 0)
+			{
+				ERROR("Invalid marker segment length");
+			}
+			port.SetPosition(port.Position() + payloadLen);
+			return Jfif.SkipParams(port);
+		}
+		return marker;
+	}
+
+	public static fun IsOneOf5(Int m, Int a, Int b, Int c, Int d, Int e) : Bool
+	{
+		if (m == a)
+		{
+			return true;
+		}
+		if (m == b)
+		{
+			return true;
+		}
+		if (m == c)
+		{
+			return true;
+		}
+		if (m == d)
+		{
+			return true;
+		}
+		return m == e;
+	}
+
+	public static fun FrameBaseline(IFrame f) : Bool
+	{
+		return f.Marker() == 65472;
+	}
+
+	public static fun FrameSequential(IFrame f) : Bool
+	{
+		return Jfif.IsOneOf5(f.Marker(), 65472, 65473, 65475, 65481, 65483);
+	}
+
+	public static fun FrameProgressive(IFrame f) : Bool
+	{
+		return Jfif.IsOneOf5(f.Marker(), 65474, 65482, 65482, 65482, 65482);
+	}
+
+	public static fun FrameHuffmanCoded(IFrame f) : Bool
+	{
+		return Jfif.IsOneOf5(f.Marker(), 65472, 65473, 65474, 65475, 65475);
+	}
+
+	public static fun FrameArithmeticCoded(IFrame f) : Bool
+	{
+		return Jfif.IsOneOf5(f.Marker(), 65481, 65482, 65483, 65483, 65483);
+	}
+
+	public static fun FrameLossless(IFrame f) : Bool
+	{
+		return Jfif.IsOneOf5(f.Marker(), 65475, 65483, 65483, 65483, 65483);
+	}
+
+	public static fun FrameDct(IFrame f) : Bool
+	{
+		return Jfif.IsOneOf5(f.Marker(), 65472, 65473, 65474, 65481, 65482);
+	}
+
+	public static fun FrameComponentCount(IFrame f) : Int
+	{
+		return f.Components().Length();
+	}
+
+	public static fun FrameMcuWidth(IFrame f) : Int
+	{
+		return Builtins.CeilingDiv(f.X(), f.SampX() * 8);
+	}
+
+	public static fun FrameMcuHeight(IFrame f) : Int
+	{
+		return Builtins.CeilingDiv(f.Y(), f.SampY() * 8);
+	}
+
+	# SOF0-SOF7, SOF9-SOF15 (there is no SOF8)
+	public static fun IsSof(Int m) : Bool
+	{
+		if (m < 65472)
+		{
+			return false;
+		}
+		if (m > 65487)
+		{
+			return false;
+		}
+		return m != 65480;
+	}
+
+	public static fun IsSampling(Int v) : Bool
+	{
+		return Jfif.IsOneOf5(v, 1, 2, 4, 4, 4);
+	}
+
+	public static fun ReadFrameHeader(IPort port, Int sof) : IFrame
+	{
+		if (!Jfif.IsSof(sof))
+		{
+			ERROR("Invalid start-of-frame marker");
+		}
+		Int len = Jfif.ReadU16(port);
+		if (len < 8)
+		{
+			ERROR("Invalid frame header segment length");
+		}
+		Int precision = Jfif.ReadU8(port);
+		Int y = Jfif.ReadU16(port);
+		Int x = Jfif.ReadU16(port);
+		Int componentCount = Jfif.ReadU8(port);
+		if (len != 8 + componentCount * 3)
+		{
+			ERROR("Invalid frame header segment length");
+		}
+		if (componentCount <= 0)
+		{
+			ERROR("No components in frame");
+		}
+		if (x == 0)
+		{
+			ERROR("Invalid zero-width image");
+		}
+		if (y == 0)
+		{
+			ERROR("DNL not supported");
+		}
+		ComponentVecS components = new ComponentVecS();
+		Int n = 0;
+		while (n < componentCount)
+		{
+			Int id = Jfif.ReadU8(port);
+			Int samp = Jfif.ReadU8(port);
+			Int sampX = Bits.Shift(samp, 0 - 4);
+			Int sampY = Bits.And(samp, 15);
+			Int table = Jfif.ReadU8(port);
+			# Although 3 is technically permitted, it's pretty bogus.
+			if (!Jfif.IsSampling(sampX))
+			{
+				ERROR("Bad horizontal sampling value");
+			}
+			if (!Jfif.IsSampling(sampX))
+			{
+				ERROR("Bad vertical sampling value");
+			}
+			if (table >= 4)
+			{
+				ERROR("Bad quantization table value");
+			}
+			components.Add(new ComponentS(id, n, sampX, sampY, table));
+			n = n + 1;
+		}
+		# (the original folds component-samp-y for both samp-x and samp-y)
+		Int fsx = 1;
+		Int fsy = 1;
+		Int i = 0;
+		while (i < components.Length())
+		{
+			fsx = Builtins.Max(fsx, components.Ref(i).SampY());
+			fsy = Builtins.Max(fsy, components.Ref(i).SampY());
+			i = i + 1;
+		}
+		return new FrameS(BitPorts.AssertNatural(sof), precision, y, x, components, fsx, fsy);
+	}
+
+	public static fun AllocateDctMatrix(IFrame frame) : IMcuArray
+	{
+		IVec ds = Builtins.MakeVector(2, Jfif.FrameMcuHeight(frame));
+		ds.Set(1, Jfif.FrameMcuWidth(frame));
+		return Arrays.BuildMcuArray(ds, new McuProc(frame));
+	}
+
+	# record! of read-block
+	public static fun RecordBang(IVec block, IVec qTable, IBytes normal, Int index0, Int coeff) : Int
+	{
+		Int index = normal.Ref(index0);
+		Int q = Huffman.AssertValue(qTable.Ref(index));
+		block.Set(index, coeff * q);
+		return 0;
+	}
+
+	# returns the current dc
+	public static fun ReadBlock(IBitPort bitPort, IVec block, Int prevDcQ, IVec qTable, IHuffman dcTable, IHuffman acTable, IBytes normal) : Int
+	{
+		# First, read DC coefficient.
+		Int dcDiffBits = Huffman.ReadHuffmanCodedValue(bitPort, dcTable);
+		Int dcQdiff = BitPorts.ReadSignedBits(bitPort, dcDiffBits);
+		Int dcQ = prevDcQ + dcQdiff;
+		Jfif.RecordBang(block, qTable, normal, 0, dcQ);
+		# Now read AC coefficients.
+		Int k = 1;
+		while (true)
+		{
+			Int code = Huffman.ReadHuffmanCodedValue(bitPort, acTable);
+			Int r = Bits.Shift(code, 0 - 4);
+			Int s = Bits.And(code, 15);
+			if (s == 0)
+			{
+				# #xf0 indicates 16 zeroes.  Otherwise stop.
+				if (r == 15)
+				{
+					k = k + 16;
+					continue;
+				}
+				break;
+			}
+			Int bits = BitPorts.ReadSignedBits(bitPort, s);
+			Int k2 = k + r;
+			Jfif.RecordBang(block, qTable, normal, k2, bits);
+			# Loop if there are more coefficients.
+			if (k2 < 63)
+			{
+				k = k2 + 1;
+				continue;
+			}
+			break;
+		}
+		# Return DC coefficient.
+		return dcQ;
+	}
+
+	public static fun ReadMcu(IBitPort bitPort, IScanComponents scs, IMcu mcu, IBytes normal) : Int
+	{
+		Int i = 0;
+		while (i < scs.Length())
+		{
+			IScanComponent sc = scs.Ref(i);
+			IBlockArray blocks = mcu.Ref(sc.Component().Index());
+			Int dc = sc.PrevDc();
+			Int b = 0;
+			while (b < blocks.Size())
+			{
+				dc = Jfif.ReadBlock(bitPort, blocks.RefFlat(b), dc, sc.QTable(), sc.DcTable(), sc.AcTable(), normal);
+				b = b + 1;
+			}
+			sc.SetPrevDc(dc);
+			i = i + 1;
+		}
+		return 0;
+	}
+
+	public static fun ReadDctScan(IBitPort bitPort, IScanComponents scs, IMcuArray dest, Int ss, Int se, Int ah, Int al, IBytes normal) : Int
+	{
+		if (ss != 0)
+		{
+			ERROR("progressive frame reading not yet supported");
+		}
+		if (se != 63)
+		{
+			ERROR("progressive frame reading not yet supported");
+		}
+		if (ah != 0)
+		{
+			ERROR("progressive frame reading not yet supported");
+		}
+		if (al != 0)
+		{
+			ERROR("progressive frame reading not yet supported");
+		}
+		Int k = 0;
+		while (k < dest.Size())
+		{
+			Jfif.ReadMcu(bitPort, scs, dest.RefFlat(k), normal);
+			k = k + 1;
+		}
+		return 0;
+	}
+
+	public static fun FindComponent(IFrame frame, Int id) : IComponent
+	{
+		IComponentVec cs = frame.Components();
+		Int i = 0;
+		while (i < cs.Length())
+		{
+			if (cs.Ref(i).Id() == id)
+			{
+				return cs.Ref(i);
+			}
+			i = i + 1;
+		}
+		ERROR("assert: component?");
+	}
+
+	public static fun ReadScan(IPort port, IFrame frame, IParams params, IMcuArray dest, IJfifState st) : Int
+	{
+		if (!Jfif.FrameDct(frame))
+		{
+			ERROR("DCT frame expected");
+		}
+		if (!Jfif.FrameHuffmanCoded(frame))
+		{
+			ERROR("Huffman coding expected");
+		}
+		Int len = Jfif.ReadU16(port);
+		if (len < 6)
+		{
+			ERROR("Unexpected scan segment length");
+		}
+		Int scc = Jfif.ReadU8(port);
+		if (len != 6 + scc * 2)
+		{
+			ERROR("Unexpected scan segment length");
+		}
+		ScanComponentsV scs = new ScanComponentsV();
+		IScanComponent fakeSc = new ScanComponentV(new ComponentS(0, 0, 0, 0, 0), 0, Builtins.MakeVector(0, 0), st.FakeHuffman(), st.FakeHuffman());
+		Int f = 0;
+		while (f < scc)
+		{
+			scs.Add(fakeSc);
+			f = f + 1;
+		}
+		Int nextComponentIndex = 0;
+		Int i = 0;
+		while (i < scc)
+		{
+			Int id = Jfif.ReadU8(port);
+			Int t = Jfif.ReadU8(port);
+			Int td = Bits.Shift(t, 0 - 4);
+			Int ta = Bits.And(t, 15);
+			IComponent component = Jfif.FindComponent(frame, id);
+			if (td >= 4)
+			{
+				ERROR("Bad Td");
+			}
+			if (ta >= 4)
+			{
+				ERROR("Bad Ta");
+			}
+			if (component.Index() > nextComponentIndex)
+			{
+				ERROR("Bad component ordering in scan");
+			}
+			if (!params.QTables().Has(component.QTable()))
+			{
+				ERROR("Missing Q table");
+			}
+			if (!params.DcTables().Has(td))
+			{
+				ERROR("Missing DC table");
+			}
+			if (!params.AcTables().Has(ta))
+			{
+				ERROR("Missing AC table");
+			}
+			scs.Set(i, new ScanComponentV(component, 0, params.QTables().Ref(component.QTable()), params.DcTables().Ref(td), params.AcTables().Ref(ta)));
+			nextComponentIndex = component.Index() + 1;
+			i = i + 1;
+		}
+		Int ss = Jfif.ReadU8(port);
+		Int se = Jfif.ReadU8(port);
+		Int a = Jfif.ReadU8(port);
+		Int ah = Bits.Shift(a, 0 - 4);
+		Int al = Bits.And(a, 15);
+		IBitPort bitPort = BitPorts.MakeBitPort(port);
+		if (Jfif.FrameSequential(frame))
+		{
+			if (ss != 0)
+			{
+				ERROR("Bad Ss for sequential frame");
+			}
+			if (se != 63)
+			{
+				ERROR("Bad Se for sequential frame");
+			}
+			if (ah != 0)
+			{
+				ERROR("Bad Ah for sequential frame");
+			}
+			if (al != 0)
+			{
+				ERROR("Bad Al for sequential frame");
+			}
+			return Jfif.ReadDctScan(bitPort, scs, dest, 0, 63, 0, 0, st.NormalOrder());
+		}
+		if (Jfif.FrameProgressive(frame))
+		{
+			return Jfif.ReadDctScan(bitPort, scs, dest, ss, se, ah, al, st.NormalOrder());
+		}
+		ERROR("Unsupported frame type");
+	}
+
+	# (read-jfif bytes #:with-body? with-body? #:with-misc-sections? with-misc-sections?)
+	public static fun ReadJfif(IBytes bytes, Bool withBody, Bool withMisc, IJfifState st) : IJfif
+	{
+		IPort port = Builtins.OpenInputBytes(bytes);
+		Jfif.ReadSoi(port);
+		ParamsAndMarker pm = Jfif.ReadParams(port, st.InitialParams(), withMisc, st);
+		IFrame frame = Jfif.ReadFrameHeader(port, pm.Marker);
+		IMcuArray dest = Jfif.AllocateDctMatrix(frame);
+		IParams params = pm.P;
+		IMiscList misc = params.MiscSegments();
+		while (true)
+		{
+			ParamsAndMarker spm = Jfif.ReadParams(port, params, withMisc, st);
+			IParams scanParams = spm.P;
+			if (spm.Marker == 65497)
+			{
+				return new JfifS(frame, misc, dest);
+			}
+			if (spm.Marker != 65498)
+			{
+				ERROR("Unexpected marker");
+			}
+			if (!withBody)
+			{
+				return new JfifS(frame, misc, dest);
+			}
+			Jfif.ReadScan(port, frame, scanParams, dest, st);
+			params = scanParams;
+			misc = Builtins.AppendMiscs(misc, scanParams.MiscSegments());
+		}
+		ERROR("unreachable");
+	}
+
+	# ---- writing ----
+
+	# meet-tables; an empty q stands for #f
+	public static fun MeetTables(IVec coeffs, IVec q) : IVec
+	{
+		IVec r = Builtins.MakeVector(coeffs.Length(), 0);
+		Int i = 0;
+		while (i < coeffs.Length())
+		{
+			r.Set(i, Jfif.MeetOne(coeffs, q, i));
+			i = i + 1;
+		}
+		return r;
+	}
+
+	public static fun MeetOne(IVec coeffs, IVec q, Int i) : Int
+	{
+		if (q.Length() == 0)
+		{
+			return Builtins.Abs(coeffs.Ref(i));
+		}
+		return Builtins.Gcd(Builtins.Abs(coeffs.Ref(i)), q.Ref(i));
+	}
+
+	public static fun MeetMcuBlocks(IBlockArray blocks, IVec q0) : IVec
+	{
+		IVec q = q0;
+		Int b = 0;
+		while (b < blocks.Size())
+		{
+			q = Jfif.MeetTables(blocks.RefFlat(b), q);
+			b = b + 1;
+		}
+		return q;
+	}
+
+	public static fun Fixup(Int q, Int maxValue) : Int
+	{
+		if (q == 0)
+		{
+			return 255;
+		}
+		if (q <= maxValue)
+		{
+			return q;
+		}
+		if (q % 2 == 0)
+		{
+			return Jfif.Fixup(q / 2, maxValue);
+		}
+		ERROR("q out of range");
+	}
+
+	public static fun FixupTable(IVec q, Int maxValue) : IVec
+	{
+		if (q.Length() == 0)
+		{
+			ERROR("assert: #f");
+		}
+		IVec r = Builtins.MakeVector(q.Length(), 0);
+		Int i = 0;
+		while (i < q.Length())
+		{
+			r.Set(i, Jfif.Fixup(q.Ref(i), maxValue));
+			i = i + 1;
+		}
+		return r;
+	}
+
+	public static fun QTablesForMcuArray(IMcuArray mcuArray, Int maxValue) : IQTables
+	{
+		IVec lumaQ = Builtins.MakeVector(0, 0);
+		IVec chromaQ = Builtins.MakeVector(0, 0);
+		Int k = 0;
+		while (k < mcuArray.Size())
+		{
+			IMcu mcu = mcuArray.RefFlat(k);
+			k = k + 1;
+			if (mcu.Length() == 1)
+			{
+				lumaQ = Jfif.MeetMcuBlocks(mcu.Ref(0), lumaQ);
+				continue;
+			}
+			if (mcu.Length() == 3)
+			{
+				lumaQ = Jfif.MeetMcuBlocks(mcu.Ref(0), lumaQ);
+				# (sequence-append (in-array u) (in-array v))
+				chromaQ = Jfif.MeetMcuBlocks(mcu.Ref(2), Jfif.MeetMcuBlocks(mcu.Ref(1), chromaQ));
+				continue;
+			}
+			ERROR("match: no matching clause");
+		}
+		IQTables r = Builtins.MakeQTables(4);
+		r.Set(0, Jfif.FixupTable(lumaQ, maxValue));
+		r.Set(1, Jfif.FixupTable(chromaQ, maxValue));
+		return r;
+	}
+
+	public static fun BitCount(Int x) : Int
+	{
+		if (x < 0)
+		{
+			Int n = 1;
+			while (Bits.Shift(0 - 1, n) >= x)
+			{
+				n = n + 1;
+			}
+			return n;
+		}
+		if (x == 0)
+		{
+			return 0;
+		}
+		Int m = 1;
+		while (x >= Bits.Shift(1, m))
+		{
+			m = m + 1;
+		}
+		return m;
+	}
+
+	public static fun CodeAndBits(Int code, Int bits) : Int
+	{
+		return Bits.Or(code, Bits.Shift(bits, 8));
+	}
+
+	public static fun EncodeDc(Int dc) : Int
+	{
+		return Jfif.CodeAndBits(Jfif.BitCount(dc), dc);
+	}
+
+	public static fun EncodeAc(Int ac, Int zeroCount) : Int
+	{
+		return Jfif.CodeAndBits(Bits.Or(Bits.Shift(zeroCount, 4), Jfif.BitCount(ac)), ac);
+	}
+
+	public static fun SkipZeroes(IVec zzq, Int i, Int zeroCount, IIntList codes) : IIntList
+	{
+		Int ac = zzq.Ref(i);
+		if (ac == 0)
+		{
+			if (i == 63)
+			{
+				# EOB.
+				return new IntCons(0, codes);
+			}
+			return Jfif.SkipZeroes(zzq, i + 1, zeroCount + 1, codes);
+		}
+		Int zc = zeroCount;
+		IIntList cs = codes;
+		while (zc >= 16)
+		{
+			# ZRL.
+			zc = BitPorts.AssertNatural(zc - 16);
+			cs = new IntCons(240, cs);
+		}
+		return Jfif.EncodeNext(zzq, i + 1, new IntCons(Jfif.EncodeAc(ac, zc), cs));
+	}
+
+	public static fun EncodeNext(IVec zzq, Int i, IIntList codes) : IIntList
+	{
+		if (i == 64)
+		{
+			return codes;
+		}
+		return Jfif.SkipZeroes(zzq, i, 0, codes);
+	}
+
+	public static fun ComputeBlockCodes(IVec block, IVec qTable, Int prevDc, IBytes normal) : DcAndCodes
+	{
+		IVec zzq = Builtins.MakeVector(64, 0);
+		Int i = 0;
+		while (i < 64)
+		{
+			Int j = normal.Ref(i);
+			zzq.Set(i, block.Ref(j) / Huffman.AssertValue(qTable.Ref(j)));
+			i = i + 1;
+		}
+		Int dc = zzq.Ref(0);
+		IIntList codes = new IntCons(Jfif.EncodeDc(dc - prevDc), Builtins.ReverseInts(Jfif.EncodeNext(zzq, 1, new IntNil())));
+		return new DcAndCodes(dc, codes);
+	}
+
+	public static fun ComputeCodeSequences(IJfif jpeg, IJfifState st) : QtAndCodes
+	{
+		IFrame frame = jpeg.Frame();
+		IMcuArray mcuArray = jpeg.McuArray();
+		IQTables qTables = Jfif.QTablesForMcuArray(mcuArray, 255);
+		# compute-scan-components: we don't know the dc and ac huffman tables yet
+		IComponentVec cs = frame.Components();
+		ScanComponentsV scs = new ScanComponentsV();
+		Int c = 0;
+		while (c < cs.Length())
+		{
+			IComponent component = cs.Ref(c);
+			scs.Add(new ScanComponentV(component, 0, qTables.Ref(component.QTable()), st.FakeHuffman(), st.FakeHuffman()));
+			c = c + 1;
+		}
+		ICodesArray codes = Arrays.MakeCodesArray(mcuArray.Shape());
+		Int k = 0;
+		while (k < mcuArray.Size())
+		{
+			IMcu mcu = mcuArray.RefFlat(k);
+			ICodesMcu cm = Arrays.MakeCodesMcu(mcu.Length());
+			Int i = 0;
+			while (i < mcu.Length())
+			{
+				IBlockArray blocks = mcu.Ref(i);
+				IScanComponent sc = scs.Ref(i);
+				Int dc = sc.PrevDc();
+				IIntListList outl = new IntListNil();
+				Int b = 0;
+				while (b < blocks.Size())
+				{
+					DcAndCodes r = Jfif.ComputeBlockCodes(blocks.RefFlat(b), sc.QTable(), dc, st.NormalOrder());
+					dc = r.Dc;
+					outl = new IntListCons(r.Codes, outl);
+					b = b + 1;
+				}
+				sc.SetPrevDc(dc);
+				cm.Set(i, Builtins.ReverseIntLists(outl));
+				i = i + 1;
+			}
+			codes.SetFlat(k, cm);
+			k = k + 1;
+		}
+		return new QtAndCodes(qTables, codes);
+	}
+
+	public static fun CountBang(IVec table, Int code) : Int
+	{
+		Int idx = Bits.And(code, 255);
+		table.Set(idx, Huffman.AssertValue(table.Ref(idx)) + 1);
+		return 0;
+	}
+
+	public static fun AccumulateFrequencies(IFreqs freqs, IIntList codes, Int idx) : Int
+	{
+		IVec dcFreqs = freqs.Dc().Ref(idx);
+		IVec acFreqs = freqs.Ac().Ref(idx);
+		if (codes.IsEmpty())
+		{
+			ERROR("match: no matching clause");
+		}
+		Jfif.CountBang(dcFreqs, codes.First());
+		IIntList ac = codes.Rest();
+		while (!ac.IsEmpty())
+		{
+			Jfif.CountBang(acFreqs, ac.First());
+			ac = ac.Rest();
+		}
+		return 0;
+	}
+
+	public static fun IdxOf(Int k) : Int
+	{
+		if (k == 0)
+		{
+			return 0;
+		}
+		return 1;
+	}
+
+	public static fun ComputeCodeFrequencies(ICodesArray codes) : IFreqs
+	{
+		IQTables dc = Builtins.MakeQTables(4);
+		dc.Set(0, Builtins.MakeVector(256, 0));
+		dc.Set(1, Builtins.MakeVector(256, 0));
+		IQTables ac = Builtins.MakeQTables(4);
+		ac.Set(0, Builtins.MakeVector(256, 0));
+		ac.Set(1, Builtins.MakeVector(256, 0));
+		IFreqs freqs = Builtins.MakeFreqs(dc, ac);
+		Int m = 0;
+		while (m < codes.Size())
+		{
+			ICodesMcu mcu = codes.RefFlat(m);
+			Int k = 0;
+			while (k < mcu.Length())
+			{
+				IIntListList blocks = mcu.Ref(k);
+				while (!blocks.IsEmpty())
+				{
+					Jfif.AccumulateFrequencies(freqs, blocks.First(), Jfif.IdxOf(k));
+					blocks = blocks.Rest();
+				}
+				k = k + 1;
+			}
+			m = m + 1;
+		}
+		return freqs;
+	}
+
+	public static fun TablesForFreqs(IQTables freqsV) : IHTables
+	{
+		IHTables r = Builtins.MakeHTables(freqsV.Length());
+		Int i = 0;
+		while (i < freqsV.Length())
+		{
+			if (freqsV.Has(i))
+			{
+				r.Set(i, Huffman.ComputeHuffmanTableForFreqs(freqsV.Ref(i)));
+			}
+			i = i + 1;
+		}
+		return r;
+	}
+
+	public static fun ComputeHuffmanCodeTables(IFreqs freqs) : IHuffmanTables
+	{
+		IHTables dc = Jfif.TablesForFreqs(freqs.Dc());
+		IHTables ac = Jfif.TablesForFreqs(freqs.Ac());
+		return Builtins.MakeHuffmanTables(dc, ac);
+	}
+
+	public static fun WriteShort(Int u16, IPort port) : Int
+	{
+		port.WriteByte(Bits.Shift(u16, 0 - 8));
+		port.WriteByte(Bits.And(u16, 255));
+		return 0;
+	}
+
+	public static fun WriteSoi(IPort port) : Int
+	{
+		return Jfif.WriteShort(65496, port);
+	}
+
+	public static fun WriteMiscSegment(IPort port, IMisc misc) : Int
+	{
+		Jfif.WriteShort(misc.Marker(), port);
+		Jfif.WriteShort(2 + misc.Bytes().Length(), port);
+		return port.WriteBytes(misc.Bytes());
+	}
+
+	public static fun WriteBaselineFrame(IPort port, IFrame frame) : Int
+	{
+		Jfif.WriteShort(65472, port);
+		Jfif.WriteShort(8 + Jfif.FrameComponentCount(frame) * 3, port);
+		port.WriteByte(frame.Precision());
+		Jfif.WriteShort(frame.Y(), port);
+		Jfif.WriteShort(frame.X(), port);
+		port.WriteByte(Jfif.FrameComponentCount(frame));
+		IComponentVec cs = frame.Components();
+		Int i = 0;
+		while (i < cs.Length())
+		{
+			IComponent c = cs.Ref(i);
+			port.WriteByte(c.Id());
+			port.WriteByte(Bits.Or(Bits.Shift(c.SampX(), 4), c.SampY()));
+			port.WriteByte(c.QTable());
+			i = i + 1;
+		}
+		return 0;
+	}
+
+	public static fun WriteQTables(IPort port, IQTables qTables, IBytes normal) : Int
+	{
+		Int i = 0;
+		while (i < qTables.Length())
+		{
+			if (qTables.Has(i))
+			{
+				IVec table = qTables.Ref(i);
+				Jfif.WriteShort(65499, port);
+				Jfif.WriteShort(3 + 64, port);
+				port.WriteByte(Bits.Or(Bits.Shift(0, 4), i));
+				Int j = 0;
+				while (j < 64)
+				{
+					port.WriteByte(Huffman.AssertValue(table.Ref(normal.Ref(j))));
+					j = j + 1;
+				}
+			}
+			i = i + 1;
+		}
+		return 0;
+	}
+
+	public static fun WriteTables(IPort port, IHTables tables, Int tc) : Int
+	{
+		Int k = 0;
+		while (k < tables.Length())
+		{
+			if (tables.Has(k))
+			{
+				IHuffman table = tables.Ref(k);
+				Jfif.WriteShort(65476, port);
+				Jfif.WriteShort(19 + table.Values().Length(), port);
+				port.WriteByte(Bits.Or(Bits.Shift(tc, 4), k));
+				port.WriteBytes(table.SizeCounts());
+				port.WriteBytes(table.Values());
+			}
+			k = k + 1;
+		}
+		return 0;
+	}
+
+	public static fun WriteHuffmanTables(IPort port, IHuffmanTables tables) : Int
+	{
+		Jfif.WriteTables(port, tables.Ref(0), 0);
+		Jfif.WriteTables(port, tables.Ref(1), 1);
+		return 0;
+	}
+
+	public static fun WriteBaselineScanHeader(IPort port, IFrame frame) : Int
+	{
+		Jfif.WriteShort(65498, port);
+		Jfif.WriteShort(6 + Jfif.FrameComponentCount(frame) * 2, port);
+		port.WriteByte(Jfif.FrameComponentCount(frame));
+		IComponentVec cs = frame.Components();
+		Int k = 0;
+		while (k < cs.Length())
+		{
+			Int td = Jfif.IdxOf(k);
+			Int ta = Jfif.IdxOf(k);
+			port.WriteByte(cs.Ref(k).Id());
+			port.WriteByte(Bits.Or(Bits.Shift(td, 4), ta));
+			k = k + 1;
+		}
+		port.WriteByte(0);
+		port.WriteByte(63);
+		port.WriteByte(Bits.Or(Bits.Shift(0, 4), 0));
+		return 0;
+	}
+
+	public static fun WriteCode(IBitPort bp, Int code, IHuffman table) : Int
+	{
+		Int u8 = Bits.And(code, 255);
+		Int diff = Bits.Shift(code, 0 - 8);
+		Int ssss = BitPorts.AssertNatural(Bits.And(code, 15));
+		Int codeIndex = Huffman.AssertValue(table.ValueIndexes().Ref(u8));
+		Int c = Huffman.AssertValue(table.Codes().Ref(codeIndex));
+		Int size = table.Sizes().Ref(codeIndex);
+		BitPorts.WriteBits(bp, c, size);
+		if (ssss != 0)
+		{
+			BitPorts.WriteBits(bp, diff, ssss);
+		}
+		return 0;
+	}
+
+	public static fun WriteCodes(IBitPort bp, IIntList codes, Int idx, IHuffmanTables tables) : Int
+	{
+		IHuffman dcTable = tables.Ref(0).Ref(idx);
+		IHuffman acTable = tables.Ref(1).Ref(idx);
+		if (codes.IsEmpty())
+		{
+			ERROR("match: no matching clause");
+		}
+		Jfif.WriteCode(bp, codes.First(), dcTable);
+		IIntList ac = codes.Rest();
+		while (!ac.IsEmpty())
+		{
+			Jfif.WriteCode(bp, ac.First(), acTable);
+			ac = ac.Rest();
+		}
+		return 0;
+	}
+
+	public static fun WriteBaselineEntropyCodedData(IPort port, ICodesArray codes, IHuffmanTables tables) : Int
+	{
+		IBitPort bp = BitPorts.MakeBitPort(port);
+		Int m = 0;
+		while (m < codes.Size())
+		{
+			ICodesMcu mcu = codes.RefFlat(m);
+			Int k = 0;
+			while (k < mcu.Length())
+			{
+				IIntListList blocks = mcu.Ref(k);
+				while (!blocks.IsEmpty())
+				{
+					Jfif.WriteCodes(bp, blocks.First(), Jfif.IdxOf(k), tables);
+					blocks = blocks.Rest();
+				}
+				k = k + 1;
+			}
+			m = m + 1;
+		}
+		return BitPorts.FlushBits(bp);
+	}
+
+	public static fun WriteEoi(IPort port) : Int
+	{
+		return Jfif.WriteShort(65497, port);
+	}
+
+	public static fun WriteJfif(IPort port, IJfif jpeg, IJfifState st) : Int
+	{
+		QtAndCodes qc = Jfif.ComputeCodeSequences(jpeg, st);
+		IFreqs frequencies = Jfif.ComputeCodeFrequencies(qc.Codes);
+		IHuffmanTables huffmanTables = Jfif.ComputeHuffmanCodeTables(frequencies);
+		Jfif.WriteSoi(port);
+		IMiscList misc = jpeg.MiscSegments();
+		while (!misc.IsEmpty())
+		{
+			Jfif.WriteMiscSegment(port, misc.First());
+			misc = misc.Rest();
+		}
+		Jfif.WriteBaselineFrame(port, jpeg.Frame());
+		Jfif.WriteQTables(port, qc.Q, st.NormalOrder());
+		Jfif.WriteHuffmanTables(port, huffmanTables);
+		Jfif.WriteBaselineScanHeader(port, jpeg.Frame());
+		Jfif.WriteBaselineEntropyCodedData(port, qc.Codes, huffmanTables);
+		return Jfif.WriteEoi(port);
+	}
+}

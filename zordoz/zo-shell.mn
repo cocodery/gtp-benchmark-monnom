@@ -1,0 +1,29 @@
+# zo-shell.rkt: init and find-all (the interactive shell, its commands and printing are not
+# used by the benchmark and are not ported). zo-read reads the embedded graph (zo-parse).
+
+class ZoShell
+{
+	# (init (vector ctx arg)); returns the results of the search (the original discards them)
+	public static fun Init(IInitArgs args) : IResultList
+	{
+		return ZoShell.FindAll(args.Ctx(), new TextCons(args.Arg(), new TextNil()), 0 - 1);
+	}
+
+	public static fun ZoRead() : IZo
+	{
+		return ZoParse.ZoParse();
+	}
+
+	# (find-all ctx args #:limit lim); returns the results for the last argument
+	public static fun FindAll(IZo ctx, ITextList args, Int lim) : IResultList
+	{
+		IResultList last = new ResultNil();
+		ITextList l = args;
+		while (!l.IsEmpty())
+		{
+			last = ZoFind.ZoFind(ctx, l.First(), lim);
+			l = l.Rest();
+		}
+		return last;
+	}
+}

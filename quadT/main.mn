@@ -1,0 +1,636 @@
+# quad-main.rkt, quick-sample.rkt, render.rkt and main.rkt (merged to keep the configuration
+# count down; see NOTES.md)
+
+# ---- quad-main.rkt ----
+
+# the constraints of lines->columns (closures over lines-remaining)
+class GreedinessConstraint implements IConstraintFn
+{
+	private readonly Int linesRemaining;
+	public constructor(Int n)
+	{
+		linesRemaining = n;
+	}
+	public fun this(Int pl) : Bool
+	{
+		Int leftover = linesRemaining - pl;
+		if (leftover == 0)
+		{
+			return true;
+		}
+		return leftover >= World.MinimumLinesPerColumn();
+	}
+}
+
+class LastLinesConstraint implements IConstraintFn
+{
+	private readonly IQuadList linesRemaining;
+	public constructor(IQuadList l)
+	{
+		linesRemaining = l;
+	}
+	public fun this(Int pl) : Bool
+	{
+		IQuad lastLineOfPage = QuadMain.ListRef(linesRemaining, pl - 1);
+		Int linesInThisParagraph = QuadMain.AssertIndex(Quads.AttrRefMissing(lastLineOfPage, Sym.Lines()));
+		Int lineIndexOfLastLine = QuadMain.AssertIndex(Quads.AttrRefMissing(lastLineOfPage, Sym.LineIdx()));
+		if (linesInThisParagraph < World.MinLastLines())
+		{
+			return true;
+		}
+		return lineIndexOfLastLine + 1 >= World.MinLastLines();
+	}
+}
+
+class FirstLinesConstraint implements IConstraintFn
+{
+	private readonly IQuadList linesRemaining;
+	public constructor(IQuadList l)
+	{
+		linesRemaining = l;
+	}
+	public fun this(Int pl) : Bool
+	{
+		IQuad lastLineOfPage = QuadMain.ListRef(linesRemaining, pl - 1);
+		Int linesInThisParagraph = Quads.AttrRefMissing(lastLineOfPage, Sym.Lines()).I();
+		Int lineIndexOfLastLine = Quads.AttrRefMissing(lastLineOfPage, Sym.LineIdx()).I();
+		Int linesThatWillRemain = linesInThisParagraph - (lineIndexOfLastLine + 1);
+		if (linesInThisParagraph < World.MinFirstLines())
+		{
+			return true;
+		}
+		if (linesThatWillRemain == 0)
+		{
+			return true;
+		}
+		return linesThatWillRemain >= World.MinFirstLines();
+	}
+}
+
+class QuadMain
+{
+	public static fun AssertIndex(IVal v) : Int
+	{
+		if (v.Kind() != 1)
+		{
+			ERROR("assert: index?");
+		}
+		if (v.I() < 0)
+		{
+			ERROR("assert: index?");
+		}
+		return v.I();
+	}
+
+	public static fun ListRef(IQuadList l, Int k) : IQuad
+	{
+		Int i = 0;
+		while (i < k)
+		{
+			l = l.Rest();
+			i = i + 1;
+		}
+		return l.First();
+	}
+
+	public static fun Typeset(IQuad x, IEnv env, IProblem prob) : IQuad
+	{
+		# load-text-cache-file: there is no cache file (see NOTES.md)
+		IQuadList pages = new QuadNil();
+		IQuadL4 multipages = QuadMain.InputToNestedBlocks(x);
+		while (!multipages.IsEmpty())
+		{
+			IQuadListListList multipage = multipages.First();
+			multipages = multipages.Rest();
+			IQuadList cols = new QuadNil();
+			IQuadListListList mcs = multipage;
+			while (!mcs.IsEmpty())
+			{
+				IQuadListList multicolumn = mcs.First();
+				mcs = mcs.Rest();
+				IQuadList lines = new QuadNil();
+				IQuadListList bs = multicolumn;
+				while (!bs.IsEmpty())
+				{
+					lines = SugarList.Append(lines, QuadMain.BlockQuadsToLines(bs.First(), env));
+					bs = bs.Rest();
+				}
+				cols = SugarList.Append(cols, QuadMain.LinesToColumns(lines, prob));
+			}
+			pages = SugarList.Append(pages, QuadMain.ColumnsToPages(cols));
+		}
+		IQuad doc = QuadMain.PagesToDoc(pages, env);
+		# update-text-cache-file does not write (see NOTES.md)
+		return doc;
+	}
+
+	# cons-reverse at each level
+	public static fun ConsReverse1(IQuadList xs, IQuadListList ys) : IQuadListList
+	{
+		return new QuadListCons(SugarList.Reverse(xs), ys);
+	}
+
+	public static fun ConsReverse2(IQuadListList xs, IQuadListListList ys) : IQuadListListList
+	{
+		return new QuadListListCons(SugarList.ReverseLists(xs), ys);
+	}
+
+	public static fun ReverseL3(IQuadListListList l) : IQuadListListList
+	{
+		IQuadListListList r = new QuadListListNil();
+		while (!l.IsEmpty())
+		{
+			r = new QuadListListCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun ConsReverse3(IQuadListListList xs, IQuadL4 ys) : IQuadL4
+	{
+		return new QuadL4Cons(QuadMain.ReverseL3(xs), ys);
+	}
+
+	public static fun ReverseL4(IQuadL4 l) : IQuadL4
+	{
+		IQuadL4 r = new QuadL4Nil();
+		while (!l.IsEmpty())
+		{
+			r = new QuadL4Cons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun InputToNestedBlocks(IQuad i) : IQuadL4
+	{
+		IQuadL4 multipages = new QuadL4Nil();
+		IQuadListListList multicolumns = new QuadListListNil();
+		IQuadListList blocks = new QuadListNil();
+		IQuadList blockAcc = new QuadNil();
+		IQuadList qs = Utils.SplitQuad(i);
+		while (!qs.IsEmpty())
+		{
+			IQuad q = qs.First();
+			qs = qs.Rest();
+			if (Quads.IsPageBreak(q))
+			{
+				multipages = QuadMain.ConsReverse3(QuadMain.ConsReverse2(QuadMain.ConsReverse1(blockAcc, blocks), multicolumns), multipages);
+				multicolumns = new QuadListListNil();
+				blocks = new QuadListNil();
+				blockAcc = new QuadNil();
+				continue;
+			}
+			if (Quads.IsColumnBreak(q))
+			{
+				multicolumns = QuadMain.ConsReverse2(QuadMain.ConsReverse1(blockAcc, blocks), multicolumns);
+				blocks = new QuadListNil();
+				blockAcc = new QuadNil();
+				continue;
+			}
+			if (Quads.IsBlockBreak(q))
+			{
+				blocks = QuadMain.ConsReverse1(blockAcc, blocks);
+				blockAcc = new QuadNil();
+				continue;
+			}
+			blockAcc = new QuadCons(q, blockAcc);
+		}
+		return QuadMain.ReverseL4(QuadMain.ConsReverse3(QuadMain.ConsReverse2(QuadMain.ConsReverse1(blockAcc, blocks), multicolumns), multipages));
+	}
+
+	public static fun MergeAdjacentWithin(IQuad q) : IQuad
+	{
+		return Quads.Make(q.Name(), q.Attrs(), Quads.QuadsToItems(Utils.JoinQuads(Quads.ItemsToQuads(q.Items()))));
+	}
+
+	public static fun HyphenateQuadExceptLastWord(IQuad q, IEnv env) : IQuad
+	{
+		IItemList firstQuads = Utils.ItemsButLast(q.Items());
+		IItem lastQuad = Utils.ItemsLast(q.Items());
+		return Quads.Make(q.Name(), q.Attrs(), Wrap.ItemsAppend(Utils.HyphenateItems(firstQuads, env), new ItemCons(lastQuad, new ItemNil())));
+	}
+
+	public static fun AverageLooseness(IQuadList lines) : Float
+	{
+		Int n = SugarList.Length(lines);
+		if (n <= 1)
+		{
+			return 0.0;
+		}
+		IQuadList linesToMeasure = Utils.QuadsButLast(lines);
+		Float acc = 0.0;
+		while (!linesToMeasure.IsEmpty())
+		{
+			acc = Quads.AttrRef(linesToMeasure.First(), Sym.Looseness(), Vals.F(0.0)).F() + acc;
+			linesToMeasure = linesToMeasure.Rest();
+		}
+		return Utils.RoundFloat(acc / ((n + 0.0) - 1.0));
+	}
+
+	public static fun WrapQuads(IQuadList qs, Int quality, IEnv env) : IQuadList
+	{
+		if (quality >= World.MaxQuality())
+		{
+			return Wrap.WrapBest(qs, env);
+		}
+		if (quality <= World.DraftQuality())
+		{
+			return Wrap.WrapFirst(qs, env);
+		}
+		return Wrap.WrapAdaptive(qs, env);
+	}
+
+	public static fun BlockToLines(IQuad b, IEnv env) : IQuadList
+	{
+		Int quality = QuadMain.AssertIndex(Quads.AttrRef(b, Sym.Quality(), Vals.I(World.QualityKeyDefault())));
+		IQuadList wrappedLinesWithoutHyphens = QuadMain.WrapQuads(Quads.ItemsToQuads(b.Items()), quality, env);
+		Float avgLooseness = QuadMain.AverageLooseness(wrappedLinesWithoutHyphens);
+		IQuadList wrappedLines = QuadMain.HyphenatedIfLoose(b, wrappedLinesWithoutHyphens, avgLooseness, quality, env);
+		Int n = SugarList.Length(wrappedLines);
+		IQuadList out1 = new QuadNil();
+		Int lineIdx = 0;
+		IQuadList l = wrappedLines;
+		while (!l.IsEmpty())
+		{
+			IQuad theLine = l.First();
+			IValList kvs = new ValCons(Vals.Sym(Sym.LineIdx()), new ValCons(Vals.I(lineIdx), new ValCons(Vals.Sym(Sym.Lines()), new ValCons(Vals.I(n), new ValNil()))));
+			IQuad numbered = Quads.Line(Utils.AttrChange(theLine.Attrs(), kvs), theLine.Items());
+			out1 = new QuadCons(Wrap.InsertSpacersInLine(numbered, 0 - 1), out1);
+			lineIdx = lineIdx + 1;
+			l = l.Rest();
+		}
+		return SugarList.Reverse(out1);
+	}
+
+	public static fun HyphenatedIfLoose(IQuad b, IQuadList withoutHyphens, Float avgLooseness, Int quality, IEnv env) : IQuadList
+	{
+		if (World.UseHyphenation())
+		{
+			if (avgLooseness > World.LineLoosenessTolerance())
+			{
+				IQuad merged = QuadMain.MergeAdjacentWithin(b);
+				IQuad hyphenated = QuadMain.HyphenateBlock(merged, env);
+				return QuadMain.WrapQuads(Utils.SplitQuad(hyphenated), quality, env);
+			}
+		}
+		return withoutHyphens;
+	}
+
+	public static fun HyphenateBlock(IQuad merged, IEnv env) : IQuad
+	{
+		if (World.AllowHyphenatedLastWordInParagraph())
+		{
+			return Utils.HyphenateQuad(Vals.QuadItem(merged), env).Q();
+		}
+		return QuadMain.HyphenateQuadExceptLastWord(merged, env);
+	}
+
+	public static fun NumberPages(IQuadList ps) : IQuadList
+	{
+		IQuadList out1 = new QuadNil();
+		Int i = 0;
+		while (!ps.IsEmpty())
+		{
+			IQuad p = ps.First();
+			IAttrList kvs = Quads.MakeQuadattrs(new ValCons(Vals.Sym(Sym.Page()), new ValCons(Vals.I(i), new ValNil())));
+			out1 = new QuadCons(Quads.Page(Utils.MergeAttrs(p.Attrs(), kvs), p.Items()), out1);
+			i = i + 1;
+			ps = ps.Rest();
+		}
+		return SugarList.Reverse(out1);
+	}
+
+	public static fun ColumnsMapper(IQuad pageIn, IEnv env) : IQuad
+	{
+		IQuadList cols = new QuadNil();
+		IItemList l = pageIn.Items();
+		while (!l.IsEmpty())
+		{
+			IQuad col = l.First().Q();
+			l = l.Rest();
+			if (!Quads.IsColumn(col))
+			{
+				ERROR("assert: column?");
+			}
+			IQuad newCol = Quads.Column(col.Attrs(), Quads.QuadsToItems(QuadMain.MapLines(Quads.GroupQuadList(col), env)));
+			cols = new QuadCons(Utils.AddVertPositions(newCol), cols);
+		}
+		return Quads.Page(pageIn.Attrs(), Quads.QuadsToItems(SugarList.Reverse(cols)));
+	}
+
+	public static fun MapLines(IQuadList lns, IEnv env) : IQuadList
+	{
+		if (lns.IsEmpty())
+		{
+			return lns;
+		}
+		IQuad ln = lns.First();
+		if (!Quads.IsLine(ln))
+		{
+			ERROR("assert: line?");
+		}
+		IQuad done = Utils.ComputeLineHeight(Wrap.AddHorizPositions(Wrap.Fill(ln, false, 0.0, env), env));
+		return new QuadCons(done, QuadMain.MapLines(lns.Rest(), env));
+	}
+
+	public static fun PagesToDoc(IQuadList ps, IEnv env) : IQuad
+	{
+		IQuadList numbered = QuadMain.NumberPages(ps);
+		IQuadList mapped = new QuadNil();
+		while (!numbered.IsEmpty())
+		{
+			mapped = new QuadCons(QuadMain.ColumnsMapper(numbered.First(), env), mapped);
+			numbered = numbered.Rest();
+		}
+		return Quads.QuadsToDoc(SugarList.Reverse(mapped));
+	}
+
+	# (sequence->list (in-range start end -1))
+	public static fun Viable(Int start, Int end) : IIntList
+	{
+		IIntList l = new IntNil();
+		Int k = end + 1;
+		while (k <= start)
+		{
+			l = new IntCons(k, l);
+			k = k + 1;
+		}
+		return l;
+	}
+
+	public static fun Min(Int a, Int b) : Int
+	{
+		if (a < b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun Max(Int a, Int b) : Int
+	{
+		if (a > b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun LinesToColumns(IQuadList lines, IProblem prob) : IQuadList
+	{
+		Int maxColumnLines = World.DefaultLinesPerColumn();
+		IQuadList columns = new QuadNil();
+		IQuadList linesRemaining = lines;
+		Int colIdx = 0;
+		IText variable = Txt.PushWord(Txt.PushWord(Txt.Empty(), 7627047690122770403), 1897198);
+		while (!linesRemaining.IsEmpty())
+		{
+			Int n = SugarList.Length(linesRemaining);
+			IIntList viable = QuadMain.Viable(QuadMain.Min(maxColumnLines, QuadMain.Max(n, n - World.MinimumLinesPerColumn())), QuadMain.Min(1, World.MinimumLinesPerColumn()) - 1);
+			ITextList vars = new TextCons(variable, new TextNil());
+			prob.AddVariable(variable, viable);
+			prob.AddConstraint(new GreedinessConstraint(n), vars);
+			prob.AddConstraint(new LastLinesConstraint(linesRemaining), vars);
+			prob.AddConstraint(new FirstLinesConstraint(linesRemaining), vars);
+			Int howManyLinesToTake = prob.GetSolution(variable);
+			IQuadList linesToTake = SugarList.Take(linesRemaining, howManyLinesToTake);
+			IQuadList linesToLeave = SugarList.Drop(linesRemaining, howManyLinesToTake);
+			prob.Reset();
+			IQuad newColumn = Quads.QuadsToColumn(linesToTake);
+			IValList kvs = new ValCons(Vals.Sym(Sym.ColumnIdx()), new ValCons(Vals.I(colIdx), new ValNil()));
+			columns = new QuadCons(Quads.Column(Utils.AttrChange(newColumn.Attrs(), kvs), newColumn.Items()), columns);
+			linesRemaining = linesToLeave;
+			colIdx = colIdx + 1;
+		}
+		return SugarList.Reverse(columns);
+	}
+
+	public static fun ColumnsToPages(IQuadList cols) : IQuadList
+	{
+		IQuad c0 = cols.First();
+		IVal cpv = Quads.AttrRef(c0, Sym.ColumnCount(), Vals.I(World.ColumnCountKeyDefault()));
+		Int columnsPerPage = cpv.I();
+		if (columnsPerPage <= 0)
+		{
+			ERROR("assert: exact-positive-integer?");
+		}
+		Float columnGutter = Quads.AttrRef(c0, Sym.ColumnGutter(), Vals.F(World.ColumnGutterKeyDefault())).F();
+		if (!Quads.HasAttr(c0, Sym.Measure()))
+		{
+			ERROR("columns->pages: column attrs contain no measure key");
+		}
+		Float columnWidth = Quads.AttrRefMissing(c0, Sym.Measure()).F();
+		Float widthOfPrintedArea = (columnsPerPage + 0.0) * columnWidth + ((columnsPerPage - 1) + 0.0) * columnGutter;
+		IQuadListList pageColsList = SugarList.SliceAt(cols, columnsPerPage);
+		IQuadList result = new QuadNil();
+		while (!pageColsList.IsEmpty())
+		{
+			IQuadList pageCols = pageColsList.First();
+			pageColsList = pageColsList.Rest();
+			Float currentX = (World.PaperWidthDefault() - widthOfPrintedArea) / 2.0;
+			IQuadList placed = new QuadNil();
+			Int idx = 0;
+			while (!pageCols.IsEmpty())
+			{
+				IQuad col = pageCols.First();
+				pageCols = pageCols.Rest();
+				IValList kvs = new ValCons(Vals.Sym(Sym.X()), new ValCons(Vals.F(currentX), new ValCons(Vals.Sym(Sym.Y()), new ValCons(Vals.F(40.0), new ValCons(Vals.Sym(Sym.ColumnIdx()), new ValCons(Vals.I(idx), new ValNil()))))));
+				placed = new QuadCons(Utils.QuadAttrSetStar(col, kvs), placed);
+				currentX = columnGutter + (columnWidth + (currentX + 0.0));
+				idx = idx + 1;
+			}
+			result = new QuadCons(Quads.QuadsToPage(SugarList.Reverse(placed)), result);
+		}
+		return SugarList.Reverse(result);
+	}
+
+	public static fun BlockQuadsToLines(IQuadList qs, IEnv env) : IQuadList
+	{
+		return QuadMain.BlockToLines(Quads.QuadsToBlock(qs), env);
+	}
+}
+
+# ---- quick-sample.rkt ----
+
+class QuickSample
+{
+	public static fun AttrsOf(IValList hl) : IAttrList
+	{
+		return Quads.MakeQuadattrs(hl);
+	}
+	public static fun Block(IValList hl, IItemList xs) : IQuad
+	{
+		return Quads.Block(QuickSample.AttrsOf(hl), xs);
+	}
+	public static fun Box(IValList hl, IItemList xs) : IQuad
+	{
+		return Quads.Box(QuickSample.AttrsOf(hl), xs);
+	}
+	public static fun Word(IValList hl, IItemList xs) : IQuad
+	{
+		return Quads.Word(QuickSample.AttrsOf(hl), xs);
+	}
+	public static fun BlockBreak(IValList hl, IItemList xs) : IQuad
+	{
+		return Quads.BlockBreak(QuickSample.AttrsOf(hl), xs);
+	}
+
+	public static fun QuickSample() : IQuad
+	{
+		return QuickSample.Block(new ValCons(Vals.Sym(Sym.Measure()), new ValCons(Vals.F(240.0), new ValCons(Vals.Sym(Sym.Font()), new ValCons(Vals.S(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 479387289911380), 140737729527909), 523367746633806), 488183334699040), 483785319645293)), new ValCons(Vals.Sym(Sym.Leading()), new ValCons(Vals.F(16.0), new ValCons(Vals.Sym(Sym.Vmeasure()), new ValCons(Vals.F(300.0), new ValCons(Vals.Sym(Sym.Size()), new ValCons(Vals.F(13.5), new ValCons(Vals.Sym(Sym.XAlign()), new ValCons(Vals.Sym(Sym.Justify()), new ValCons(Vals.Sym(Sym.XAlignLastLine()), new ValCons(Vals.Sym(Sym.Left()), new ValNil())))))))))))))), new ItemCons(Vals.QuadItem(QuickSample.Box(new ValCons(Vals.Sym(Sym.Width()), new ValCons(Vals.F(15.0), new ValNil())), new ItemNil())), new ItemCons(Vals.QuadItem(QuickSample.Block(new ValNil(), new ItemCons(Vals.QuadItem(QuickSample.Block(new ValCons(Vals.Sym(Sym.Weight()), new ValCons(Vals.Sym(Sym.Bold()), new ValNil())), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.Empty(), 510173628072008), 32)), new ItemCons(Vals.QuadItem(QuickSample.Word(new ValCons(Vals.Sym(Sym.Size()), new ValCons(Vals.F(22.0), new ValNil())), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.Empty(), 68)), new ItemNil()))), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 452999021330529), 338649648463916), 307863322886265), 474989249691749), 140737737916527), 444202926211137), 435406824800370), 505775579463777), 46)), new ItemNil()))))), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.Empty(), 457397013315616), 140737729527913)), new ItemCons(Vals.QuadItem(QuickSample.Block(new ValCons(Vals.Sym(Sym.NoBreak()), new ValCons(Vals.B(true), new ValNil())), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 140737729527913), 479387302494323), 510173462397029), 474989268566130), 121)), new ItemNil()))), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 488183393419296), 444202938794094), 444202938794094), 444202913628192), 501377514078318), 444202940891233), 448600811241572), 479387302494322), 532163856433184), 532163871113248), 505775560589424), 510173638557797), 452999021330537), 532163869016096), 444202940891251), 140737580630125), 461795101769847), 140737706459235), 140737729527913), 474989226623075), 439804862922860), 514571611668512), 202310349226081), 36138748334833696), 523367601930349), 510173615489138), 452999021330537), 457397080424480), 140737729527913), 140737719042153), 505775415885921), 501377547632751), 140737700167779), 474989243400294), 461794950774885), 299067229864046), 426610683543666), 444202922016867), 140737584824436), 444202915725399), 321057462419566), 474989230817312), 470591184306281), 360640004751392), 409018556219509), 426610578685996), 299067330527264), 492581276352582), 505775583658095), 514571674583072), 140737584824436), 510173628072014), 426610717098016), 36116775150026852), 483785319653386), 483785183330404), 334251601952879), 444202873782369), 483785183330392), 439804862922853), 202310349226085), 514571611668512), 193514256203873), 488183380836384), 518969700122743), 193514285564005), 488183372447776), 140737729527909), 444202938794101), 457397080424480), 448600811241573), 435406835286113), 474989090308217), 444202928308329), 444202936696930), 461795108061281), 140737704362094), 452999017136225), 461795122741359), 479387287814260), 444202907336736), 474989235011702), 444202932502639), 448600811241572), 140737727430767), 387028304789588), 175921927553070), 140737731625033), 505775575269473), 461794950774895), 474989230817390), 444202907336821), 426610578686067), 426610725486624), 444202940891251), 474989090308210), 444202928308329), 444202936696930), 461795108061281), 140737704362094), 452999017136225), 461795122741359), 479387287814260), 488183376642080), 523367601930354), 483785328033896), 492581450416160), 439804862922853), 505775568977952), 488183391322144), 140737700167794), 492581437833321), 510173634363503), 510173625974881), 457397080424480), 140737719042145), 426610756943985), 510173615489132), 180320003424377), 448600909807648), 488183370350624), 505775587852405), 140737580630117), 140737731625065), 483785319645283), 474989226623008), 140737721139315), 483785319645288), 444202924114020), 32)), new ItemCons(Vals.QuadItem(QuickSample.Block(new ValCons(Vals.Sym(Sym.Font()), new ValCons(Vals.S(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 514571674583107), 444202917822578), 114)), new ValNil())), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 448600964333668), 501377514078310), 510173625974885), 488183376642080), 505775592046702), 44)), new ItemNil()))), new ItemCons(Vals.QuadItem(QuickSample.Block(new ValCons(Vals.Sym(Sym.Style()), new ValCons(Vals.Sym(Sym.Italic()), new ValNil())), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 510173636460576), 444202924114041), 140737580630131)), new ItemNil()))), new ItemCons(Vals.QuadItem(QuickSample.Word(new ValCons(Vals.Sym(Sym.Size()), new ValCons(Vals.F(14.0), new ValCons(Vals.Sym(Sym.Weight()), new ValCons(Vals.Sym(Sym.Bold()), new ValNil())))), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 439804881797217), 461795124838432), 505775560589434), 45)), new ItemNil()))), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 461795133227040), 461795101769844), 510173462397038), 140737700167784), 479387273134195), 474989090308197), 444202928308329), 285873090330670), 532163694952563), 140737733722223), 483785319645283), 444202938794016), 140737580630117), 140737731625065), 483785319645283), 474989226623008), 140737721139315), 505775594143850), 448600964333684), 492581276352633), 426610750652513), 426610750652519), 505775566880880), 46)), new ItemCons(Vals.QuadItem(QuickSample.BlockBreak(new ValNil(), new ItemNil())), new ItemCons(Vals.QuadItem(QuickSample.Box(new ValCons(Vals.Sym(Sym.Width()), new ValCons(Vals.F(15.0), new ValNil())), new ItemNil())), new ItemCons(Vals.QuadItem(QuickSample.Block(new ValNil(), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 426610656288796), 140737706459235), 501377535049832), 488183418585193), 426610754846830), 501377369374828), 140737737916527), 492581421056114), 505775560589426), 510173625974885), 67108979)), new ItemCons(Vals.QuadItem(QuickSample.Box(new ValCons(Vals.Sym(Sym.Color()), new ValCons(Vals.S(Txt.PushWide(Txt.Empty(), 439804862922834)), new ValCons(Vals.Sym(Sym.Background()), new ValCons(Vals.S(Txt.PushWide(Txt.PushWide(Txt.Empty(), 474989235011673), 523367767605356)), new ValNil())))), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 140737719042145), 197912267063375), 518969700122732), 140737714847845), 501377520369780), 439804854534245), 44)), new ItemNil()))), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 483785319645216), 510173462397028), 140737700167784), 474989255983203), 444202936696943), 439804718219364), 505775592046703), 444202936696864), 444202936696944), 483785328033907), 461794950774900), 488183397613677), 426610754846834), 140737731625070), 444202945085541), 505775592046702), 483785336422432), 457397080424480), 444202764730469), 435406816411768), 461795126935669), 140737719042159), 140737702264943), 444202915725428), 501377537146912), 501377518272623), 140737716944993), 457397080424488), 140737742110821), 444202936696929), 488183370350624), 501377535049836), 488183370350637), 439804862922852), 488183406002208), 461795093381152), 461795126935667), 514571657805934), 457397078327401), 483785349005344), 444202764730469), 483785328033910), 510173462397044), 444202932502649), 501377516175392), 140737716945007), 488183393419361), 444202915725428), 202310225494130), 457397013315616), 514571508908133), 444202932502640), 474989117571186), 510173609197669), 474989228720160), 140737700167797), 510173628072036), 483785336422432), 457397080424480), 510173462397029), 444202926211177), 483785336422508), 501377369374821), 501377537146981), 444202938794085), 505775592046702), 457397080424480), 448600811241573), 514571685068917), 36138748393554034), 435406671708275), 426610723389554), 488183382933620), 140737584824430), 444202915725396), 514571655708704), 501377547632756), 444202764730469), 435406816411768), 444202940891253), 448600811241587), 140737727430767), 431008625197153), 444202917822578), 492581276352614), 461795122741349), 140737698070639), 444202936696872), 444202936696944), 483785328033907), 439804862922868), 532163833364512), 140737691779104), 444202936696935), 140737719042149), 501377505689698), 483785336422432), 457397080424480), 505775415885925), 488183370350693), 140737698070638), 483785336422508), 140737574338661), 140737719042159), 501377520369780), 439804854534245), 193514149249056), 483785319645216), 510173462397028), 483785328033896), 426610746458144), 444202938794101), 510173462397043), 426610578686063), 488183389225068), 510173462397047), 140737700167784), 483785361588338), 479387289911412), 510173462397029), 444202936696936), 140737698070625), 140737721139316), 501377514078320), 501377535049830), 426610578686061), 514571655708704), 501377547632756), 514571536171109), 426610752749678), 140737700167782), 444202932502639), 510173598711922), 483785349005417), 46)), new ItemNil()))))), new ItemCons(Vals.QuadItem(Quads.ColumnBreak()), new ItemCons(Vals.QuadItem(QuickSample.Box(new ValCons(Vals.Sym(Sym.Width()), new ValCons(Vals.F(15.0), new ValNil())), new ItemNil())), new ItemCons(Vals.QuadItem(QuickSample.Block(new ValNil(), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 140737719042121), 444202915725428), 426610683543584), 444202922016867), 461794950774900), 474989258080365), 444202926211173), 426610754846830), 488183382933620), 140737580630126), 510173640654950), 444202936696949), 483785361588269), 448600947556467), 488183229841509), 501377514078320), 461795126935649), 505775579463791), 426610725486624), 140737714847852), 510173625974889), 488183229841519), 140737700167790), 140737702264943), 488183412293748), 426610719195168), 452999002456180), 461795122741359), 202310380683365), 140737624670240), 488183389225058), 461795108061283), 140737704362094), 444202932502639), 510173598711922), 483785349005417), 426610729680928), 505775592046700), 457397080424480), 444202764730469), 474989226623094), 510173598711925), 483785349005417), 448600976916512), 457397080424480), 448600811241573), 514571685068917), 193514258301042), 483785319645216), 523367601930340), 474989249691753), 488183393419296), 426610578686068), 488183389225068), 461794950774903), 510173462397044), 435406671708271), 510173625974895), 514571672485993), 514571508908133), 461795126935662), 461794950774892), 461794950774900), 510173462397043), 435406849966191), 439804862922856), 285873090330670), 444202940891238), 510173462397042), 140737700167784), 444202932502639), 510173598711922), 483785349005417), 488183370350624), 474989258080365), 444202940891237), 523367601930355), 457397080424553), 140737719042153), 514571674583156), 193514264592483), 457397080424480), 501377369374821), 426610740166757), 439804881797225), 140737727430757), 140737702264943), 444202915725428), 514571655708704), 501377547632756), 505792581075045), 488183412293664), 140737712750706), 474989243400311), 431008625197164), 444202764730469), 474989226623094), 510173598711925), 140737698070629), 496979467567219), 483785328033909), 426610731778164), 532163854336108), 532163833364512), 457397080424480), 501377369374821), 510173625974901), 444202926211177), 457397080424480), 426610723389554), 140737584824420), 505775415885889), 435406835286137), 488183401807976), 536561894555758), 140737698070629), 444202932502639), 510173598711922), 483785349005417), 474989226623008), 140737721139315), 474989226623080), 140737729527924), 444202915725428), 514571655708704), 501377547632756), 140737580630117), 510173640654946), 457397080424480), 501377369374821), 510173625974901), 444202926211177), 457397080424480), 426610723389554), 479387136819300), 140737742110817), 501377514078320), 501377535049830), 510173462397037), 140737700167784), 444202932502639), 510173598711922), 483785349005417), 510173598711840), 483785319645216), 510173462397049), 444202926211177), 483785319645216), 140737580630116), 435406835286127), 435406671708261), 492581437833327), 510173607100524), 193514256203877), 457397080424480), 448600811241573), 514571685068917), 140737700167794), 532163831267437), 488183370350624), 461795126935662), 444202942988398), 514571680874528), 461795114352750), 140737704362094), 140737719042153), 501377505689712), 474989249691745), 202310366003301), 444202859102240), 501377535049837), 426610578686073), 488183389225068), 510173598711907), 483785349005417), 483785319645216), 325455508930660), 140737664516169), 479387302494307), 474989243400304), 461795126935649), 140737719042159), 444202936696929), 523367778091040), 435406671708271), 479387298300015), 140737719042159), 426610763235429), 474989258080365), 140737729527909), 140737702264943), 483785369976947), 501377520369763), 461795114352751), 439804862922874), 492581442027552), 426610750652517), 488183382933620), 202310380683374)), new ItemCons(Vals.QuadItem(Quads.PageBreak()), new ItemCons(Vals.StrItem(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.PushWide(Txt.Empty(), 488183393419361), 444202915725428), 492581276352626), 444202913628257)), new ItemNil()))))), new ItemNil())))))))))))))))), new ItemNil())));
+	}
+}
+
+# ---- render.rkt ----
+
+# the methods of abstract-renderer% that pdf-renderer% inherits
+class AbstractRenderer
+{
+	public static fun IsRenderable(Int name) : Bool
+	{
+		if (name == Sym.Word())
+		{
+			return true;
+		}
+		return name == Sym.Box();
+	}
+
+	public static fun Render(IRenderer r, IQuad docQuad) : Int
+	{
+		IQuadList renderingInput = Utils.FlattenQuad(r.Setup(docQuad));
+		# page-quad-hash: page -> quads (consed, so in reverse order)
+		ArrayList<IQuadList> byPage = new ArrayList<IQuadList>();
+		IQuadList l = renderingInput;
+		while (!l.IsEmpty())
+		{
+			IQuad q = l.First();
+			l = l.Rest();
+			if (AbstractRenderer.IsRenderable(q.Name()))
+			{
+				Int page = QuadMain.AssertIndex(Quads.AttrRefMissing(q, Sym.Page()));
+				while (byPage.Length() <= page)
+				{
+					byPage.Add(new QuadNil());
+				}
+				byPage.Set(page, new QuadCons(q, byPage.Get(page)));
+			}
+		}
+		# (map render-page (sort (hash-keys page-quad-hash) <)); pages without quads are not keys
+		Int k = 0;
+		while (k < byPage.Length())
+		{
+			if (!byPage.Get(k).IsEmpty())
+			{
+				r.RenderPage(byPage.Get(k));
+			}
+			k = k + 1;
+		}
+		return r.Finalize(0);
+	}
+
+	public static fun RenderElement(IRenderer r, IQuad q) : Int
+	{
+		if (Quads.IsWord(q))
+		{
+			return r.RenderWord(q);
+		}
+		return 0;
+	}
+}
+
+# pdf-renderer%; the pdf-dc% is a recording drawing context (lib.mn)
+class PdfRenderer implements IRenderer
+{
+	private readonly IDc dc;
+	public constructor(IDc d)
+	{
+		dc = d;
+	}
+	public fun Dc() : IDc
+	{
+		return dc;
+	}
+	public fun Render(IQuad docQuad) : Int
+	{
+		return AbstractRenderer.Render(this, docQuad);
+	}
+	public fun RenderElement(IQuad q) : Int
+	{
+		return AbstractRenderer.RenderElement(this, q);
+	}
+	public fun Setup(IQuad tx) : IQuad
+	{
+		# (send* dc (start-doc "boing") (set-pen ...) (set-brush ...))
+		dc.StartDoc(Txt.PushWord(Txt.Empty(), 27881273314));
+		return tx;
+	}
+	public fun RenderWord(IQuad w) : Int
+	{
+		IText wordFont = Quads.AttrRef(w, Sym.Font(), Vals.S(World.FontNameDefault())).S();
+		IVal wordSize = Quads.AttrRef(w, Sym.Size(), Vals.F(World.FontSizeDefault()));
+		if (wordSize.F() < 0.0)
+		{
+			ERROR("assert: nonnegative-flonum?");
+		}
+		dc.SetFont(wordFont, wordSize);
+		IText wordText = Quads.QuadCar(w).Str();
+		Float x = Quads.AttrRefMissing(w, Sym.X()).F();
+		Float y = Quads.AttrRefMissing(w, Sym.Y()).F() - Quads.AttrRef(w, Sym.Ascent(), Vals.I(0)).F();
+		dc.MoveTo(x, y);
+		return dc.DrawText(wordText);
+	}
+	public fun RenderPage(IQuadList elements) : Int
+	{
+		dc.StartPage();
+		IQuadList l = elements;
+		while (!l.IsEmpty())
+		{
+			if (!Quads.IsWhitespaceNbsp(l.First()))
+			{
+				this.RenderElement(l.First());
+			}
+			l = l.Rest();
+		}
+		return dc.EndPage();
+	}
+	public fun Finalize(Int xs) : Int
+	{
+		return dc.EndDoc();
+	}
+	public fun RenderToFile(IQuad docQuad, IText path) : Int
+	{
+		return this.Render(docQuad);
+	}
+}
+
+# ---- main.rkt ----
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		# the module-level state (hyphenate.rkt, measure.rkt, the csp problem class)
+		IEnv env = Builtins.MakeEnv();
+		IProblem prob = Builtins.MakeProblem();
+		IRenderer renderer = new PdfRenderer(Builtins.MakeDc());
+		Timer t = new Timer();
+		# (parameterize ([world:quality-default world:draft-quality]) ...): no effect (see NOTES.md)
+		# the typesetting and rendering are repeated 20 times (see NOTES.md); the last renderer's
+		# recording is printed
+		Int i = 0;
+		while (i < 20)
+		{
+			IQuad to = QuadMain.Typeset(QuickSample.QuickSample(), env, prob);
+			renderer = new PdfRenderer(Builtins.MakeDc());
+			renderer.RenderToFile(to, Txt.Empty());
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		renderer.Dc().Count().ToString().Print();
+		"\n".Print();
+		renderer.Dc().Hash().ToString().Print();
+		"\n".Print();
+	}
+}

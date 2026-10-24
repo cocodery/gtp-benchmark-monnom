@@ -1,0 +1,231 @@
+# benv.rkt: binding environments, the Closure and Binding structs
+# (also contains time.rkt and denotable.rkt, merged here to keep the configuration count down).
+
+class Closure implements IClosure
+{
+	private readonly IExp lam;
+	private readonly IBEnv benv;
+	public constructor(IExp l, IBEnv b)
+	{
+		lam = l;
+		benv = b;
+	}
+	public fun Lam() : IExp
+	{
+		return lam;
+	}
+	public fun Benv() : IBEnv
+	{
+		return benv;
+	}
+}
+
+# the id stands in for the eq-hash code of the struct (bindings are keys of eq? hash tables)
+class Binding implements IBinding
+{
+	private readonly ISymbol var;
+	private readonly ISymList time;
+	private readonly Int id;
+	public constructor(ISymbol v, ISymList t, Int i)
+	{
+		var = v;
+		time = t;
+		id = i;
+	}
+	public fun Var() : ISymbol
+	{
+		return var;
+	}
+	public fun Time() : ISymList
+	{
+		return time;
+	}
+	public fun Id() : Int
+	{
+		return id;
+	}
+}
+
+class Benv
+{
+	public static fun EmptyBenv() : IBEnv
+	{
+		return Builtins.EmptyBEnvMap();
+	}
+
+	# (define benv-lookup hash-ref)
+	public static fun BenvLookup(IBEnv benv, ISymbol v) : IBinding
+	{
+		return benv.Lookup(v);
+	}
+
+	# (define benv-extend hash-set)
+	public static fun BenvExtend(IBEnv benv, ISymbol v, IBinding a) : IBEnv
+	{
+		return benv.Extend(v, a);
+	}
+
+	public static fun BenvExtendStar(IBEnv benv, ISymList vars, IBindingList addrs) : IBEnv
+	{
+		while (!vars.IsEmpty())
+		{
+			if (addrs.IsEmpty())
+			{
+				return benv;
+			}
+			benv = Benv.BenvExtend(benv, vars.First(), addrs.First());
+			vars = vars.Rest();
+			addrs = addrs.Rest();
+		}
+		return benv;
+	}
+}
+
+# ---------------------------------------------------------------- time.rkt
+
+# (alloc time) = (lambda (var) (Binding var time)); the IIdGen provides the new struct's eq-hash code
+class Alloc implements IAlloc
+{
+	private readonly ISymList time;
+	private readonly IIdGen ids;
+	public constructor(ISymList t, IIdGen g)
+	{
+		time = t;
+		ids = g;
+	}
+	public fun this(ISymbol v) : IBinding
+	{
+		return new Binding(v, time, ids.Next());
+	}
+}
+
+class Time
+{
+	public static fun TimeZero() : ISymList
+	{
+		return new SymNil();
+	}
+
+	# (define k (make-parameter 1)); never parameterized by the benchmark
+	public static fun K() : Int
+	{
+		return 1;
+	}
+
+	public static fun TakeStar(ISymList l, Int n) : ISymList
+	{
+		if (l.IsEmpty())
+		{
+			return new SymNil();
+		}
+		if (n <= 0)
+		{
+			return new SymNil();
+		}
+		return new SymCons(l.First(), Time.TakeStar(l.Rest(), n - 1));
+	}
+
+	public static fun Tick(IExp call, ISymList time) : ISymList
+	{
+		ISymbol label = call.Label();
+		return Time.TakeStar(new SymCons(label, time), Time.K());
+	}
+
+	public static fun Alloc(ISymList time, IIdGen ids) : IAlloc
+	{
+		return new Alloc(time, ids);
+	}
+}
+
+# ================================================================ denotable.rkt (merged here to keep the configuration count down)
+
+# denotable.rkt: denotable values (sets of closures), stores, the State struct.
+
+class State implements IState
+{
+	private readonly IExp call;
+	private readonly IBEnv benv;
+	private readonly IStore store;
+	private readonly ISymList time;
+	public constructor(IExp c, IBEnv b, IStore s, ISymList t)
+	{
+		call = c;
+		benv = b;
+		store = s;
+		time = t;
+	}
+	public fun Call() : IExp
+	{
+		return call;
+	}
+	public fun Benv() : IBEnv
+	{
+		return benv;
+	}
+	public fun Store() : IStore
+	{
+		return store;
+	}
+	public fun Time() : ISymList
+	{
+		return time;
+	}
+}
+
+class Denotable
+{
+	# (define d-bot (set))
+	public static fun DBot() : IDenotable
+	{
+		return Builtins.EmptyClosureSet();
+	}
+
+	# (define d-join set-union)
+	public static fun DJoin(IDenotable a, IDenotable b) : IDenotable
+	{
+		return a.Union(b);
+	}
+
+	public static fun EmptyStore() : IStore
+	{
+		return Builtins.EmptyStoreMap();
+	}
+
+	public static fun StoreLookup(IStore s, IBinding a) : IDenotable
+	{
+		return s.Ref(a, Denotable.DBot());
+	}
+
+	# (hash-update store addr update-lam (lambda () d-bot)) with update-lam = (d-join _ value)
+	public static fun StoreUpdate(IStore store, IBinding addr, IDenotable value) : IStore
+	{
+		return store.Set(addr, Denotable.DJoin(store.Ref(addr, Denotable.DBot()), value));
+	}
+
+	public static fun StoreUpdateStar(IStore s, IBindingList as0, IDenotableList vs) : IStore
+	{
+		while (!as0.IsEmpty())
+		{
+			if (vs.IsEmpty())
+			{
+				return s;
+			}
+			s = Denotable.StoreUpdate(s, as0.First(), vs.First());
+			as0 = as0.Rest();
+			vs = vs.Rest();
+		}
+		return s;
+	}
+
+	public static fun StoreJoin(IStore s1, IStore s2) : IStore
+	{
+		IStore newStore = s1;
+		IStoreEntryList es = s2.Entries();
+		while (!es.IsEmpty())
+		{
+			newStore = Denotable.StoreUpdate(newStore, es.First().Key(), es.First().Value());
+			es = es.Rest();
+		}
+		return newStore;
+	}
+}

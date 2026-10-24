@@ -1,0 +1,84 @@
+# automata-adapted.rkt: Automaton, Automaton*, Population, Payoff, State, Transition*
+# plus the types of the Racket builtins the program uses (lists, vectors, random).
+#   State = Natural, Payoff = Nonnegative-Real (only ever an exact integer here) -> Int
+
+# Transition = (Vectorof State)
+interface ITransition
+{
+	fun Ref(Int i) : Int;
+}
+
+# Transition* = (Vectorof Transition)
+interface ITransitions
+{
+	fun Ref(Int i) : ITransition;
+}
+
+interface IAutomaton
+{
+	fun Current() : Int;
+	fun Original() : Int;
+	fun Payoff() : Int;
+	fun Table() : ITransitions;
+}
+
+# (values Automaton Automaton) returned by match-pair
+interface IAutomatonPair
+{
+	fun Fst() : IAutomaton;
+	fun Snd() : IAutomaton;
+}
+
+# Automaton* = (Vectorof Automaton)
+interface IAutomatonVec
+{
+	fun Length() : Int;
+	fun Ref(Int i) : IAutomaton;
+	fun Set(Int i, IAutomaton a) : Int;
+}
+
+# Population = (cons Automaton* Automaton*)
+interface IPopulation
+{
+	fun Car() : IAutomatonVec;
+	fun Cdr() : IAutomatonVec;
+}
+
+# (Listof Natural) / (Listof Payoff)
+interface IIntList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Int;
+	fun Rest() : IIntList;
+}
+
+# (Listof Real)
+interface IFloatList
+{
+	fun IsEmpty() : Bool;
+	fun First() : Float;
+	fun Rest() : IFloatList;
+}
+
+# (List Integer Real), an element of simulation->lines
+interface IPoint
+{
+	fun N() : Int;
+	fun D() : Float;
+}
+
+# (Listof (List Integer Real))
+interface IPointList
+{
+	fun IsEmpty() : Bool;
+	fun First() : IPoint;
+	fun Rest() : IPointList;
+}
+
+# the pseudo-random generator behind racket's `random`
+interface IRng
+{
+	fun Seed(Int k) : Int;
+	fun NextInt(Int n) : Int;
+	fun NextFloat() : Float;
+}

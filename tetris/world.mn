@@ -1,0 +1,157 @@
+# world.rkt: world transitions
+# (also contains elim.rkt, merged here to keep the configuration count down).
+# Key strings are codes: 2 "left", 3 "right", 4 "down", 5 "up", 6 "a", 7 "s".
+
+# elim.rkt
+class Elim
+{
+	# Eliminate all full rows and shift down appropriately.
+	public static fun EliminateFullRows(IBlockList bs) : IBlockList
+	{
+		return Elim.ElimRow(bs, Consts.BoardHeight(), 0);
+	}
+
+	public static fun ElimRow(IBlockList bs, Int i, Int offset) : IBlockList
+	{
+		if (i < 0)
+		{
+			return new BlockNil();
+		}
+		if (BSet.FullRow(bs, i))
+		{
+			return Elim.ElimRow(bs, i - 1, offset + 1);
+		}
+		return BSet.BlocksUnion(Elim.ElimRow(bs, i - 1, offset), BSet.BlocksMove(0.0, offset + 0.0, BSet.BlocksRow(bs, i + 0.0)));
+	}
+}
+
+class WorldOps
+{
+	# Add the current tetra's blocks onto the world's block list, and create a new tetra.
+	# (r and tetras are module-level values of aux.rkt in Racket)
+	public static fun Touchdown(IWorld w, IRng r, ITetraList tetras) : IWorld
+	{
+		ITetra t = Aux.ListPickRandom(tetras, r);
+		return new World(t, Elim.EliminateFullRows(BSet.BlocksUnion(w.Tetra().Blocks(), w.Blocks())));
+	}
+
+	# Take the current tetra and move it down until it lands.
+	public static fun WorldJumpDown(IWorld w) : IWorld
+	{
+		while (true)
+		{
+			if (WorldOps.Landed(w))
+			{
+				return w;
+			}
+			w = new World(Tetras.TetraMove(0.0, 1.0, w.Tetra()), w.Blocks());
+		}
+		return w;
+	}
+
+	# Has the current tetra landed on blocks?
+	public static fun LandedOnBlocks(IWorld w) : Bool
+	{
+		return Tetras.TetraOverlapsBlocks(Tetras.TetraMove(0.0, 1.0, w.Tetra()), w.Blocks());
+	}
+
+	# Has the current tetra landed on the floor?
+	public static fun LandedOnFloor(IWorld w) : Bool
+	{
+		return WorldOps.NumEq(BSet.BlocksMaxY(w.Tetra().Blocks()), Consts.BoardHeight() - 1.0);
+	}
+
+	public static fun NumEq(Float x, Float y) : Bool
+	{
+		return x == y;
+	}
+
+	# Has the current tetra landed?
+	public static fun Landed(IWorld w) : Bool
+	{
+		if (WorldOps.LandedOnBlocks(w))
+		{
+			return true;
+		}
+		return WorldOps.LandedOnFloor(w);
+	}
+
+	# Step the world, either touchdown or move the tetra down on step.
+	public static fun NextWorld(IWorld w, IRng r, ITetraList tetras) : IWorld
+	{
+		if (WorldOps.Landed(w))
+		{
+			return WorldOps.Touchdown(w, r, tetras);
+		}
+		return new World(Tetras.TetraMove(0.0, 1.0, w.Tetra()), w.Blocks());
+	}
+
+	# Make a world with the new tetra *IF* if doesn't lie on top of some other
+	# block or lie off the board. Otherwise, no change.
+	public static fun TryNewTetra(IWorld w, ITetra newTetra) : IWorld
+	{
+		if (BSet.BlocksMinX(newTetra.Blocks()) < 0.0)
+		{
+			return w;
+		}
+		if (BSet.BlocksMaxX(newTetra.Blocks()) >= Consts.BoardWidth() + 0.0)
+		{
+			return w;
+		}
+		if (Tetras.TetraOverlapsBlocks(newTetra, w.Blocks()))
+		{
+			return w;
+		}
+		return new World(newTetra, w.Blocks());
+	}
+
+	# Move the Tetra by the given X & Y displacement, but only if you can.
+	public static fun WorldMove(Float dx, Float dy, IWorld w) : IWorld
+	{
+		return WorldOps.TryNewTetra(w, Tetras.TetraMove(dx, dy, w.Tetra()));
+	}
+
+	# Rotate the Tetra 90 degrees counterclockwise, but only if you can.
+	public static fun WorldRotateCcw(IWorld w) : IWorld
+	{
+		return WorldOps.TryNewTetra(w, Tetras.TetraRotateCcw(w.Tetra()));
+	}
+
+	# Rotate the Tetra 90 degrees clockwise, but only if you can.
+	public static fun WorldRotateCw(IWorld w) : IWorld
+	{
+		return WorldOps.TryNewTetra(w, Tetras.TetraRotateCw(w.Tetra()));
+	}
+
+	# Gray blocks representing where the current tetra would land.
+	public static fun GhostBlocks(IWorld w) : IBlockList
+	{
+		return Tetras.TetraChangeColor(WorldOps.WorldJumpDown(w).Tetra(), "gray").Blocks();
+	}
+
+	# Move the world according to the given key event.
+	public static fun WorldKeyMove(IWorld w, Int k) : IWorld
+	{
+		if (k == 2)
+		{
+			return WorldOps.WorldMove(Aux.Neg1(), 0.0, w);
+		}
+		if (k == 3)
+		{
+			return WorldOps.WorldMove(1.0, 0.0, w);
+		}
+		if (k == 4)
+		{
+			return WorldOps.WorldJumpDown(w);
+		}
+		if (k == 6)
+		{
+			return WorldOps.WorldRotateCcw(w);
+		}
+		if (k == 7)
+		{
+			return WorldOps.WorldRotateCw(w);
+		}
+		return w;
+	}
+}

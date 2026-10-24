@@ -1,0 +1,156 @@
+# utils.rkt: "random" numbers from a fixed list, random-between, random-from, ...
+# The box r* is a RandomBox object (lib.mn) made by main and passed to the functions using it.
+
+class Utils
+{
+	# (define orig '(2 10 24 ...))
+	public static fun Orig() : IIntList
+	{
+		# the 268 numbers, packed 10 per Int (base 64, first number in the lowest digit)
+		ArrayList<Int> w = new ArrayList<Int>();
+		w.Add(36790348408521346);
+		w.Add(36028871124914306);
+		w.Add(1416308415799297);
+		w.Add(13196303806464);
+		w.Add(13194173612162);
+		w.Add(18295875633950722);
+		w.Add(567348050264192);
+		w.Add(18863221486649411);
+		w.Add(36310412656381953);
+		w.Add(285875204264000);
+		w.Add(70866960514);
+		w.Add(18577419329880256);
+		w.Add(4398063292608);
+		w.Add(36037730551201921);
+		w.Add(18295874560208898);
+		w.Add(13196337352832);
+		w.Add(54052269720600706);
+		w.Add(1126106065547264);
+		w.Add(290273250771072);
+		w.Add(206176792576);
+		w.Add(18295945426907202);
+		w.Add(290273267548288);
+		w.Add(36037730601271425);
+		w.Add(18858893233364994);
+		w.Add(562952117686400);
+		w.Add(36037730567979075);
+		w.Add(4538758336514);
+		ArrayList<Int> xs = new ArrayList<Int>();
+		foreach (Int p in w)
+		{
+			Int k = 0;
+			while (k < 10)
+			{
+				if (xs.Length() < 268)
+				{
+					xs.Add(p % 64);
+				}
+				p = p / 64;
+				k = k + 1;
+			}
+		}
+		IIntList l = new IntNil();
+		Int i = xs.Length() - 1;
+		while (i >= 0)
+		{
+			l = new IntCons(xs.Get(i), l);
+			i = i - 1;
+		}
+		return l;
+	}
+
+	public static fun MakeBox() : IRandomBox
+	{
+		return new RandomBox(Utils.Orig());
+	}
+
+	public static fun Reset(IRandomBox r) : Int
+	{
+		return r.Reset();
+	}
+
+	# (random n) ignores n and pops the next number
+	public static fun Random(IRandomBox r, Int n) : Int
+	{
+		return r.Next();
+	}
+
+	public static fun Article(Bool capitalize, Bool specific, Bool an) : String
+	{
+		if (specific)
+		{
+			if (capitalize)
+			{
+				return "The";
+			}
+			return "the";
+		}
+		if (an)
+		{
+			if (capitalize)
+			{
+				return "An";
+			}
+			return "an";
+		}
+		if (capitalize)
+		{
+			return "A";
+		}
+		return "a";
+	}
+
+	public static fun RandomBetween(IRandomBox r, Int min, Int max) : Int
+	{
+		return min + Utils.Random(r, max - min);
+	}
+
+	public static fun D6(IRandomBox r) : Int
+	{
+		return Utils.RandomBetween(r, 1, 7);
+	}
+
+	public static fun D20(IRandomBox r) : Int
+	{
+		return Utils.RandomBetween(r, 1, 21);
+	}
+
+	# (first (shuffle l)) with (shuffle l) = (reverse l): the last element
+	public static fun RandomFromDirections(IDirectionList l) : IDirection
+	{
+		return Utils.ReverseDirections(l).First();
+	}
+
+	public static fun ReverseDirections(IDirectionList l) : IDirectionList
+	{
+		IDirectionList r = new DirectionNil();
+		while (!l.IsEmpty())
+		{
+			r = new DirectionCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r;
+	}
+
+	public static fun RandomFromExtPoints(IExtPointList l) : IExtPoint
+	{
+		IExtPointList r = new ExtPointNil();
+		while (!l.IsEmpty())
+		{
+			r = new ExtPointCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r.First();
+	}
+
+	public static fun RandomFromPosCells(IPosCellList l) : IPosCell
+	{
+		IPosCellList r = new PosCellNil();
+		while (!l.IsEmpty())
+		{
+			r = new PosCellCons(l.First(), r);
+			l = l.Rest();
+		}
+		return r.First();
+	}
+}

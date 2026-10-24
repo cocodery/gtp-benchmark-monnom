@@ -1,0 +1,166 @@
+# population.rkt: populations of automata.
+# Population = (Cons Automaton* Automaton*), Automaton* = [Vectorof Automaton]
+
+class AutomatonVec implements IAutomatonVec
+{
+	private readonly ArrayList<IAutomaton> elems;
+	public constructor(ArrayList<IAutomaton> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : IAutomaton
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, IAutomaton a) : Int
+	{
+		elems.Set(i, a);
+		return i;
+	}
+}
+
+class Population implements IPopulation
+{
+	private readonly IAutomatonVec car;
+	private readonly IAutomatonVec cdr;
+	public constructor(IAutomatonVec a, IAutomatonVec d)
+	{
+		car = a;
+		cdr = d;
+	}
+	public fun Car() : IAutomatonVec
+	{
+		return car;
+	}
+	public fun Cdr() : IAutomatonVec
+	{
+		return cdr;
+	}
+}
+
+class Populations
+{
+	public static fun DefCoo() : Int
+	{
+		return 2;
+	}
+
+	# (build-population n) for even n, build a population of size n
+	public static fun BuildRandomPopulation(Int n, IRng rng) : IPopulation
+	{
+		ArrayList<IAutomaton> elems = new ArrayList<IAutomaton>();
+		Int i = 0;
+		while (i < n)
+		{
+			elems.Add(Automata.MakeRandomAutomaton(Populations.DefCoo(), rng));
+			i = i + 1;
+		}
+		IAutomatonVec v = new AutomatonVec(elems);
+		return new Population(v, v);
+	}
+
+	public static fun PopulationPayoffs(IPopulation population0) : IIntList
+	{
+		IAutomatonVec population = population0.Car();
+		# for/list builds the list in order
+		IIntList res = new IntNil();
+		Int i = population.Length() - 1;
+		while (i >= 0)
+		{
+			res = new IntCons(Automata.AutomatonPayoff(population.Ref(i)), res);
+			i = i - 1;
+		}
+		return res;
+	}
+
+	# (match-ups p r) matches up neighboring pairs of automata in population p for r rounds
+	public static fun MatchUpStar(IPopulation population0, Int roundsPerMatch) : IPopulation
+	{
+		IAutomatonVec a = population0.Car();
+		Populations.PopulationReset(a);
+		Int i = 0;
+		while (i < a.Length() - 1)
+		{
+			IAutomaton p1 = a.Ref(i);
+			IAutomaton p2 = a.Ref(i + 1);
+			IAutomatonPair r = Automata.MatchPair(p1, p2, roundsPerMatch);
+			a.Set(i, r.Fst());
+			a.Set(i + 1, r.Snd());
+			i = i + 2;
+		}
+		return population0;
+	}
+
+	# effect: reset all automata in a*
+	public static fun PopulationReset(IAutomatonVec a) : Int
+	{
+		Int i = 0;
+		while (i < a.Length())
+		{
+			a.Set(i, Automata.AutomatonReset(a.Ref(i)));
+			i = i + 1;
+		}
+		return i;
+	}
+
+	# (death-birth p r) replaces r elements of p with r "children" of
+	# randomly chosen fittest elements of p, also shuffle
+	# (#:random q is the pair hasQ/q)
+	public static fun DeathBirth(IPopulation population0, Int rate, Bool hasQ, Float q, IRng rng) : IPopulation
+	{
+		IAutomatonVec a = population0.Car();
+		IAutomatonVec b = population0.Cdr();
+		IIntList payoffs = new IntNil();
+		Int k = a.Length() - 1;
+		while (k >= 0)
+		{
+			payoffs = new IntCons(Automata.AutomatonPayoff(a.Ref(k)), payoffs);
+			k = k - 1;
+		}
+		IIntList substitutes = Utilities.ChooseRandomly(payoffs, rate, hasQ, q, rng);
+		Int i = 0;
+		while (i < rate)
+		{
+			if (substitutes.IsEmpty())
+			{
+				break;
+			}
+			Int p = substitutes.First();
+			a.Set(i, Automata.Clone(b.Ref(p)));
+			substitutes = substitutes.Rest();
+			i = i + 1;
+		}
+		return Populations.ShuffleVector(a, b, rng);
+	}
+
+	# effect: shuffle vector b into vector a (Fisher-Yates)
+	# constraint: (= (vector-length a) (vector-length b))
+	public static fun ShuffleVector(IAutomatonVec b, IAutomatonVec a, IRng rng) : IPopulation
+	{
+		# copy b into a
+		Int i = 0;
+		while (i < b.Length())
+		{
+			a.Set(i, b.Ref(i));
+			i = i + 1;
+		}
+		# now shuffle a
+		i = 0;
+		while (i < b.Length())
+		{
+			IAutomaton x = b.Ref(i);
+			Int j = rng.NextInt(i + 1);
+			if (j != i)
+			{
+				a.Set(i, a.Ref(j));
+			}
+			a.Set(j, x);
+			i = i + 1;
+		}
+		return new Population(a, b);
+	}
+}

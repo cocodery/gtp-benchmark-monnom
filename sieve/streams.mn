@@ -1,0 +1,148 @@
+# streams.rkt: simple streams library for building and using infinite lists.
+# A stream is a value and a thunk that computes the next stream.
+
+interface IStream
+{
+	fun First() : Int;
+	fun Rest() : IStreamThunk;
+}
+
+# (-> stream)
+interface IStreamThunk
+{
+	fun this() : IStream;
+}
+
+# result of stream-unfold (Racket returns two values)
+interface IUnfold
+{
+	fun Hd() : Int;
+	fun Tl() : IStream;
+}
+
+interface INatList
+{
+	fun IsEmpty() : Bool;
+	fun Head() : Int;
+	fun Tail() : INatList;
+}
+
+class Stream implements IStream
+{
+	private readonly Int first;
+	private readonly IStreamThunk rest;
+	public constructor(Int f, IStreamThunk r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IStreamThunk
+	{
+		return rest;
+	}
+}
+
+class Unfold implements IUnfold
+{
+	private readonly Int hd;
+	private readonly IStream tl;
+	public constructor(Int h, IStream t)
+	{
+		hd = h;
+		tl = t;
+	}
+	public fun Hd() : Int
+	{
+		return hd;
+	}
+	public fun Tl() : IStream
+	{
+		return tl;
+	}
+}
+
+class NatNil implements INatList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun Head() : Int
+	{
+		ERROR("car of empty list");
+	}
+	public fun Tail() : INatList
+	{
+		ERROR("cdr of empty list");
+	}
+}
+
+class NatCons implements INatList
+{
+	private readonly Int hd;
+	private readonly INatList tl;
+	public constructor(Int h, INatList t)
+	{
+		hd = h;
+		tl = t;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun Head() : Int
+	{
+		return hd;
+	}
+	public fun Tail() : INatList
+	{
+		return tl;
+	}
+}
+
+class Streams
+{
+	public static fun MakeStream(Int hd, IStreamThunk thunk) : IStream
+	{
+		return new Stream(hd, thunk);
+	}
+
+	# Destruct a stream into its first value and the new stream produced by de-thunking the tail
+	public static fun StreamUnfold(IStream st) : IUnfold
+	{
+		IStreamThunk rest = st.Rest();
+		return new Unfold(st.First(), rest());
+	}
+
+	# [stream-get st i] Get the [i]-th element from the stream [st]
+	# (tail recursion in Racket, a loop here)
+	public static fun StreamGet(IStream st, Int i) : Int
+	{
+		IUnfold u = Streams.StreamUnfold(st);
+		while (i != 0)
+		{
+			st = u.Tl();
+			i = i - 1;
+			u = Streams.StreamUnfold(st);
+		}
+		return u.Hd();
+	}
+
+	# [stream-take st n] Collect the first [n] elements of the stream [st].
+	public static fun StreamTake(IStream st, Int n) : INatList
+	{
+		if (n == 0)
+		{
+			return new NatNil();
+		}
+		IUnfold u = Streams.StreamUnfold(st);
+		return new NatCons(u.Hd(), Streams.StreamTake(u.Tl(), n - 1));
+	}
+}

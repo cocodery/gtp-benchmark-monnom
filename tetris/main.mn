@@ -1,0 +1,94 @@
+# main.rkt: replay a recorded game LOOPS times.
+# The history is embedded in the library file tetris-hist.mn as event codes.
+
+class Main
+{
+	public static fun World0(IRng r, ITetraList tetras) : IWorld
+	{
+		return new World(Aux.ListPickRandom(tetras, r), new BlockNil());
+	}
+
+	public static fun GameOver(IWorld w) : Bool
+	{
+		return BSet.BlocksOverflow(w.Blocks());
+	}
+
+	# one step of the `match` in replay
+	public static fun Step(IWorld w, Int e, IRng r, ITetraList tetras) : IWorld
+	{
+		if (e == 0)
+		{
+			Main.GameOver(w);
+			return w;
+		}
+		if (e == 1)
+		{
+			return WorldOps.NextWorld(w, r, tetras);
+		}
+		return WorldOps.WorldKeyMove(w, e);
+	}
+
+	# Racket's replay returns (void); here it returns the final world so main can report it.
+	public static fun Replay(IWorld w0, ArrayList<Int> hist, IRng r, ITetraList tetras) : IWorld
+	{
+		IWorld w = w0;
+		Int i = 0;
+		Int n = hist.Length();
+		while (i < n)
+		{
+			w = Main.Step(w, hist.Get(i), r, tetras);
+			i = i + 1;
+		}
+		return w;
+	}
+
+	public static fun Checksum(IBlockList bs) : Float
+	{
+		Float s = 0.0;
+		while (!bs.IsEmpty())
+		{
+			s = s + 100.0 * bs.First().X() + bs.First().Y();
+			bs = bs.Rest();
+		}
+		return s;
+	}
+
+	public static fun Main() : Void
+	{
+		ArrayList<Int> hist = TetrisHist.Load();
+		# module-level values of aux.rkt
+		IRng r = Aux.MakeR();
+		ITetraList tetras = Aux.Tetras();
+		Int loops = 6;
+		Timer t = new Timer();
+		IWorld w0 = Main.World0(r, tetras);
+		IWorld last = w0;
+		Int k = 0;
+		while (k < loops)
+		{
+			last = Main.Replay(w0, hist, r, tetras);
+			k = k + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		Lists.BlocksLength(last.Blocks()).ToString().Print();
+		"\n".Print();
+		Main.Checksum(last.Blocks()).ToString().Print();
+		"\n".Print();
+		last.Tetra().Center().X().ToString().Print();
+		"\n".Print();
+		last.Tetra().Center().Y().ToString().Print();
+		"\n".Print();
+		Main.Checksum(last.Tetra().Blocks()).ToString().Print();
+		"\n".Print();
+		if (Main.GameOver(last))
+		{
+			"#t".Print();
+		}
+		else
+		{
+			"#f".Print();
+		}
+		"\n".Print();
+	}
+}

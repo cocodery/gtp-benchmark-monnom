@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><project name="Snake" mainclass="Main" major="1" minor="0" revision="0" build="0"><files><file name="types.mn" /><file name="data.mn" /><file name="collide.mn" /><file name="motion-help.mn" /><file name="motion.mn" /><file name="handlers.mn" /><file name="main.mn" /></files><libraryfiles><file name="snake-hist.mn" /></libraryfiles></project>

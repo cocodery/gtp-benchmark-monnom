@@ -1,0 +1,38 @@
+# morse-code-strings.rkt: convert text into dit-dah strings.
+# char-table is a module-level value of morse-code-table.rkt; here it is built once by main
+# and passed as an extra argument.
+
+class MorseStrings
+{
+	# map a character to a dit-dah string
+	public static fun CharToDitDahString(Int letter, ICharTable table) : IText
+	{
+		IText missing = Builtins.EmptyText();
+		IText res = table.Ref(Builtins.CharDowncase(letter), missing);
+		if (res == missing)
+		{
+			ERROR("letter-map: contract violation, expected: character in map");
+		}
+		return res;
+	}
+
+	public static fun StringToMorse(IText str, ICharTable table) : IText
+	{
+		# (for/list ([c str]) (char->dit-dah-string c)), built in order
+		ArrayList<IText> parts = new ArrayList<IText>();
+		Int i = 0;
+		while (i < str.Length())
+		{
+			parts.Add(MorseStrings.CharToDitDahString(str.CharAt(i), table));
+			i = i + 1;
+		}
+		ITextList l = new TextNil();
+		Int k = parts.Length() - 1;
+		while (k >= 0)
+		{
+			l = new TextCons(parts.Get(k), l);
+			k = k - 1;
+		}
+		return Builtins.StringAppendList(l);
+	}
+}

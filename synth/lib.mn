@@ -1,0 +1,663 @@
+# Stand-ins for Racket builtins: vectors, boxes, lists, flonum rounding, random.
+
+class Idx implements IIdx
+{
+	private readonly ArrayList<Int> elems;
+	public constructor(ArrayList<Int> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : Int
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, Int v) : Int
+	{
+		elems.Set(i, v);
+		return v;
+	}
+}
+
+class FloatVec implements IFloatVec
+{
+	private readonly ArrayList<Float> elems;
+	public constructor(ArrayList<Float> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : Float
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, Float v) : Int
+	{
+		elems.Set(i, v);
+		return i;
+	}
+}
+
+class ProcVec implements IProcVec
+{
+	private readonly ArrayList<IIndexProc> elems;
+	public constructor(ArrayList<IIndexProc> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : IIndexProc
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, IIndexProc p) : Int
+	{
+		elems.Set(i, p);
+		return i;
+	}
+}
+
+class BoolBox implements IBoolBox
+{
+	private Bool value;
+	public constructor(Bool v)
+	{
+		value = v;
+	}
+	public fun Get() : Bool
+	{
+		return value;
+	}
+	public fun Put(Bool b) : Int
+	{
+		value = b;
+		return 0;
+	}
+}
+
+class ProcBox implements IProcBox
+{
+	private IIndexProc value;
+	public constructor(IIndexProc v)
+	{
+		value = v;
+	}
+	public fun Get() : IIndexProc
+	{
+		return value;
+	}
+	public fun Put(IIndexProc p) : Int
+	{
+		value = p;
+		return 0;
+	}
+}
+
+class IdxCell implements IIdxCell
+{
+	private Bool set;
+	private IIdx value;
+	public constructor()
+	{
+		set = false;
+		value = Builtins.MakeIdx(0, 0);
+	}
+	public fun IsSet() : Bool
+	{
+		return set;
+	}
+	public fun Get() : IIdx
+	{
+		return value;
+	}
+	public fun Put(IIdx v) : Int
+	{
+		value = v;
+		set = true;
+		return 0;
+	}
+}
+
+# Weighted-Signal = (List Array Real), built with `list`
+class WeightedSignal implements IWeightedSignal
+{
+	private readonly IArray signal;
+	private readonly Float weight;
+	public constructor(IArray s, Float w)
+	{
+		signal = s;
+		weight = w;
+	}
+	public fun Signal() : IArray
+	{
+		return signal;
+	}
+	public fun Weight() : Float
+	{
+		return weight;
+	}
+}
+
+class Builtins
+{
+	public static fun MakeIdxCell() : IIdxCell
+	{
+		return new IdxCell();
+	}
+
+	# (make-vector n v)
+	public static fun MakeIdx(Int n, Int v) : IIdx
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new Idx(e);
+	}
+	public static fun MakeFloatVec(Int n, Float v) : IFloatVec
+	{
+		ArrayList<Float> e = new ArrayList<Float>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(v);
+			i = i + 1;
+		}
+		return new FloatVec(e);
+	}
+	public static fun MakeProcVec(Int n, IIndexProc p) : IProcVec
+	{
+		ArrayList<IIndexProc> e = new ArrayList<IIndexProc>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(p);
+			i = i + 1;
+		}
+		return new ProcVec(e);
+	}
+	# (vector a)
+	public static fun Idx1(Int a) : IIdx
+	{
+		IIdx v = Builtins.MakeIdx(1, a);
+		return v;
+	}
+	# (vector-append a b)
+	public static fun IdxAppend(IIdx a, IIdx b) : IIdx
+	{
+		IIdx v = Builtins.MakeIdx(a.Length() + b.Length(), 0);
+		Int i = 0;
+		while (i < a.Length())
+		{
+			v.Set(i, a.Ref(i));
+			i = i + 1;
+		}
+		Int j = 0;
+		while (j < b.Length())
+		{
+			v.Set(i + j, b.Ref(j));
+			j = j + 1;
+		}
+		return v;
+	}
+	# vector->immutable-vector (a copy)
+	public static fun IdxCopy(IIdx a) : IIdx
+	{
+		return Builtins.IdxAppend(a, Builtins.MakeIdx(0, 0));
+	}
+	# equal? on index vectors
+	public static fun IdxEqual(IIdx a, IIdx b) : Bool
+	{
+		if (a.Length() != b.Length())
+		{
+			return false;
+		}
+		Int i = 0;
+		while (i < a.Length())
+		{
+			if (a.Ref(i) != b.Ref(i))
+			{
+				return false;
+			}
+			i = i + 1;
+		}
+		return true;
+	}
+	# fxmodulo on non-negative fixnums / modulo with a positive divisor
+	public static fun Modulo(Int a, Int b) : Int
+	{
+		Int r = a % b;
+		if (r < 0)
+		{
+			return r + b;
+		}
+		return r;
+	}
+	# exact-floor of a flonum (MonNom has no conversion from Float to Int: binary search)
+	public static fun ExactFloor(Float x) : Int
+	{
+		if (x >= 0.0)
+		{
+			if (x < 1048576.0)
+			{
+				return Builtins.FloorBetween(x, 0, 1048576);
+			}
+			return Builtins.FloorBetween(x, 0, 4611686018427387904);
+		}
+		return Builtins.FloorBetween(x, 0 - 4611686018427387904, 0);
+	}
+	public static fun FloorBetween(Float x, Int lo, Int hi) : Int
+	{
+		# invariant: lo <= floor(x) < hi
+		while (hi - lo > 1)
+		{
+			Int mid = lo + (hi - lo) / 2;
+			if (mid + 0.0 <= x)
+			{
+				lo = mid;
+				continue;
+			}
+			hi = mid;
+		}
+		return lo;
+	}
+	# (inexact->exact (round x)): round to nearest, ties to even
+	public static fun Round(Float x) : Int
+	{
+		Int f = Builtins.ExactFloor(x);
+		Float d = x - (f + 0.0);
+		if (d > 0.5)
+		{
+			return f + 1;
+		}
+		if (d < 0.5)
+		{
+			return f;
+		}
+		if (f % 2 == 0)
+		{
+			return f;
+		}
+		return f + 1;
+	}
+	public static fun ReverseArrays(IArrayList l) : IArrayList
+	{
+		IArrayList acc = new ArrayNil();
+		while (!l.IsEmpty())
+		{
+			acc = new ArrayCons(l.First(), acc);
+			l = l.Rest();
+		}
+		return acc;
+	}
+}
+
+# Racket CS pseudo-random generator (MRG32k3a, Chez Scheme c/random.c),
+# re-implemented with exact 64-bit integer arithmetic.
+class Rng implements IRng
+{
+	private Int x10;
+	private Int x11;
+	private Int x12;
+	private Int x20;
+	private Int x21;
+	private Int x22;
+	private Int sx;
+	public constructor()
+	{
+		x10 = 1;
+		x11 = 1;
+		x12 = 1;
+		x20 = 1;
+		x21 = 1;
+		x22 = 1;
+		sx = 0;
+	}
+	# (random-seed k) / pseudo-random-generator-seed!
+	public fun Seed(Int k) : Int
+	{
+		x10 = 1062452522;
+		x11 = 2961816100;
+		x12 = 342112271;
+		x20 = 2854655037;
+		x21 = 3321940838;
+		x22 = 3542344109;
+		this.SrandHalf(k % 65536);
+		this.SrandHalf((k / 65536) % 65536);
+		return k;
+	}
+	public fun RandomM() : Int
+	{
+		Int x = sx;
+		Int y = x % 65536;
+		sx = (30903 * y + x / 65536) % 4294967296;
+		return y;
+	}
+	public fun RandomN(Int n) : Int
+	{
+		Int hi = this.RandomM();
+		Int lo = this.RandomM();
+		return (hi * 65536 + lo) % n;
+	}
+	public fun SrandHalf(Int x) : Void
+	{
+		sx = x;
+		Int z = this.RandomN(4294967086);
+		x10 = 1 + ((x10 + z) % 4294967296) % 4294967086;
+		z = this.RandomN(4294967087);
+		x11 = ((x11 + z) % 4294967296) % 4294967087;
+		z = this.RandomN(4294967087);
+		x12 = ((x12 + z) % 4294967296) % 4294967087;
+		z = this.RandomN(4294944442);
+		x20 = 1 + ((x20 + z) % 4294967296) % 4294944442;
+		z = this.RandomN(4294944443);
+		x21 = ((x21 + z) % 4294967296) % 4294944443;
+		z = this.RandomN(4294944443);
+		x22 = ((x22 + z) % 4294967296) % 4294944443;
+	}
+	public fun Fix(Int v, Int m) : Int
+	{
+		if (v < 0)
+		{
+			return v + m;
+		}
+		return v;
+	}
+	# one step of MRG32k3a, result in {0..m1-1}
+	public fun Next() : Int
+	{
+		Int p1 = 1403580 * x11 - 810728 * x12;
+		p1 = this.Fix(p1 - (p1 / 4294967087) * 4294967087, 4294967087);
+		x12 = x11;
+		x11 = x10;
+		x10 = p1;
+		Int p2 = 527612 * x20 - 1370589 * x22;
+		p2 = this.Fix(p2 - (p2 / 4294944443) * 4294944443, 4294944443);
+		x22 = x21;
+		x21 = x20;
+		x20 = p2;
+		return this.Fix(p1 - p2, 4294967087);
+	}
+	# (random n r) for 1 <= n <= 4294967087
+	public fun NextInt(Int n) : Int
+	{
+		Int q = 4294967087 / n;
+		Int qn = q * n;
+		Int x = this.Next();
+		while (x >= qn)
+		{
+			x = this.Next();
+		}
+		return x / q;
+	}
+	# (random r)
+	public fun NextFloat() : Float
+	{
+		return (this.Next() + 1.0) * 0.0000000002328306549295728;
+	}
+}
+
+class ArrayNil implements IArrayList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IArray
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IArrayList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class ArrayCons implements IArrayList
+{
+	private readonly IArray first;
+	private readonly IArrayList rest;
+	public constructor(IArray f, IArrayList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IArray
+	{
+		return first;
+	}
+	public fun Rest() : IArrayList
+	{
+		return rest;
+	}
+}
+
+class IdxListNil implements IIdxList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IIdx
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIdxList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IdxListCons implements IIdxList
+{
+	private readonly IIdx first;
+	private readonly IIdxList rest;
+	public constructor(IIdx f, IIdxList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IIdx
+	{
+		return first;
+	}
+	public fun Rest() : IIdxList
+	{
+		return rest;
+	}
+}
+
+class IntNil implements IIntList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IIntList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class IntCons implements IIntList
+{
+	private readonly Int first;
+	private readonly IIntList rest;
+	public constructor(Int f, IIntList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : IIntList
+	{
+		return rest;
+	}
+}
+
+class FloatNil implements IFloatList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Float
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IFloatList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class FloatCons implements IFloatList
+{
+	private readonly Float first;
+	private readonly IFloatList rest;
+	public constructor(Float f, IFloatList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Float
+	{
+		return first;
+	}
+	public fun Rest() : IFloatList
+	{
+		return rest;
+	}
+}
+
+class WeightedNil implements IWeightedList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IWeightedSignal
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : IWeightedList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class WeightedCons implements IWeightedList
+{
+	private readonly IWeightedSignal first;
+	private readonly IWeightedList rest;
+	public constructor(IWeightedSignal f, IWeightedList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IWeightedSignal
+	{
+		return first;
+	}
+	public fun Rest() : IWeightedList
+	{
+		return rest;
+	}
+}
+
+class NoteNil implements INoteList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : INote
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : INoteList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class NoteCons implements INoteList
+{
+	private readonly INote first;
+	private readonly INoteList rest;
+	public constructor(INote f, INoteList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : INote
+	{
+		return first;
+	}
+	public fun Rest() : INoteList
+	{
+		return rest;
+	}
+}
+

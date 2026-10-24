@@ -1,0 +1,107 @@
+# main.rkt: the large test from Vincent's repo (a melody mixed with a drum loop)
+
+class Main
+{
+	# note names (see Sequencer.NameOffset)
+	public static fun C() : Int
+	{
+		return 0;
+	}
+	public static fun E() : Int
+	{
+		return 6;
+	}
+	public static fun F() : Int
+	{
+		return 7;
+	}
+	public static fun G() : Int
+	{
+		return 10;
+	}
+	public static fun ASharp() : Int
+	{
+		return 14;
+	}
+
+	public static fun Melody() : INoteList
+	{
+		INoteList l = new NoteNil();
+		l = new NoteCons(Sequencer.Pause(9), l);
+		l = new NoteCons(Sequencer.Note(Main.C(), 5, 1), l);
+		l = new NoteCons(Sequencer.Pause(1), l);
+		l = new NoteCons(Sequencer.Note(Main.E(), 5, 1), l);
+		l = new NoteCons(Sequencer.Pause(1), l);
+		l = new NoteCons(Sequencer.Note(Main.F(), 5, 1), l);
+		l = new NoteCons(Sequencer.Pause(1), l);
+		l = new NoteCons(Sequencer.Note(Main.C(), 5, 1), l);
+		l = new NoteCons(Sequencer.Pause(1), l);
+		l = new NoteCons(Sequencer.Note(Main.G(), 4, 1), l);
+		l = new NoteCons(Sequencer.Pause(3), l);
+		l = new NoteCons(Sequencer.Note(Main.G(), 4, 1), l);
+		l = new NoteCons(Sequencer.Pause(3), l);
+		l = new NoteCons(Sequencer.Note(Main.C(), 5, 1), l);
+		l = new NoteCons(Sequencer.Pause(1), l);
+		l = new NoteCons(Sequencer.Note(Main.ASharp(), 4, 1), l);
+		l = new NoteCons(Sequencer.Pause(1), l);
+		l = new NoteCons(Sequencer.Note(Main.C(), 5, 1), l);
+		l = new NoteCons(Sequencer.Pause(1), l);
+		l = new NoteCons(Sequencer.Note(Main.C(), 5, 1), l);
+		return l;
+	}
+
+	# '(O #f #f #f X #f #f #f)
+	public static fun DrumPattern() : IIntList
+	{
+		IIntList l = new IntNil();
+		l = new IntCons(0, l);
+		l = new IntCons(0, l);
+		l = new IntCons(0, l);
+		l = new IntCons(2, l);
+		l = new IntCons(0, l);
+		l = new IntCons(0, l);
+		l = new IntCons(0, l);
+		l = new IntCons(1, l);
+		return l;
+	}
+
+	public static fun LargeTest(Int loops, INoteList melody, IIntList pattern, IDrumSamples drums) : IIdx
+	{
+		IArray seq = Sequencer.Sequence(loops, melody, 380, Synth.SawtoothWave());
+		IArray dr = Drum.Drum(8, pattern, 380, drums);
+		IWeightedList signals = new WeightedCons(new WeightedSignal(seq, 1.0), new WeightedCons(new WeightedSignal(dr, 1.0), new WeightedNil()));
+		return Synth.Emit(Mixer.Mix(signals));
+	}
+
+	public static fun Main() : Void
+	{
+		Int loops = 18;
+		INoteList melody = Main.Melody();
+		IIntList pattern = Main.DrumPattern();
+		# instantiating drum.rkt: (random-seed 4242) (see NOTES.md), bass-drum, snare
+		IRng rng = new Rng();
+		rng.Seed(4242);
+		IDrumSamples drums = Drum.Init(rng);
+		Timer t = new Timer();
+		IIdx result = Main.LargeTest(loops, melody, pattern, drums);
+		t.PrintDifference();
+		"\n".Print();
+		Int n = result.Length();
+		Int sum = 0;
+		Int hash = 0;
+		Int i = 0;
+		while (i < n)
+		{
+			Int v = result.Ref(i);
+			sum = sum + v;
+			hash = (hash * 31 + v + i) % 1000000007;
+			i = i + 1;
+		}
+		n.ToString().Print();
+		"\n".Print();
+		sum.ToString().Print();
+		"\n".Print();
+		hash.ToString().Print();
+		"\n".Print();
+	}
+}

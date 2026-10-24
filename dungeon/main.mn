@@ -1,0 +1,1048 @@
+# main.rkt: generate dungeons LOOPS times.
+# Module-level state (the caches, the cell classes, utils.rkt's box of numbers) is created by
+# main and passed explicitly. (U #f Room) is an IRoom whose Exists() is false.
+
+# the room struct
+class Room implements IRoom
+{
+	private readonly Int height;
+	private readonly Int width;
+	private readonly IPosCellList possToCells;
+	private readonly IPosList freeCells;
+	private readonly IPosList extensionPoints;
+	public constructor(Int h, Int w, IPosCellList pc, IPosList fc, IPosList ep)
+	{
+		height = h;
+		width = w;
+		possToCells = pc;
+		freeCells = fc;
+		extensionPoints = ep;
+	}
+	public fun Exists() : Bool
+	{
+		return true;
+	}
+	public fun Height() : Int
+	{
+		return height;
+	}
+	public fun Width() : Int
+	{
+		return width;
+	}
+	public fun PossToCells() : IPosCellList
+	{
+		return possToCells;
+	}
+	public fun FreeCells() : IPosList
+	{
+		return freeCells;
+	}
+	public fun ExtensionPoints() : IPosList
+	{
+		return extensionPoints;
+	}
+}
+
+# #f in place of a room
+class NoRoom implements IRoom
+{
+	public constructor()
+	{
+	}
+	public fun Exists() : Bool
+	{
+		return false;
+	}
+	public fun Height() : Int
+	{
+		ERROR("room-height: not a room");
+	}
+	public fun Width() : Int
+	{
+		ERROR("room-width: not a room");
+	}
+	public fun PossToCells() : IPosCellList
+	{
+		ERROR("not a room");
+	}
+	public fun FreeCells() : IPosList
+	{
+		ERROR("not a room");
+	}
+	public fun ExtensionPoints() : IPosList
+	{
+		ERROR("not a room");
+	}
+}
+
+class PosCell implements IPosCell
+{
+	private readonly IPos pos;
+	private readonly ICellClass cls;
+	public constructor(IPos p, ICellClass c)
+	{
+		pos = p;
+		cls = c;
+	}
+	public fun Pos() : IPos
+	{
+		return pos;
+	}
+	public fun CellClass() : ICellClass
+	{
+		return cls;
+	}
+}
+
+class ExtPoint implements IExtPoint
+{
+	private readonly IPos pos;
+	private readonly IRoom room;
+	public constructor(IPos p, IRoom r)
+	{
+		pos = p;
+		room = r;
+	}
+	public fun Pos() : IPos
+	{
+		return pos;
+	}
+	public fun Room() : IRoom
+	{
+		return room;
+	}
+}
+
+class RoomPair implements IRoomPair
+{
+	private readonly IRoom fst;
+	private readonly IRoom snd;
+	public constructor(IRoom a, IRoom b)
+	{
+		fst = a;
+		snd = b;
+	}
+	public fun Fst() : IRoom
+	{
+		return fst;
+	}
+	public fun Snd() : IRoom
+	{
+		return snd;
+	}
+}
+
+# (lambda _ (new void-cell%))
+class NewVoidCell implements IPosToCell
+{
+	private readonly ICellClasses classes;
+	public constructor(ICellClasses cs)
+	{
+		classes = cs;
+	}
+	public fun this(IPos p) : ICell
+	{
+		return classes.VoidCell().New();
+	}
+}
+
+# the module-level wall-cache and free-cache (reassigned by smooth-walls)
+class Caches
+{
+	public IPosCache WallCache;
+	public IPosCache FreeCache;
+	public constructor()
+	{
+		WallCache = Builtins.MakePosCache();
+		FreeCache = Builtins.MakePosCache();
+	}
+}
+
+# the variable `connections` of generate-dungeon
+class Connections
+{
+	public IRoomPairList List;
+	public constructor()
+	{
+		List = new RoomPairNil();
+	}
+}
+
+# the accumulators of generate-dungeon's for/fold
+class FoldState
+{
+	public readonly Int N;
+	public readonly IRoomList Rooms;
+	public readonly IExtPointList ExtPoints;
+	public constructor(Int n, IRoomList r, IExtPointList e)
+	{
+		N = n;
+		Rooms = r;
+		ExtPoints = e;
+	}
+}
+
+# the shared state of one generate-dungeon call
+class Gen
+{
+	public readonly IGrid Grid;
+	public readonly IRandomBox Rnd;
+	public readonly ICellClasses Classes;
+	public readonly Caches Caches;
+	public readonly Connections Conns;
+	public constructor(IGrid g, IRandomBox r, ICellClasses cs, Caches c, Connections k)
+	{
+		Grid = g;
+		Rnd = r;
+		Classes = cs;
+		Caches = c;
+		Conns = k;
+	}
+}
+
+class Main
+{
+	public static fun N() : Int
+	{
+		return 1;
+	}
+	public static fun Iters() : Int
+	{
+		return 10;
+	}
+	public static fun DungeonHeight() : Int
+	{
+		return 18;
+	}
+	public static fun DungeonWidth() : Int
+	{
+		return 60;
+	}
+
+	# dict-set: replaces the first entry for p (and never adds one)
+	public static fun DictSet(IPosCellList pc, IPos p, ICellClass c) : IPosCellList
+	{
+		return Main.DictSetFrom(pc, p, c, false);
+	}
+
+	public static fun DictSetFrom(IPosCellList pc, IPos p, ICellClass c, Bool ok) : IPosCellList
+	{
+		if (pc.IsEmpty())
+		{
+			return new PosCellNil();
+		}
+		IPosCell x = pc.First();
+		if (!ok)
+		{
+			if (Builtins.PosEqual(x.Pos(), p))
+			{
+				return new PosCellCons(new PosCell(p, c), Main.DictSetFrom(pc.Rest(), p, c, true));
+			}
+		}
+		return new PosCellCons(x, Main.DictSetFrom(pc.Rest(), p, c, ok));
+	}
+
+	public static fun TryAddRectangle(IGrid grid, IPos pos, Int height, Int width, IDirection direction, IRandomBox rnd, ICellClasses classes) : IRoom
+	{
+		Int x0 = pos.X();
+		Int y0 = pos.Y();
+		Int minX = Main.MinX(x0, height, direction, rnd);
+		Int minY = Main.MinY(y0, width, direction, rnd);
+		Int maxX = minX + height;
+		Int maxY = minY + width;
+		Bool success = true;
+		IPosCellList possToCells = new PosCellNil();
+		IPosList freeCells = new PosNil();
+		IPosList extensionPoints = new PosNil();
+		Int x = minX;
+		while (x < maxX)
+		{
+			Int y = minY;
+			while (y < maxY)
+			{
+				if (!success)
+				{
+					y = y + 1;
+					continue;
+				}
+				ICell c = Main.CellAt(grid, x, y, classes);
+				if (Main.Usable(c, classes))
+				{
+					IPos p = new Pos(x, y);
+					Bool xWall = Main.IsEdge(x, minX, maxX);
+					Bool yWall = Main.IsEdge(y, minY, maxY);
+					if (Main.Either(xWall, yWall))
+					{
+						possToCells = Main.DictSet(possToCells, p, classes.Wall());
+						extensionPoints = Main.AddUnlessCorner(xWall, yWall, p, extensionPoints);
+						y = y + 1;
+						continue;
+					}
+					possToCells = Main.DictSet(possToCells, p, classes.EmptyCell());
+					freeCells = new PosCons(p, freeCells);
+					y = y + 1;
+					continue;
+				}
+				# hit something, give up
+				success = false;
+				possToCells = new PosCellNil();
+				freeCells = new PosNil();
+				extensionPoints = new PosNil();
+				y = y + 1;
+			}
+			x = x + 1;
+		}
+		if (success)
+		{
+			return new Room(height, width, possToCells, freeCells, extensionPoints);
+		}
+		return new NoRoom();
+	}
+
+	# (or (= v lo) (= v (sub1 hi))); comparisons are not passed as Bool arguments
+	# (the runtime rejects such calls)
+	public static fun IsEdge(Int v, Int lo, Int hi) : Bool
+	{
+		if (v == lo)
+		{
+			return true;
+		}
+		return v == hi - 1;
+	}
+
+	public static fun Either(Bool a, Bool b) : Bool
+	{
+		if (a)
+		{
+			return true;
+		}
+		return b;
+	}
+
+	# (if (and x-wall? y-wall?) extension-points (cons p extension-points))
+	public static fun AddUnlessCorner(Bool xWall, Bool yWall, IPos p, IPosList eps) : IPosList
+	{
+		if (xWall)
+		{
+			if (yWall)
+			{
+				return eps;
+			}
+		}
+		return new PosCons(p, eps);
+	}
+
+	# (and (index? x) (index? y) (grid-ref grid (vector x y)))
+	public static fun CellAt(IGrid grid, Int x, Int y, ICellClasses classes) : ICell
+	{
+		if (x < 0)
+		{
+			return classes.NoCell();
+		}
+		if (y < 0)
+		{
+			return classes.NoCell();
+		}
+		return GridOps.GridRef(grid, new Pos(x, y), classes.NoCell());
+	}
+
+	# (and c (or (is-a? c void-cell%) (is-a? c wall%)))
+	public static fun Usable(ICell c, ICellClasses classes) : Bool
+	{
+		if (c.IsFalse())
+		{
+			return false;
+		}
+		if (Cells.IsA(c, classes.VoidCell()))
+		{
+			return true;
+		}
+		return Cells.IsA(c, classes.Wall());
+	}
+
+	public static fun MinX(Int x, Int height, IDirection direction, IRandomBox rnd) : Int
+	{
+		if (direction.Kind() == 3)
+		{
+			return x;
+		}
+		if (direction.Kind() == 2)
+		{
+			return x - height + 1;
+		}
+		return x - Utils.Random(rnd, height - 2) - 1;
+	}
+
+	public static fun MinY(Int y, Int width, IDirection direction, IRandomBox rnd) : Int
+	{
+		if (direction.Kind() == 1)
+		{
+			return y;
+		}
+		if (direction.Kind() == 0)
+		{
+			return y - width + 1;
+		}
+		return y - Utils.Random(rnd, width - 2) - 1;
+	}
+
+	public static fun CommitRoom(IGrid grid, IRoom room) : Int
+	{
+		IPosCellList l = room.PossToCells();
+		while (!l.IsEmpty())
+		{
+			GridOps.ArraySet(grid, l.First().Pos(), l.First().CellClass().New());
+			l = l.Rest();
+		}
+		return 0;
+	}
+
+	public static fun RandomDirection() : IDirection
+	{
+		IDirectionList l = new DirectionCons(GridOps.Left(), new DirectionCons(GridOps.Right(), new DirectionCons(GridOps.Up(), new DirectionCons(GridOps.Down(), new DirectionNil()))));
+		return Utils.RandomFromDirections(l);
+	}
+
+	# (or (eq? dir right) (eq? dir left))
+	public static fun IsHorizontal(IDirection dir) : Bool
+	{
+		if (dir.Kind() == 1)
+		{
+			return true;
+		}
+		return dir.Kind() == 0;
+	}
+
+	public static fun IsVertical(IDirection dir) : Bool
+	{
+		if (dir.Kind() == 2)
+		{
+			return true;
+		}
+		return dir.Kind() == 3;
+	}
+
+	public static fun NewRoom(IGrid grid, IPos pos, IDirection dir, IRandomBox rnd, ICellClasses classes) : IRoom
+	{
+		Int w = Utils.RandomBetween(rnd, 7, 11);
+		Int h = Utils.RandomBetween(rnd, 7, 11);
+		return Main.TryAddRectangle(grid, pos, w, h, dir, rnd, classes);
+	}
+
+	public static fun NewCorridor(IGrid grid, IPos pos, IDirection dir, IRandomBox rnd, ICellClasses classes) : IRoom
+	{
+		if (Main.IsHorizontal(dir))
+		{
+			Int len = Utils.RandomBetween(rnd, 6, 10);
+			return Main.TryAddRectangle(grid, pos, 3, len, dir, rnd, classes);
+		}
+		Int len2 = Utils.RandomBetween(rnd, 5, 8);
+		return Main.TryAddRectangle(grid, pos, len2, 3, dir, rnd, classes);
+	}
+
+	public static fun ExtensionPointsOfRoom(IRoom room) : IExtPointList
+	{
+		return Main.ExtOf(room.ExtensionPoints(), room);
+	}
+
+	public static fun ExtOf(IPosList l, IRoom room) : IExtPointList
+	{
+		if (l.IsEmpty())
+		{
+			return new ExtPointNil();
+		}
+		return new ExtPointCons(new ExtPoint(l.First(), room), Main.ExtOf(l.Rest(), room));
+	}
+
+	public static fun AppendExt(IExtPointList a, IExtPointList b) : IExtPointList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new ExtPointCons(a.First(), Main.AppendExt(a.Rest(), b));
+	}
+
+	# add-room (corridor / new-ext absent when hasCorridor is false)
+	public static fun AddRoom(Gen g, FoldState st, IDirection dir, IRoom originRoom, IRoom room, IPos ext, Bool hasCorridor, IRoom corridor, IPos newExt) : FoldState
+	{
+		if (hasCorridor)
+		{
+			Main.CommitRoom(g.Grid, corridor);
+		}
+		Main.CommitRoom(g.Grid, room);
+		ICellClass doorKind = Main.DoorKind(dir, g.Classes);
+		GridOps.ArraySet(g.Grid, ext, doorKind.New());
+		if (hasCorridor)
+		{
+			GridOps.ArraySet(g.Grid, newExt, doorKind.New());
+		}
+		g.Conns.List = new RoomPairCons(new RoomPair(originRoom, room), g.Conns.List);
+		IExtPointList ce = new ExtPointNil();
+		if (hasCorridor)
+		{
+			return new FoldState(st.N - 1, new RoomCons(room, st.Rooms), Main.AppendExt(Main.ExtensionPointsOfRoom(corridor), Main.AppendExt(Main.ExtensionPointsOfRoom(room), st.ExtPoints)));
+		}
+		return new FoldState(st.N - 1, new RoomCons(room, st.Rooms), Main.AppendExt(ce, Main.AppendExt(Main.ExtensionPointsOfRoom(room), st.ExtPoints)));
+	}
+
+	public static fun DoorKind(IDirection dir, ICellClasses classes) : ICellClass
+	{
+		if (Main.IsHorizontal(dir))
+		{
+			return classes.VerticalDoor();
+		}
+		return classes.HorizontalDoor();
+	}
+
+	# one iteration of the for/fold of generate-dungeon
+	public static fun Step(Gen g, FoldState st) : FoldState
+	{
+		if (st.N == 0)
+		{
+			return st;
+		}
+		IExtPoint ep = Utils.RandomFromExtPoints(st.ExtPoints);
+		IPos ext = ep.Pos();
+		IRoom originRoom = ep.Room();
+		IDirection dir = Main.RandomDirection();
+		if (Utils.Random(g.Rnd, 4) == 0)
+		{
+			IRoom room = Main.NewRoom(g.Grid, ext, dir, g.Rnd, g.Classes);
+			if (room.Exists())
+			{
+				return Main.AddRoom(g, st, dir, originRoom, room, ext, false, room, ext);
+			}
+		}
+		IRoom corridor = Main.NewCorridor(g.Grid, ext, dir, g.Rnd, g.Classes);
+		if (corridor.Exists())
+		{
+			IPos newExt = dir(ext, Main.CorridorLength(dir, corridor));
+			IRoom room2 = Main.NewRoom(g.Grid, newExt, dir, g.Rnd, g.Classes);
+			if (room2.Exists())
+			{
+				return Main.AddRoom(g, st, dir, originRoom, room2, ext, true, corridor, newExt);
+			}
+			return st;
+		}
+		return st;
+	}
+
+	# (if (horizontal? dir) (sub1 (room-width corridor)) (sub1 (room-height corridor)))
+	public static fun CorridorLength(IDirection dir, IRoom corridor) : Int
+	{
+		if (Main.IsHorizontal(dir))
+		{
+			return corridor.Width() - 1;
+		}
+		return corridor.Height() - 1;
+	}
+
+	public static fun Max(Int a, Int b) : Int
+	{
+		if (a >= b)
+		{
+			return a;
+		}
+		return b;
+	}
+
+	public static fun GenerateDungeon(Int encounters, IRandomBox rnd, ICellClasses classes, Caches caches) : IGrid
+	{
+		Int nRooms = Main.Max(encounters, Utils.RandomBetween(rnd, 6, 9));
+		IGrid grid = GridOps.BuildArray(new Pos(Main.DungeonHeight(), Main.DungeonWidth()), new NewVoidCell(classes));
+		IRoom firstRoom = Main.FirstRoom(grid, rnd, classes);
+		Main.CommitRoom(grid, firstRoom);
+		Gen g = new Gen(grid, rnd, classes, caches, new Connections());
+		while (true)
+		{
+			FoldState st = new FoldState(nRooms - 1, new RoomCons(firstRoom, new RoomNil()), Main.ExtensionPointsOfRoom(firstRoom));
+			Int i = 0;
+			while (i < Main.Iters())
+			{
+				st = Main.Step(g, st);
+				i = i + 1;
+			}
+			if (st.N != 0)
+			{
+				# we got stuck, try again
+				nRooms = Main.Max(encounters, nRooms - 1);
+				continue;
+			}
+			Main.AddDoors(g, st.Rooms);
+			return grid;
+		}
+		return grid;
+	}
+
+	public static fun FirstRoom(IGrid grid, IRandomBox rnd, ICellClasses classes) : IRoom
+	{
+		while (true)
+		{
+			Int sx = Utils.Random(rnd, Main.DungeonHeight());
+			Int sy = Utils.Random(rnd, Main.DungeonWidth());
+			IRoom r = Main.NewRoom(grid, new Pos(sx, sy), Main.RandomDirection(), rnd, classes);
+			if (r.Exists())
+			{
+				return r;
+			}
+		}
+		return new NoRoom();
+	}
+
+	# (member (cons a b) pairs) on opaque rooms (eq?)
+	public static fun PairMember(IRoom a, IRoom b, IRoomPairList l) : Bool
+	{
+		while (!l.IsEmpty())
+		{
+			if (l.First().Fst() == a)
+			{
+				if (l.First().Snd() == b)
+				{
+					return true;
+				}
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+
+	public static fun AddDoors(Gen g, IRoomList allRooms) : Int
+	{
+		IRoomPairList potential = new RoomPairNil();
+		IRoomList l1 = allRooms;
+		while (!l1.IsEmpty())
+		{
+			IRoom r1 = l1.First();
+			IRoomList l2 = allRooms;
+			while (!l2.IsEmpty())
+			{
+				IRoom r2 = l2.First();
+				l2 = l2.Rest();
+				if (r1 == r2)
+				{
+					continue;
+				}
+				if (Main.PairMember(r1, r2, g.Conns.List))
+				{
+					continue;
+				}
+				if (Main.PairMember(r2, r1, g.Conns.List))
+				{
+					continue;
+				}
+				if (Main.PairMember(r2, r1, potential))
+				{
+					continue;
+				}
+				potential = new RoomPairCons(new RoomPair(r1, r2), potential);
+			}
+			l1 = l1.Rest();
+		}
+		IRoomPairList ps = potential;
+		while (!ps.IsEmpty())
+		{
+			Main.MaybeAddDoor(g, ps.First().Fst(), ps.First().Snd());
+			ps = ps.Rest();
+		}
+		return 0;
+	}
+
+	public static fun MaybeAddDoor(Gen g, IRoom r1, IRoom r2) : Int
+	{
+		IPosList common = Builtins.PosIntersect(r1.ExtensionPoints(), r2.ExtensionPoints());
+		ArrayList<IPosCell> doors = new ArrayList<IPosCell>();
+		while (!common.IsEmpty())
+		{
+			IPos pos = common.First();
+			common = common.Rest();
+			if (Main.CountsAsFree(g, GridOps.Move(GridOps.Up(), pos, 1)))
+			{
+				if (Main.CountsAsFree(g, GridOps.Move(GridOps.Down(), pos, 1)))
+				{
+					doors.Add(new PosCell(pos, g.Classes.HorizontalDoor()));
+					continue;
+				}
+			}
+			if (Main.CountsAsFree(g, GridOps.Move(GridOps.Left(), pos, 1)))
+			{
+				if (Main.CountsAsFree(g, GridOps.Move(GridOps.Right(), pos, 1)))
+				{
+					doors.Add(new PosCell(pos, g.Classes.VerticalDoor()));
+				}
+			}
+		}
+		if (doors.Length() == 0)
+		{
+			return 0;
+		}
+		IPosCellList possible = new PosCellNil();
+		Int k = doors.Length() - 1;
+		while (k >= 0)
+		{
+			possible = new PosCellCons(doors.Get(k), possible);
+			k = k - 1;
+		}
+		IPosCell choice = Utils.RandomFromPosCells(possible);
+		return GridOps.ArraySet(g.Grid, choice.Pos(), choice.CellClass().New());
+	}
+
+	public static fun CountsAsFree(Gen g, IPos pos) : Bool
+	{
+		return Main.CountsAsFreeIn(g.Grid, pos, g.Classes, g.Caches);
+	}
+
+	# (or (hash-ref free-cache pos #f) (let ([res (or (is-a? c empty-cell%) (is-a? c door%))]) ...))
+	public static fun CountsAsFreeIn(IGrid grid, IPos pos, ICellClasses classes, Caches caches) : Bool
+	{
+		if (caches.FreeCache.Ref(pos))
+		{
+			return true;
+		}
+		ICell c = GridOps.GridRef(grid, pos, classes.NoCell());
+		Bool res = Main.Either(Cells.IsA(c, classes.EmptyCell()), Cells.IsA(c, classes.Door()));
+		caches.FreeCache.Set(pos, res);
+		return res;
+	}
+
+	public static fun SmoothWalls(IGrid grid, ICellClasses classes, Caches caches) : IGrid
+	{
+		Int x = 0;
+		while (x < GridOps.GridHeight(grid))
+		{
+			Int y = 0;
+			while (y < GridOps.GridWidth(grid))
+			{
+				Main.SmoothSingleWall(grid, new Pos(x, y), classes, caches);
+				y = y + 1;
+			}
+			x = x + 1;
+		}
+		# reset caches
+		caches.WallCache = Builtins.MakePosCache();
+		caches.FreeCache = Builtins.MakePosCache();
+		return grid;
+	}
+
+	public static fun WallOrDoor(IGrid grid, IPos pos, ICellClasses classes, Caches caches) : Bool
+	{
+		if (caches.WallCache.Ref(pos))
+		{
+			return true;
+		}
+		ICell c = GridOps.GridRef(grid, pos, classes.NoCell());
+		Bool res = Main.Either(Cells.IsA(c, classes.Wall()), Cells.IsA(c, classes.Door()));
+		caches.WallCache.Set(pos, res);
+		return res;
+	}
+
+	public static fun TwoOfThree(Bool a, Bool b, Bool c) : Bool
+	{
+		if (a)
+		{
+			return Main.Either(b, c);
+		}
+		if (b)
+		{
+			return c;
+		}
+		return false;
+	}
+
+	public static fun SmoothSingleWall(IGrid grid, IPos pos, ICellClasses classes, Caches caches) : Int
+	{
+		if (Cells.IsA(GridOps.GridRef(grid, pos, classes.NoCell()), classes.Wall()))
+		{
+			Bool u = Main.WallOrDoor(grid, GridOps.Move(GridOps.Up(), pos, 1), classes, caches);
+			Bool d = Main.WallOrDoor(grid, GridOps.Move(GridOps.Down(), pos, 1), classes, caches);
+			Bool l = Main.WallOrDoor(grid, GridOps.Move(GridOps.Left(), pos, 1), classes, caches);
+			Bool r = Main.WallOrDoor(grid, GridOps.Move(GridOps.Right(), pos, 1), classes, caches);
+			ICellClass k = Main.WallKind(grid, pos, classes, caches, Main.Code(u, d, l, r));
+			return GridOps.ArraySet(grid, pos, k.New());
+		}
+		return 0;
+	}
+
+	public static fun Code(Bool u, Bool d, Bool l, Bool r) : Int
+	{
+		return Main.Bit(u) * 8 + Main.Bit(d) * 4 + Main.Bit(l) * 2 + Main.Bit(r);
+	}
+
+	public static fun Bit(Bool b) : Int
+	{
+		if (b)
+		{
+			return 1;
+		}
+		return 0;
+	}
+
+	# the forced promises fu, fd, ... of smooth-single-wall
+	public static fun F(IGrid grid, IPos pos, ICellClasses classes, Caches caches) : Bool
+	{
+		return Main.CountsAsFreeIn(grid, pos, classes, caches);
+	}
+
+	# (match* (u d l r) ...)
+	public static fun WallKind(IGrid grid, IPos pos, ICellClasses cs, Caches caches, Int code) : ICellClass
+	{
+		IPos up = GridOps.Move(GridOps.Up(), pos, 1);
+		IPos down = GridOps.Move(GridOps.Down(), pos, 1);
+		IPos left = GridOps.Move(GridOps.Left(), pos, 1);
+		IPos right = GridOps.Move(GridOps.Right(), pos, 1);
+		if (code == 0)
+		{
+			return cs.Pillar();
+		}
+		if (code == 1 || code == 2 || code == 3)
+		{
+			return cs.HorizontalWall();
+		}
+		if (code == 4)
+		{
+			return cs.VerticalWall();
+		}
+		if (code == 5)
+		{
+			return cs.NorthWestWall();
+		}
+		if (code == 6)
+		{
+			return cs.NorthEastWall();
+		}
+		if (code == 7)
+		{
+			Bool fu = Main.F(grid, up, cs, caches);
+			Bool fdl = Main.F(grid, GridOps.Move(GridOps.Down(), left, 1), cs, caches);
+			Bool fdr = Main.F(grid, GridOps.Move(GridOps.Down(), right, 1), cs, caches);
+			if (Main.TwoOfThree(fu, fdl, fdr))
+			{
+				return cs.NorthTeeWall();
+			}
+			if (fu)
+			{
+				return cs.HorizontalWall();
+			}
+			if (fdl)
+			{
+				return cs.NorthEastWall();
+			}
+			if (fdr)
+			{
+				return cs.NorthWestWall();
+			}
+			ERROR("cond");
+		}
+		if (code == 8)
+		{
+			return cs.VerticalWall();
+		}
+		if (code == 9)
+		{
+			return cs.SouthWestWall();
+		}
+		if (code == 10)
+		{
+			return cs.SouthEastWall();
+		}
+		if (code == 11)
+		{
+			Bool fd = Main.F(grid, down, cs, caches);
+			Bool ful = Main.F(grid, GridOps.Move(GridOps.Up(), left, 1), cs, caches);
+			Bool fur = Main.F(grid, GridOps.Move(GridOps.Up(), right, 1), cs, caches);
+			if (Main.TwoOfThree(fd, ful, fur))
+			{
+				return cs.SouthTeeWall();
+			}
+			if (fd)
+			{
+				return cs.HorizontalWall();
+			}
+			if (ful)
+			{
+				return cs.SouthEastWall();
+			}
+			if (fur)
+			{
+				return cs.SouthWestWall();
+			}
+			ERROR("cond");
+		}
+		if (code == 12)
+		{
+			return cs.VerticalWall();
+		}
+		if (code == 13)
+		{
+			Bool fl = Main.F(grid, left, cs, caches);
+			Bool fur2 = Main.F(grid, GridOps.Move(GridOps.Up(), right, 1), cs, caches);
+			Bool fdr2 = Main.F(grid, GridOps.Move(GridOps.Down(), right, 1), cs, caches);
+			if (Main.TwoOfThree(fl, fur2, fdr2))
+			{
+				return cs.WestTeeWall();
+			}
+			if (fl)
+			{
+				return cs.VerticalWall();
+			}
+			if (fur2)
+			{
+				return cs.SouthWestWall();
+			}
+			if (fdr2)
+			{
+				return cs.NorthWestWall();
+			}
+			ERROR("cond");
+		}
+		if (code == 14)
+		{
+			Bool fr = Main.F(grid, right, cs, caches);
+			Bool ful2 = Main.F(grid, GridOps.Move(GridOps.Up(), left, 1), cs, caches);
+			Bool fdl2 = Main.F(grid, GridOps.Move(GridOps.Down(), left, 1), cs, caches);
+			if (Main.TwoOfThree(fr, ful2, fdl2))
+			{
+				return cs.EastTeeWall();
+			}
+			if (fr)
+			{
+				return cs.VerticalWall();
+			}
+			if (ful2)
+			{
+				return cs.SouthEastWall();
+			}
+			if (fdl2)
+			{
+				return cs.NorthEastWall();
+			}
+			ERROR("nocd");
+		}
+		Bool a = Main.F(grid, GridOps.Move(GridOps.Up(), left, 1), cs, caches);
+		Bool b = Main.F(grid, GridOps.Move(GridOps.Down(), right, 1), cs, caches);
+		Bool c = Main.F(grid, GridOps.Move(GridOps.Up(), right, 1), cs, caches);
+		Bool e = Main.F(grid, GridOps.Move(GridOps.Down(), left, 1), cs, caches);
+		return Main.FourWay(cs, a, b, c, e);
+	}
+
+	# the (#t #t #t #t) case: ful fdr fur fdl
+	public static fun FourWay(ICellClasses cs, Bool ful, Bool fdr, Bool fur, Bool fdl) : ICellClass
+	{
+		if (ful)
+		{
+			if (fdr)
+			{
+				return cs.FourCornerWall();
+			}
+		}
+		if (fur)
+		{
+			if (fdl)
+			{
+				return cs.FourCornerWall();
+			}
+		}
+		if (ful)
+		{
+			if (fur)
+			{
+				return cs.SouthTeeWall();
+			}
+		}
+		if (fdl)
+		{
+			if (fdr)
+			{
+				return cs.NorthTeeWall();
+			}
+		}
+		if (ful)
+		{
+			if (fdl)
+			{
+				return cs.EastTeeWall();
+			}
+		}
+		if (fur)
+		{
+			if (fdr)
+			{
+				return cs.WestTeeWall();
+			}
+		}
+		if (ful)
+		{
+			return cs.SouthEastWall();
+		}
+		if (fur)
+		{
+			return cs.SouthWestWall();
+		}
+		if (fdl)
+		{
+			return cs.NorthEastWall();
+		}
+		if (fdr)
+		{
+			return cs.NorthWestWall();
+		}
+		ERROR("cond");
+	}
+
+	public static fun Main() : Void
+	{
+		# module-level values
+		ICellClasses classes = Cells.Classes();
+		IRandomBox rnd = Utils.MakeBox();
+		Caches caches = new Caches();
+		Int loops = 200;
+		IIntList last = new IntNil();
+		Timer t = new Timer();
+		Int i = 0;
+		while (i < loops)
+		{
+			# (generate-dungeon (range N)): only the length of the encounter list is used
+			last = GridOps.ShowGrid(Main.SmoothWalls(Main.GenerateDungeon(Main.N(), rnd, classes, caches), classes, caches));
+			Utils.Reset(rnd);
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		Int len = 0;
+		Int sum = 0;
+		Int h = 0;
+		Int nonVoid = 0;
+		IIntList s = last;
+		while (!s.IsEmpty())
+		{
+			Int c = s.First();
+			h = (h * 31 + c + len) % 1000000007;
+			len = len + 1;
+			sum = sum + c;
+			nonVoid = nonVoid + Main.CountsChar(c);
+			s = s.Rest();
+		}
+		len.ToString().Print();
+		"\n".Print();
+		sum.ToString().Print();
+		"\n".Print();
+		h.ToString().Print();
+		"\n".Print();
+		nonVoid.ToString().Print();
+		"\n".Print();
+	}
+
+	public static fun CountsChar(Int c) : Int
+	{
+		if (c == 46)
+		{
+			return 0;
+		}
+		if (c == 10)
+		{
+			return 0;
+		}
+		return 1;
+	}
+}

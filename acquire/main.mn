@@ -1,0 +1,66 @@
+# main.rkt: 100 games of 12 players (6 ordered, 6 random), 100 turns each
+
+class Main
+{
+	public static fun Go(IRng rng, ITotals totals) : Int
+	{
+		IPlayerExtList p0 = PlayerFactory.OrderedPlayers(10, 0, rng);
+		IPlayerExtList p1 = PlayerFactory.RandomPlayers(10, 6, rng);
+		IPlayerExtList p = Main.Append(p0, p1);
+		IRunResult r = Main.Run(p, 100, Aux.RandomTilePicker(rng), rng);
+		totals.Add(r);
+		return 0;
+	}
+
+	public static fun Append(IPlayerExtList a, IPlayerExtList b) : IPlayerExtList
+	{
+		if (a.IsEmpty())
+		{
+			return b;
+		}
+		return new PlayerExtCons(a.First(), Main.Append(a.Rest(), b));
+	}
+
+	public static fun Run(IPlayerExtList players, Int turns, ITilePicker chooseNextTile, IRng rng) : IRunResult
+	{
+		IAdministrator a = Admin.MakeAdministrator(chooseNextTile, rng);
+		IPlayerExtList l = players;
+		while (!l.IsEmpty())
+		{
+			l.First().Go(a);
+			l = l.Rest();
+		}
+		return a.Run(turns);
+	}
+
+	public static fun Print(Int v) : Int
+	{
+		v.ToString().Print();
+		"\n".Print();
+		return 0;
+	}
+
+	public static fun Main() : Void
+	{
+		Int n = 10;
+		# (random-seed 5)
+		IRng rng = Builtins.MakeRng();
+		rng.Seed(5);
+		ITotals totals = Builtins.MakeTotals();
+		Timer t = new Timer();
+		Int i = 0;
+		while (i < n)
+		{
+			Main.Go(rng, totals);
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		Main.Print(totals.Get(0));
+		Main.Print(totals.Get(1));
+		Main.Print(totals.Get(2));
+		Main.Print(totals.Get(3));
+		Main.Print(totals.Get(4));
+		Main.Print(totals.Get(5));
+	}
+}

@@ -1,0 +1,71 @@
+# morse-code-table.rkt: the table mapping characters to their morse code.
+# The Racket module parses a wikipedia excerpt with regular expressions when it is instantiated
+# (not timed); here the parsed table (dumped from Racket) is built directly.
+
+class MorseTable
+{
+	public static fun Entry(ICharTable t, Int c, Int packed) : Int
+	{
+		return t.Set(c, Builtins.PushWord(Builtins.EmptyText(), packed));
+	}
+
+	public static fun CharTable() : ICharTable
+	{
+		ICharTable t = Builtins.MakeCharTable();
+		MorseTable.Entry(t, 33, 1558365034285); # ! -.-.--
+		MorseTable.Entry(t, 34, 1592724788910); # " .-..-.
+		MorseTable.Entry(t, 36, 199505084127022); # $ ...-..-
+		MorseTable.Entry(t, 38, 12445259438); # & .-...
+		MorseTable.Entry(t, 39, 1592722675374); # ' .----.
+		MorseTable.Entry(t, 40, 12443146029); # ( -.--.
+		MorseTable.Entry(t, 41, 1558631372589); # ) -.--.-
+		MorseTable.Entry(t, 43, 12443162286); # + .-.-.
+		MorseTable.Entry(t, 44, 1558365050541); # , --..--
+		MorseTable.Entry(t, 45, 1558633486125); # - -....-
+		MorseTable.Entry(t, 46, 1558631388846); # . .-.-.-
+		MorseTable.Entry(t, 47, 12443162413); # / -..-.
+		MorseTable.Entry(t, 48, 12174710445); # 0 -----
+		MorseTable.Entry(t, 49, 12174710446); # 1 .----
+		MorseTable.Entry(t, 50, 12174710574); # 2 ..---
+		MorseTable.Entry(t, 51, 12174726958); # 3 ...--
+		MorseTable.Entry(t, 52, 12176824110); # 4 ....-
+		MorseTable.Entry(t, 53, 12445259566); # 5 .....
+		MorseTable.Entry(t, 54, 12445259565); # 6 -....
+		MorseTable.Entry(t, 55, 12445259437); # 7 --...
+		MorseTable.Entry(t, 56, 12445243053); # 8 ---..
+		MorseTable.Entry(t, 57, 12443145901); # 9 ----.
+		MorseTable.Entry(t, 58, 1592993207981); # : ---...
+		MorseTable.Entry(t, 59, 1592724772653); # ; -.-.-.
+		MorseTable.Entry(t, 61, 12176824109); # = -...-
+		MorseTable.Entry(t, 63, 1592991110958); # ? ..--..
+		MorseTable.Entry(t, 64, 1592724772526); # @ .--.-.
+		MorseTable.Entry(t, 95, 1558631372590); # _ ..--.-
+		MorseTable.Entry(t, 97, 5806); # a .-
+		MorseTable.Entry(t, 98, 97228589); # b -...
+		MorseTable.Entry(t, 99, 97212205); # c -.-.
+		MorseTable.Entry(t, 100, 759597); # d -..
+		MorseTable.Entry(t, 101, 46); # e .
+		MorseTable.Entry(t, 102, 97212206); # f ..-.
+		MorseTable.Entry(t, 103, 759469); # g --.
+		MorseTable.Entry(t, 104, 97228590); # h ....
+		MorseTable.Entry(t, 105, 5934); # i ..
+		MorseTable.Entry(t, 106, 95114926); # j .---
+		MorseTable.Entry(t, 107, 743213); # k -.-
+		MorseTable.Entry(t, 108, 97228462); # l .-..
+		MorseTable.Entry(t, 109, 5805); # m --
+		MorseTable.Entry(t, 110, 5933); # n -.
+		MorseTable.Entry(t, 111, 743085); # o ---
+		MorseTable.Entry(t, 112, 97212078); # p .--.
+		MorseTable.Entry(t, 113, 95131309); # q --.-
+		MorseTable.Entry(t, 114, 759470); # r .-.
+		MorseTable.Entry(t, 115, 759598); # s ...
+		MorseTable.Entry(t, 116, 45); # t -
+		MorseTable.Entry(t, 117, 743214); # u ..-
+		MorseTable.Entry(t, 118, 95131438); # v ...-
+		MorseTable.Entry(t, 119, 743086); # w .--
+		MorseTable.Entry(t, 120, 95131437); # x -..-
+		MorseTable.Entry(t, 121, 95115053); # y -.--
+		MorseTable.Entry(t, 122, 97228461); # z --..
+		return t;
+	}
+}

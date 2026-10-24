@@ -1,0 +1,257 @@
+# Stand-ins for Racket builtins: strings, vectors, gensym / eq-hash codes, eq?-hash tables of
+# nodes, lists.
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Vec implements IVec
+{
+	private readonly ArrayList<Int> elems;
+	public constructor(ArrayList<Int> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : Int
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, Int v) : Int
+	{
+		elems.Set(i, v);
+		return v;
+	}
+}
+
+class Gensym implements IGensym
+{
+	private Int n;
+	public constructor()
+	{
+		n = 0;
+	}
+	public fun Next() : Int
+	{
+		n = n + 1;
+		return n;
+	}
+}
+
+# (make-hasheq) from nodes to booleans: a table indexed by the nodes' eq-hash codes
+class NodeMarks implements INodeMarks
+{
+	private readonly ArrayList<Bool> marks;
+	private readonly IGensym ids;
+	public constructor(IGensym g)
+	{
+		marks = new ArrayList<Bool>();
+		ids = g;
+	}
+	public fun Key(INode n) : Int
+	{
+		Int id = n.HashId();
+		if (id == 0)
+		{
+			return n.SetHashId(ids.Next());
+		}
+		return id;
+	}
+	public fun Set(INode n, Bool v) : Int
+	{
+		Int k = this.Key(n);
+		while (marks.Length() <= k)
+		{
+			marks.Add(false);
+		}
+		marks.Set(k, v);
+		return k;
+	}
+	# (hash-ref table node false-thunk)
+	public fun Ref(INode n) : Bool
+	{
+		Int k = this.Key(n);
+		if (k < marks.Length())
+		{
+			return marks.Get(k);
+		}
+		return false;
+	}
+}
+
+class Builtins
+{
+	public static fun EmptyText() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+
+	# (make-vector n fill)
+	public static fun MakeVector(Int n, Int fill) : IVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(fill);
+			i = i + 1;
+		}
+		return new Vec(e);
+	}
+
+	# vector->immutable-vector (a copy)
+	public static fun CopyVector(IVec v) : IVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < v.Length())
+		{
+			e.Add(v.Ref(i));
+			i = i + 1;
+		}
+		return new Vec(e);
+	}
+
+	# (list->vector (string->list str))
+	public static fun StringToVector(IText s) : IVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < s.Length())
+		{
+			e.Add(s.CharAt(i));
+			i = i + 1;
+		}
+		return new Vec(e);
+	}
+
+	public static fun FromCodes(ArrayList<Int> cs) : IText
+	{
+		IText t = Builtins.EmptyText();
+		foreach (Int c in cs)
+		{
+			t.Push(c);
+		}
+		return t;
+	}
+
+	# (remq x l)
+	public static fun Remq(INode x, INodeList l) : INodeList
+	{
+		if (l.IsEmpty())
+		{
+			return l;
+		}
+		if (l.First() == x)
+		{
+			return l.Rest();
+		}
+		return new NodeCons(l.First(), Builtins.Remq(x, l.Rest()));
+	}
+}
+
+class NodeNil implements INodeList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : INode
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : INodeList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class NodeCons implements INodeList
+{
+	private readonly INode first;
+	private readonly INodeList rest;
+	public constructor(INode f, INodeList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : INode
+	{
+		return first;
+	}
+	public fun Rest() : INodeList
+	{
+		return rest;
+	}
+}
+
+class LabelNil implements ILabelList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : ILabel
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ILabelList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class LabelCons implements ILabelList
+{
+	private readonly ILabel first;
+	private readonly ILabelList rest;
+	public constructor(ILabel f, ILabelList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : ILabel
+	{
+		return first;
+	}
+	public fun Rest() : ILabelList
+	{
+		return rest;
+	}
+}
+

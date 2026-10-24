@@ -1,0 +1,120 @@
+# main.rkt: stress test run-t with 9 checked queries and all green x blue path queries.
+
+class Main
+{
+	public static fun DatToStationNames(Int color) : ITextList
+	{
+		ITextList all = TGraph.FileLines(color);
+		ArrayList<IText> keep = new ArrayList<IText>();
+		while (!all.IsEmpty())
+		{
+			IText line = all.First();
+			all = all.Rest();
+			if (line.Length() == 0)
+			{
+				continue;
+			}
+			if (line.CharAt(0) == 45)
+			{
+				continue;
+			}
+			keep.Add(Txt.Trim(line));
+		}
+		ITextList l = new TextNil();
+		Int k = keep.Length() - 1;
+		while (k >= 0)
+		{
+			l = new TextCons(keep.Get(k), l);
+			k = k - 1;
+		}
+		return l;
+	}
+
+	public static fun Path(IText from, IText to) : IText
+	{
+		return Txt.Format(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8377126255568091494), 205492335), Txt.List2(from, to));
+	}
+
+	public static fun Enable(IText s) : IText
+	{
+		return Txt.Format(Txt.PushWord(Txt.Empty(), 7060662552830179173), Txt.List1(s));
+	}
+
+	public static fun Disable(IText s) : IText
+	{
+		return Txt.Format(Txt.PushWord(Txt.PushWord(Txt.Empty(), 9097719187349763300), 97), Txt.List1(s));
+	}
+
+	public static fun Assert(IText result, Int expectedLength) : Int
+	{
+		Int numResult = Txt.CountLines(result);
+		if (numResult != expectedLength)
+		{
+			ERROR("Expected a different number of results");
+		}
+		return numResult;
+	}
+
+	public static fun RunQuery(IText str, IManage manage) : IText
+	{
+		return RunT.RunT(str, manage);
+	}
+
+	public static fun Main() : Void
+	{
+		# module-level values
+		ITextList blueStations = Main.DatToStationNames(0);
+		ITextList greenStations = Main.DatToStationNames(2);
+		IManage manage = new Manage();
+		IText airport = Txt.PushWord(Txt.Empty(), 514120438559937);
+		IText northeastern = Txt.PushWord(Txt.PushWord(Txt.Empty(), 8423850262050682830), 1816933);
+		IText government = Txt.PushWord(Txt.PushWord(Txt.Empty(), 7983676486923958215), 116);
+		IText harvard = Txt.PushWord(Txt.PushWord(Txt.Empty(), 5999238451606368456), 27352660721);
+		IText park = Txt.PushWord(Txt.PushWord(Txt.Empty(), 7342506326590533840), 14949);
+		Int n = 0;
+		Int lines = 0;
+		Int chars = 0;
+		Timer t = new Timer();
+		# the GTP main runs the queries once; they are repeated 3 times here (each repetition
+		# leaves the disabled list empty again, so all repetitions compute the same answers)
+		Int rep = 0;
+		while (rep < 3)
+		{
+		n = 0;
+		lines = 0;
+		chars = 0;
+		Main.Assert(Main.RunQuery(Main.Path(airport, northeastern), manage), 14);
+		Main.Assert(Main.RunQuery(Main.Disable(government), manage), 1);
+		Main.Assert(Main.RunQuery(Main.Path(airport, northeastern), manage), 16);
+		Main.Assert(Main.RunQuery(Main.Enable(government), manage), 1);
+		Main.Assert(Main.RunQuery(Main.Path(airport, harvard), manage), 12);
+		Main.Assert(Main.RunQuery(Main.Disable(park), manage), 1);
+		Main.Assert(Main.RunQuery(Main.Path(northeastern, harvard), manage), 1);
+		Main.Assert(Main.RunQuery(Main.Enable(park), manage), 1);
+		Main.Assert(Main.RunQuery(Main.Path(northeastern, harvard), manage), 12);
+		ITextList g = greenStations;
+		while (!g.IsEmpty())
+		{
+			ITextList b = blueStations;
+			while (!b.IsEmpty())
+			{
+				IText r = Main.RunQuery(Main.Path(g.First(), b.First()), manage);
+				n = n + 1;
+				lines = lines + Txt.CountLines(r);
+				chars = chars + r.Length();
+				b = b.Rest();
+			}
+			g = g.Rest();
+		}
+		rep = rep + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		n.ToString().Print();
+		"\n".Print();
+		lines.ToString().Print();
+		"\n".Print();
+		chars.ToString().Print();
+		"\n".Print();
+	}
+}

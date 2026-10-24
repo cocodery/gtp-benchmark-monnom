@@ -1,0 +1,45 @@
+# main.rkt: compare all pairs of words of base/frequency-small.rktd.
+# The words are embedded in the library file words.mn; the frequencies are not used.
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		# module-level values: the word list and morse-code-table.rkt's char-table
+		ArrayList<ArrayList<Int>> raw = MorseWords.Lines();
+		ArrayList<IText> words = new ArrayList<IText>();
+		foreach (ArrayList<Int> r in raw)
+		{
+			IText w = Builtins.EmptyText();
+			foreach (Int c in r)
+			{
+				w.Push(c);
+			}
+			words.Add(w);
+		}
+		ICharTable table = MorseTable.CharTable();
+		Int levSum = 0;
+		Int morseSum = 0;
+		Timer t = new Timer();
+		foreach (IText w1 in words)
+		{
+			foreach (IText w2 in words)
+			{
+				IText m1 = MorseStrings.StringToMorse(w1, table);
+				IText m2 = MorseStrings.StringToMorse(w2, table);
+				Int d1 = Levenshtein.StringLevenshtein(w1, w2);
+				Int d2 = Levenshtein.StringLevenshtein(w2, w1);
+				levSum = levSum + d1 + d2;
+				morseSum = morseSum + m1.Length() + m2.Length();
+			}
+		}
+		t.PrintDifference();
+		"\n".Print();
+		words.Length().ToString().Print();
+		"\n".Print();
+		levSum.ToString().Print();
+		"\n".Print();
+		morseSum.ToString().Print();
+		"\n".Print();
+	}
+}

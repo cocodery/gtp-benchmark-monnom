@@ -1,0 +1,341 @@
+# dealer.rkt: the dealer class and its internal player wrapper class
+# (also contains player.rkt, merged here to keep the configuration count down).
+
+# (lambda (loc) (sort loc > #:key card-face))
+class DefaultOrder implements ICardsFn
+{
+	public constructor()
+	{
+	}
+	public fun this(ICardList loc) : ICardList
+	{
+		return Lists.SortCardsByFaceDesc(loc);
+	}
+}
+
+# `values`, the dealer's default shuffle
+class ValuesShuffle implements ICardsFn
+{
+	public constructor()
+	{
+	}
+	public fun this(ICardList loc) : ICardList
+	{
+		return loc;
+	}
+}
+
+# default-faces
+class DefaultFaces implements IBullsFn
+{
+	public constructor()
+	{
+	}
+	public fun this() : Int
+	{
+		return Basics.MinBull();
+	}
+}
+
+# player%
+class Player implements IPlayer
+{
+	private readonly Int n;
+	private readonly ICardsFn order;
+	private ICardList myCards;
+	public constructor(Int n0, ICardsFn o)
+	{
+		n = n0;
+		order = o;
+		myCards = new CardNil();
+	}
+	public fun Name() : Int
+	{
+		return n;
+	}
+	public fun StartRound(ICardList loc) : Int
+	{
+		# (calling the field directly, order(loc), is not implemented for records by the type checker)
+		ICardsFn o = order;
+		myCards = o(loc);
+		return 0;
+	}
+	public fun StartTurn(IDeck d) : ICard
+	{
+		ICard c = myCards.First();
+		myCards = myCards.Rest();
+		return c;
+	}
+	public fun Choose(IDeck d) : ICardList
+	{
+		ICardList fewestBulls = d.FewestBulls();
+		return fewestBulls;
+	}
+}
+
+# internal% (a class value in a field of dealer% in Racket); it wraps a player
+class Internal implements IInternal
+{
+	private readonly IPlayer player;
+	private Int myBulls;
+	private readonly Int n;
+	private readonly ICardsFn order;
+	private readonly ICardList myCards;
+	public constructor(IPlayer p)
+	{
+		player = p;
+		myBulls = 0;
+		n = 0;
+		order = new DefaultOrder();
+		myCards = new CardNil();
+	}
+	public fun Name() : Int
+	{
+		return player.Name();
+	}
+	public fun StartRound(ICardList cs) : Int
+	{
+		return player.StartRound(cs);
+	}
+	public fun StartTurn(IDeck d) : ICard
+	{
+		return player.StartTurn(d);
+	}
+	public fun Choose(IDeck d) : ICardList
+	{
+		return player.Choose(d);
+	}
+	public fun Bulls() : Int
+	{
+		return myBulls;
+	}
+	public fun AddScore(Int k) : Int
+	{
+		myBulls = k + myBulls;
+		return myBulls;
+	}
+}
+
+class Score implements IScore
+{
+	private readonly Int name;
+	private readonly Int bulls;
+	public constructor(Int n, Int b)
+	{
+		name = n;
+		bulls = b;
+	}
+	public fun Name() : Int
+	{
+		return name;
+	}
+	public fun Bulls() : Int
+	{
+		return bulls;
+	}
+}
+
+class Result implements IResult
+{
+	private readonly Int round;
+	private readonly IScoreList scores;
+	public constructor(Int r, IScoreList s)
+	{
+		round = r;
+		scores = s;
+	}
+	public fun Round() : Int
+	{
+		return round;
+	}
+	public fun Scores() : IScoreList
+	{
+		return scores;
+	}
+}
+
+class Played implements IPlayed
+{
+	private readonly IInternal player;
+	private readonly ICard card;
+	public constructor(IInternal p, ICard c)
+	{
+		player = p;
+		card = c;
+	}
+	public fun Player() : IInternal
+	{
+		return player;
+	}
+	public fun Card() : ICard
+	{
+		return card;
+	}
+}
+
+# dealer%
+class Dealer implements IDealer
+{
+	private readonly IPlayerList players;
+	private readonly IInternalList internals;
+	public constructor(IPlayerList ps)
+	{
+		players = ps;
+		internals = Dealers.MakeInternals(ps);
+	}
+	public fun PlayGame(ICardsFn shuffle, IBullsFn faces) : IResult
+	{
+		Int n = Lists.InternalsLength(internals);
+		if (n * Basics.Hand() + Basics.Stacks() > Basics.Face())
+		{
+			ERROR("play-game: cannot play with this many players; more cards needed");
+		}
+		Int i = 1;
+		while (true)
+		{
+			this.PlayRound(shuffle, faces);
+			if (this.AnyPlayerDone())
+			{
+				return this.PresentResults(i);
+			}
+			i = i + 1;
+		}
+		return this.PresentResults(i);
+	}
+	public fun PresentResults(Int i) : IResult
+	{
+		IInternalList sorted = Lists.SortInternalsByBulls(internals);
+		return new Result(i, Dealers.Scores(sorted));
+	}
+	public fun AnyPlayerDone() : Bool
+	{
+		IInternalList l = internals;
+		while (!l.IsEmpty())
+		{
+			if (l.First().Bulls() > Basics.Sixtysix())
+			{
+				return true;
+			}
+			l = l.Rest();
+		}
+		return false;
+	}
+	public fun PlayRound(ICardsFn shuffle, IBullsFn faces) : Int
+	{
+		ICardPool cardPool = Decks.CreateCardPool(shuffle, faces);
+		IDeck deck = Decks.CreateDeck(cardPool);
+		this.DealCards(cardPool);
+		Int p = 0;
+		while (p < Basics.Hand())
+		{
+			this.PlayTurn(deck);
+			p = p + 1;
+		}
+		return p;
+	}
+	# private
+	public fun DealCards(ICardPool cardPool) : Int
+	{
+		IInternalList l = internals;
+		while (!l.IsEmpty())
+		{
+			l.First().StartRound(cardPool.DrawHand());
+			l = l.Rest();
+		}
+		return 0;
+	}
+	# private
+	public fun PlayTurn(IDeck deck) : Int
+	{
+		ArrayList<IPlayed> played = new ArrayList<IPlayed>();
+		IInternalList l = internals;
+		while (!l.IsEmpty())
+		{
+			played.Add(new Played(l.First(), l.First().StartTurn(deck)));
+			l = l.Rest();
+		}
+		IPlayedList pl = new PlayedNil();
+		Int k = played.Length() - 1;
+		while (k >= 0)
+		{
+			pl = new PlayedCons(played.Get(k), pl);
+			k = k - 1;
+		}
+		return this.PlaceCards(deck, Lists.SortPlayedByFace(pl));
+	}
+	# private
+	public fun PlaceCards(IDeck deck, IPlayedList sortedPlayerCards) : Int
+	{
+		IPlayedList l = sortedPlayerCards;
+		while (!l.IsEmpty())
+		{
+			Dealers.PlaceCard(deck, l.First().Player(), l.First().Card());
+			l = l.Rest();
+		}
+		return 0;
+	}
+}
+
+class Dealers
+{
+	public static fun DefaultOrder(ICardList loc) : ICardList
+	{
+		return Lists.SortCardsByFaceDesc(loc);
+	}
+
+	public static fun DefaultFaces() : Int
+	{
+		return Basics.MinBull();
+	}
+
+	public static fun CreateDealer(IPlayerList players) : IDealer
+	{
+		return new Dealer(players);
+	}
+
+	public static fun MakeInternals(IPlayerList ps) : IInternalList
+	{
+		if (ps.IsEmpty())
+		{
+			return new InternalNil();
+		}
+		return new InternalCons(new Internal(ps.First()), Dealers.MakeInternals(ps.Rest()));
+	}
+
+	public static fun Scores(IInternalList l) : IScoreList
+	{
+		if (l.IsEmpty())
+		{
+			return new ScoreNil();
+		}
+		return new ScoreCons(new Score(l.First().Name(), l.First().Bulls()), Dealers.Scores(l.Rest()));
+	}
+
+	# the body of place-cards' loop
+	public static fun PlaceCard(IDeck deck, IInternal player, ICard card) : Int
+	{
+		if (deck.LargerThanSomeTopOfStacks(card))
+		{
+			ICardList closestFitStack = deck.Fit(card);
+			if (Stack.Length(closestFitStack) < Basics.Five())
+			{
+				return deck.Push(card);
+			}
+			if (Stack.Length(closestFitStack) == Basics.Five())
+			{
+				Int bulls = deck.Replace(closestFitStack, card);
+				return player.AddScore(bulls);
+			}
+			return 0;
+		}
+		ICardList chosenStack = player.Choose(deck);
+		Int b = deck.Replace(chosenStack, card);
+		return player.AddScore(b);
+	}
+
+	# player.rkt's create-player (with the default order)
+	public static fun CreatePlayer(Int i) : IPlayer
+	{
+		return new Player(i, new DefaultOrder());
+	}
+}

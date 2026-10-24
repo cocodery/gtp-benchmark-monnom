@@ -1,0 +1,309 @@
+# t-view.rkt: the view (renderer) of the T path finder, manage%.
+
+# a Path* element that is a comment string
+class CommentElem implements IPathElem
+{
+	private readonly IText str;
+	public constructor(IText s)
+	{
+		str = s;
+	}
+	public fun IsString() : Bool
+	{
+		return true;
+	}
+	public fun Str() : IText
+	{
+		return str;
+	}
+	public fun StationLine() : IStationLine
+	{
+		ERROR("not a station");
+	}
+}
+
+# a Path* element that is a Station-x-Line
+class StopElem implements IPathElem
+{
+	private readonly IStationLine stop;
+	public constructor(IStationLine s)
+	{
+		stop = s;
+	}
+	public fun IsString() : Bool
+	{
+		return false;
+	}
+	public fun Str() : IText
+	{
+		ERROR("not a string");
+	}
+	public fun StationLine() : IStationLine
+	{
+		return stop;
+	}
+}
+
+# manage%
+class Manage implements IManage
+{
+	private readonly IMBTA mbtaSubways;
+	private ITextList disabled;
+	public constructor()
+	{
+		mbtaSubways = TGraph.ReadTGraph();
+		disabled = new TextNil();
+	}
+
+	public fun AddToDisabled(IText s) : IOptText
+	{
+		IStationChoice station = mbtaSubways.Station(s);
+		if (station.IsStation())
+		{
+			disabled = new TextCons(station.Station(), disabled);
+			return new NoText();
+		}
+		if (station.Candidates().IsEmpty())
+		{
+			return new SomeText(Txt.Format(TView.Disabled0(), Txt.List1(s)));
+		}
+		return new SomeText(Txt.Format(TView.Disabled(), Txt.List1(Txt.Join(station.Candidates(), Txt.PushWord(Txt.Empty(), 32)))));
+	}
+
+	public fun RemoveFromDisabled(IText s) : IOptText
+	{
+		IStationChoice station = mbtaSubways.Station(s);
+		if (station.IsStation())
+		{
+			disabled = Txt.RemoveAll(station.Station(), disabled);
+			return new NoText();
+		}
+		if (station.Candidates().IsEmpty())
+		{
+			return new SomeText(Txt.Format(TView.Enabled0(), Txt.List1(s)));
+		}
+		return new SomeText(Txt.Format(TView.Enabled(), Txt.List1(Txt.Join(station.Candidates(), Txt.PushWord(Txt.Empty(), 32)))));
+	}
+
+	public fun Find(IText from, IText to) : IText
+	{
+		IStationChoice fromStation = mbtaSubways.Station(from);
+		IStationChoice toStation = mbtaSubways.Station(to);
+		if (Txt.Equal(from, to))
+		{
+			return Txt.Format(TView.CloseYourEyes(), Txt.List1(to));
+		}
+		if (!fromStation.IsStation())
+		{
+			if (!fromStation.Candidates().IsEmpty())
+			{
+				return Txt.Format(TView.CurrentLocation(), Txt.List1(Txt.Join(fromStation.Candidates(), Txt.PushWord(Txt.Empty(), 32))));
+			}
+		}
+		if (!toStation.IsStation())
+		{
+			if (!toStation.Candidates().IsEmpty())
+			{
+				return Txt.Format(TView.Destination(), Txt.List1(Txt.Join(toStation.Candidates(), Txt.PushWord(Txt.Empty(), 32))));
+			}
+		}
+		if (!fromStation.IsStation())
+		{
+			return Txt.Format(TView.CurrentLocation0(), Txt.List1(from));
+		}
+		if (!toStation.IsStation())
+		{
+			return Txt.Format(TView.Destination0(), Txt.List1(to));
+		}
+		IPathList paths = mbtaSubways.FindPath(fromStation.Station(), toStation.Station());
+		IPathList pathStar = this.RemovedPathsWithDisabledStations(paths);
+		if (paths.IsEmpty())
+		{
+			return Txt.Format(TView.Internal(), Txt.List2(fromStation.Station(), toStation.Station()));
+		}
+		if (pathStar.IsEmpty())
+		{
+			return Txt.Format(TView.NoPath(), Txt.List2(toStation.Station(), fromStation.Station()));
+		}
+		IPathStarList pathsWithSwitch = this.InsertSwitches(pathStar);
+		return Txt.Join(this.BestPathAsStrings(this.PickBestPath(pathsWithSwitch)), Txt.PushWord(Txt.Empty(), 10));
+	}
+
+	public fun BestPathAsStrings(IPathStar p) : ITextList
+	{
+		if (p.IsEmpty())
+		{
+			return new TextNil();
+		}
+		IPathElem e = p.First();
+		ITextList rest = this.BestPathAsStrings(p.Rest());
+		if (e.IsString())
+		{
+			return new TextCons(e.Str(), rest);
+		}
+		IText s = Txt.Concat(Txt.Concat(e.StationLine().Station(), Txt.PushWord(Txt.Empty(), 144236749852716)), mbtaSubways.Render(e.StationLine().Lines()));
+		return new TextCons(s, rest);
+	}
+
+	public fun InsertSwitches(IPathList ps) : IPathStarList
+	{
+		if (ps.IsEmpty())
+		{
+			return new PathStarNil();
+		}
+		IPathStar first = this.InsertSwitch(ps.First());
+		return new PathStarCons(first, this.InsertSwitches(ps.Rest()));
+	}
+
+	# private
+	public fun RemovedPathsWithDisabledStations(IPathList ps) : IPathList
+	{
+		if (ps.IsEmpty())
+		{
+			return ps;
+		}
+		IPath p = ps.First();
+		if (this.AnyDisabled(p))
+		{
+			return this.RemovedPathsWithDisabledStations(ps.Rest());
+		}
+		return new PathCons(p, this.RemovedPathsWithDisabledStations(ps.Rest()));
+	}
+
+	public fun AnyDisabled(IPath p) : Bool
+	{
+		while (!p.IsEmpty())
+		{
+			if (Txt.Member(p.First().Station(), disabled))
+			{
+				return true;
+			}
+			p = p.Rest();
+		}
+		return false;
+	}
+
+	# private: (selector paths*) = (argmin (lambda (p) (length (filter string? p))) paths*)
+	public fun PickBestPath(IPathStarList ps) : IPathStar
+	{
+		IPathStar best = ps.First();
+		Int bestN = TView.CountStrings(best);
+		IPathStarList l = ps.Rest();
+		while (!l.IsEmpty())
+		{
+			IPathStar p = l.First();
+			l = l.Rest();
+			Int n = TView.CountStrings(p);
+			if (n < bestN)
+			{
+				best = p;
+				bestN = n;
+				continue;
+			}
+		}
+		return best;
+	}
+
+	# private
+	public fun InsertSwitch(IPath path0) : IPathStar
+	{
+		IStationLine start = path0.First();
+		Int predLines0 = start.Lines();
+		IText predString0 = mbtaSubways.Render(predLines0);
+		return new PathElemCons(new StopElem(start), TView.Loop(mbtaSubways, predLines0, predString0, path0.Rest()));
+	}
+}
+
+class TView
+{
+	# the named let `loop` of insert-switch (a static function: instance methods cannot take
+	# more than two arguments)
+	public static fun Loop(IMBTA mbtaSubways, Int predLines, IText predString, IPath path) : IPathStar
+	{
+		if (path.IsEmpty())
+		{
+			return new PathElemNil();
+		}
+		IStationLine stop = path.First();
+		Int stopLines = stop.Lines();
+		IText stopString = mbtaSubways.Render(stopLines);
+		IPathStar remainder = TView.Loop(mbtaSubways, stopLines, stopString, path.Rest());
+		if (Builtins.ProperSubset(stopLines, predLines))
+		{
+			return new PathElemCons(new CommentElem(Txt.Format(TView.Ensure(), Txt.List1(stopString))), new PathElemCons(new StopElem(stop), remainder));
+		}
+		if (Builtins.Disjoint(stopLines, predLines))
+		{
+			return new PathElemCons(new CommentElem(Txt.Format(TView.Switch(), Txt.List2(predString, stopString))), new PathElemCons(new StopElem(stop), remainder));
+		}
+		return new PathElemCons(new StopElem(stop), remainder);
+	}
+
+	public static fun CountStrings(IPathStar p) : Int
+	{
+		Int n = 0;
+		while (!p.IsEmpty())
+		{
+			Bool isString = p.First().IsString();
+			p = p.Rest();
+			if (isString)
+			{
+				n = n + 1;
+				continue;
+			}
+		}
+		return n;
+	}
+	public static fun Internal() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7559722442145117414), 7584571164448149562), 7339050240243923053), 7368402661824789024), 8063839237081626610), 7343606609812684576), 8063074089353901938), 12018);
+	}
+	public static fun CurrentLocation() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8489187539242775780), 2370537721825950305), 7800748534925146851), 2338981733989904879), 12542);
+	}
+	public static fun CurrentLocation0() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8305098542971107310), 9097530143575716084), 97);
+	}
+	public static fun Destination() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8489187539242775780), 2370537721825950305), 7631779987092992740), 3366785562479);
+	}
+	public static fun Destination0() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7224234632402188270), 8058016219359164901), 26303012206);
+	}
+	public static fun NoPath() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8280867402081122921), 7913532419496194802), 2363179339215599600), 2364828571220326388), 9097754479105159422), 7128016261388013665), 243167479);
+	}
+	public static fun Disabled() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8305173409618753123), 8063839679884898548), 7116759771232432416), 430948551832300);
+	}
+	public static fun Enabled() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8305173409618753123), 8063839679884898548), 7837819668795060512), 3366785561189);
+	}
+	public static fun Disabled0() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8305098542971107310), 8063839679884898548), 4236676782054076960), 1605408);
+	}
+	public static fun Enabled0() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8305098542971107310), 8063839679884898548), 2338942046573408928), 12542);
+	}
+	public static fun Ensure() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7342511845072918189), 2363205673543269536), 26303018863);
+	}
+	public static fun Switch() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 7550235638686766765), 2361004437561717536), 26303018996);
+	}
+	public static fun CloseYourEyes() : IText
+	{
+		return Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.PushWord(Txt.Empty(), 8493759237761791555), 7981086205879603314), 8493759240676905060), 8377204820435144818), 7339644332170377576), 8737470562779535219), 3379836957795072751), 7843484643595381920), 7060663065135116576), 46);
+	}
+}

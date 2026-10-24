@@ -1,0 +1,384 @@
+# array-broadcast.rkt and array-transform.rkt
+# The parameter array-broadcasting (U #f #t 'permissive) is passed explicitly as an Int:
+# 0 = #f, 1 = #t (the default), 2 = 'permissive.
+
+# the array procedure built by shift-stretch-axes
+class StretchProc implements IIndexProc
+{
+	private readonly IIndexesThunk oldJs;
+	private readonly IIndexProc oldF;
+	private readonly IIdx oldDs;
+	private readonly Int shift;
+	public constructor(IIndexesThunk ojs, IIndexProc of, IIdx ods, Int s)
+	{
+		oldJs = ojs;
+		oldF = of;
+		oldDs = ods;
+		shift = s;
+	}
+	public fun this(IIdx newJs) : Float
+	{
+		IIndexesThunk mk = oldJs;
+		IIdx js = mk();
+		Int oldDims = oldDs.Length();
+		Int k = 0;
+		while (k < oldDims)
+		{
+			Int newJk = newJs.Ref(k + shift);
+			Int oldDk = oldDs.Ref(k);
+			Int oldJk = Builtins.Modulo(newJk, oldDk);
+			js.Set(k, oldJk);
+			k = k + 1;
+		}
+		IIndexProc f = oldF;
+		return f(js);
+	}
+}
+
+# the array procedure built by array-append*
+class AppendProc implements IIndexProc
+{
+	private readonly Int k;
+	private readonly IIdx oldJks;
+	private readonly IProcVec oldProcs;
+	public constructor(Int kk, IIdx ojks, IProcVec ops)
+	{
+		k = kk;
+		oldJks = ojks;
+		oldProcs = ops;
+	}
+	public fun this(IIdx js) : Float
+	{
+		Int jk = js.Ref(k);
+		js.Set(k, oldJks.Ref(jk));
+		IIndexProc p = oldProcs.Ref(jk);
+		Float v = p(js);
+		js.Set(k, jk);
+		return v;
+	}
+}
+
+# the two results of array-broadcast-for-append
+class BroadcastForAppend
+{
+	private readonly IArrayList arrs;
+	private readonly IIntList dks;
+	public constructor(IArrayList a, IIntList d)
+	{
+		arrs = a;
+		dks = d;
+	}
+	public fun Arrs() : IArrayList
+	{
+		return arrs;
+	}
+	public fun Dks() : IIntList
+	{
+		return dks;
+	}
+}
+
+class ArrayBroadcast
+{
+	public static fun ShiftStretchAxes(IArray arr, IIdx newDs) : IArray
+	{
+		IIdx oldDs = ArrayStruct.ArrayShape(arr);
+		Int oldDims = oldDs.Length();
+		Int newDims = newDs.Length();
+		Int shift = newDims - oldDims;
+		if (shift < 0)
+		{
+			ERROR("array-broadcast: cannot broadcast to a lower-dimensional shape");
+		}
+		IIndexesThunk oldJs = ArrayUtils.MakeThreadLocalIndexes(oldDims);
+		IIndexProc oldF = ArrayStruct.UnsafeArrayProc(arr);
+		return ArrayStruct.UnsafeBuildArray(newDs, new StretchProc(oldJs, oldF, oldDs, shift));
+	}
+
+	public static fun ArrayBroadcast(IArray arr, IIdx ds) : IArray
+	{
+		if (Builtins.IdxEqual(ds, ArrayStruct.ArrayShape(arr)))
+		{
+			return arr;
+		}
+		IArray newArr = ArrayBroadcast.ShiftStretchAxes(arr, ds);
+		if (ArrayStruct.ArrayStrictP(arr))
+		{
+			return newArr;
+		}
+		if (ArrayStruct.ArraySize(newArr) <= ArrayStruct.ArraySize(arr))
+		{
+			return newArr;
+		}
+		ArrayStruct.ArrayDefaultStrictBang(newArr);
+		return newArr;
+	}
+
+	public static fun ShapeInsertAxes(IIdx ds, Int n) : IIdx
+	{
+		return Builtins.IdxAppend(Builtins.MakeIdx(n, 1), ds);
+	}
+
+	public static fun ShapePermissiveBroadcast(IIdx ds1, IIdx ds2, Int dims) : IIdx
+	{
+		IIdx newDs = Builtins.MakeIdx(dims, 0);
+		Int k = 0;
+		while (k < dims)
+		{
+			Int dk1 = ds1.Ref(k);
+			Int dk2 = ds2.Ref(k);
+			if (dk1 == 0)
+			{
+				ArrayBroadcast.Fail(2);
+			}
+			if (dk2 == 0)
+			{
+				ArrayBroadcast.Fail(2);
+			}
+			if (dk1 > dk2)
+			{
+				newDs.Set(k, dk1);
+				k = k + 1;
+				continue;
+			}
+			newDs.Set(k, dk2);
+			k = k + 1;
+		}
+		return newDs;
+	}
+
+	public static fun NormalBroadcastDim(Int dk1, Int dk2) : Int
+	{
+		if (dk1 == dk2)
+		{
+			return dk1;
+		}
+		if (dk1 == 1)
+		{
+			if (dk2 > 0)
+			{
+				return dk2;
+			}
+		}
+		if (dk2 == 1)
+		{
+			if (dk1 > 0)
+			{
+				return dk1;
+			}
+		}
+		ArrayBroadcast.Fail(1);
+		return 0;
+	}
+
+	public static fun ShapeNormalBroadcast(IIdx ds1, IIdx ds2, Int dims) : IIdx
+	{
+		IIdx newDs = Builtins.MakeIdx(dims, 0);
+		Int k = 0;
+		while (k < dims)
+		{
+			newDs.Set(k, ArrayBroadcast.NormalBroadcastDim(ds1.Ref(k), ds2.Ref(k)));
+			k = k + 1;
+		}
+		return newDs;
+	}
+
+	# the fail thunk of array-shape-broadcast
+	public static fun Fail(Int broadcasting) : Int
+	{
+		ERROR("array-shape-broadcast: incompatible array shapes");
+	}
+
+	public static fun ShapeBroadcast2(IIdx ds1, IIdx ds2, Int broadcasting) : IIdx
+	{
+		if (Builtins.IdxEqual(ds1, ds2))
+		{
+			return ds1;
+		}
+		if (broadcasting == 0)
+		{
+			ArrayBroadcast.Fail(broadcasting);
+		}
+		Int dims1 = ds1.Length();
+		Int dims2 = ds2.Length();
+		Int n = dims2 - dims1;
+		if (n > 0)
+		{
+			return ArrayBroadcast.ShapeBroadcastDims(ArrayBroadcast.ShapeInsertAxes(ds1, n), ds2, dims2, broadcasting);
+		}
+		if (n < 0)
+		{
+			return ArrayBroadcast.ShapeBroadcastDims(ds1, ArrayBroadcast.ShapeInsertAxes(ds2, 0 - n), dims1, broadcasting);
+		}
+		return ArrayBroadcast.ShapeBroadcastDims(ds1, ds2, dims1, broadcasting);
+	}
+
+	public static fun ShapeBroadcastDims(IIdx ds1, IIdx ds2, Int dims, Int broadcasting) : IIdx
+	{
+		if (broadcasting == 2)
+		{
+			return ArrayBroadcast.ShapePermissiveBroadcast(ds1, ds2, dims);
+		}
+		return ArrayBroadcast.ShapeNormalBroadcast(ds1, ds2, dims);
+	}
+
+	public static fun ArrayShapeBroadcast(IIdxList dss, Int broadcasting) : IIdx
+	{
+		if (dss.IsEmpty())
+		{
+			return Builtins.MakeIdx(0, 0);
+		}
+		IIdx newDs = dss.First();
+		IIdxList l = dss.Rest();
+		while (!l.IsEmpty())
+		{
+			newDs = ArrayBroadcast.ShapeBroadcast2(newDs, l.First(), broadcasting);
+			l = l.Rest();
+		}
+		return newDs;
+	}
+}
+
+class ArrayTransform
+{
+	# (map array-shape arrs)
+	public static fun MapShapes(IArrayList arrs) : IIdxList
+	{
+		if (arrs.IsEmpty())
+		{
+			return new IdxListNil();
+		}
+		return new IdxListCons(ArrayStruct.ArrayShape(arrs.First()), ArrayTransform.MapShapes(arrs.Rest()));
+	}
+
+	# (map (λ (ds) (vector-append (make-vector (- dims (vector-length ds)) 1) ds)) dss)
+	public static fun MapPad(IIdxList dss, Int dims) : IIdxList
+	{
+		if (dss.IsEmpty())
+		{
+			return new IdxListNil();
+		}
+		IIdx ds = dss.First();
+		IIdx padded = Builtins.IdxAppend(Builtins.MakeIdx(dims - ds.Length(), 1), ds);
+		return new IdxListCons(padded, ArrayTransform.MapPad(dss.Rest(), dims));
+	}
+
+	# (map (λ (ds) (vector-ref ds k)) dss)
+	public static fun MapRef(IIdxList dss, Int k) : IIntList
+	{
+		if (dss.IsEmpty())
+		{
+			return new IntNil();
+		}
+		return new IntCons(dss.First().Ref(k), ArrayTransform.MapRef(dss.Rest(), k));
+	}
+
+	# (map (λ (ds) (unsafe-vector-remove ds k)) dss)
+	public static fun MapRemove(IIdxList dss, Int k) : IIdxList
+	{
+		if (dss.IsEmpty())
+		{
+			return new IdxListNil();
+		}
+		return new IdxListCons(ArrayUtils.UnsafeVectorRemove(dss.First(), k), ArrayTransform.MapRemove(dss.Rest(), k));
+	}
+
+	# (map (λ (dk) (unsafe-vector-insert ds k dk)) dks)
+	public static fun MapInsert(IIntList dks, IIdx ds, Int k) : IIdxList
+	{
+		if (dks.IsEmpty())
+		{
+			return new IdxListNil();
+		}
+		return new IdxListCons(ArrayUtils.UnsafeVectorInsert(ds, k, dks.First()), ArrayTransform.MapInsert(dks.Rest(), ds, k));
+	}
+
+	# (map (λ (arr ds) (array-broadcast arr ds)) arrs dss)
+	public static fun MapBroadcast(IArrayList arrs, IIdxList dss) : IArrayList
+	{
+		if (arrs.IsEmpty())
+		{
+			return new ArrayNil();
+		}
+		IArray b = ArrayBroadcast.ArrayBroadcast(arrs.First(), dss.First());
+		return new ArrayCons(b, ArrayTransform.MapBroadcast(arrs.Rest(), dss.Rest()));
+	}
+
+	public static fun ArrayBroadcastForAppend(IArrayList arrs, Int k) : BroadcastForAppend
+	{
+		IIdxList dss = ArrayTransform.MapShapes(arrs);
+		Int dims = 0;
+		IIdxList l = dss;
+		while (!l.IsEmpty())
+		{
+			Int len = l.First().Length();
+			l = l.Rest();
+			if (len > dims)
+			{
+				dims = len;
+				continue;
+			}
+		}
+		if (k < 0)
+		{
+			ERROR("array-append*: contract violation, expected an Index < dims");
+		}
+		if (k >= dims)
+		{
+			ERROR("array-append*: contract violation, expected an Index < dims");
+		}
+		IIdxList dss2 = ArrayTransform.MapPad(dss, dims);
+		IIntList dks = ArrayTransform.MapRef(dss2, k);
+		IIdxList dss3 = ArrayTransform.MapRemove(dss2, k);
+		IIdx ds = ArrayBroadcast.ArrayShapeBroadcast(dss3, 1);
+		IIdxList dss4 = ArrayTransform.MapInsert(dks, ds, k);
+		IArrayList newArrs = ArrayTransform.MapBroadcast(arrs, dss4);
+		return new BroadcastForAppend(newArrs, dks);
+	}
+
+	public static fun ArrayAppendStar(IArrayList arrs0) : IArray
+	{
+		Int k = 0;
+		if (arrs0.IsEmpty())
+		{
+			ERROR("array-append*: contract violation, expected nonempty (Listof Array)");
+		}
+		BroadcastForAppend r = ArrayTransform.ArrayBroadcastForAppend(arrs0, k);
+		IArrayList arrs = r.Arrs();
+		IIntList dks = r.Dks();
+		Int newDk = 0;
+		IIntList l = dks;
+		while (!l.IsEmpty())
+		{
+			newDk = newDk + l.First();
+			l = l.Rest();
+		}
+		IIdxList dss = ArrayTransform.MapShapes(arrs);
+		IIdx newDs = ArrayUtils.VectorCopyAll(dss.First());
+		newDs.Set(k, newDk);
+		IProcVec oldProcs = Builtins.MakeProcVec(newDk, ArrayStruct.UnsafeArrayProc(arrs.First()));
+		IIdx oldJks = Builtins.MakeIdx(newDk, 0);
+		IArrayList al = arrs;
+		IIntList ds = dks;
+		Int jk = 0;
+		while (!al.IsEmpty())
+		{
+			IArray arr = al.First();
+			IIndexProc proc = ArrayStruct.UnsafeArrayProc(arr);
+			Int dk = ds.First();
+			Int i = 0;
+			while (i < dk)
+			{
+				oldProcs.Set(jk, proc);
+				oldJks.Set(jk, i);
+				i = i + 1;
+				jk = jk + 1;
+			}
+			al = al.Rest();
+			ds = ds.Rest();
+		}
+		IArray arrStar = ArrayStruct.UnsafeBuildArray(newDs, new AppendProc(k, oldJks, oldProcs));
+		ArrayStruct.ArrayDefaultStrictBang(arrStar);
+		return arrStar;
+	}
+}

@@ -1,0 +1,63 @@
+# main.rkt: play LOOPS games with PLAYERS players.
+
+class Main
+{
+	public static fun RunMain(Int n) : IResult
+	{
+		# (build-list k create-player)
+		ArrayList<IPlayer> ps = new ArrayList<IPlayer>();
+		Int i = 0;
+		while (i < n)
+		{
+			ps.Add(Dealers.CreatePlayer(i));
+			i = i + 1;
+		}
+		IPlayerList players = new PlayerNil();
+		Int k = ps.Length() - 1;
+		while (k >= 0)
+		{
+			players = new PlayerCons(ps.Get(k), players);
+			k = k - 1;
+		}
+		IDealer dealer = Dealers.CreateDealer(players);
+		# (send dealer play-game) with its defaults: shuffle = values, faces = default-faces
+		return dealer.PlayGame(new ValuesShuffle(), new DefaultFaces());
+	}
+
+	public static fun Main() : Void
+	{
+		Int players = 10;
+		Int loops = 6000;
+		IResult last = new Result(0, new ScoreNil());
+		Timer t = new Timer();
+		Int n = 0;
+		while (n < loops)
+		{
+			last = Main.RunMain(players);
+			n = n + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		"((after-round ".Print();
+		last.Round().ToString().Print();
+		") (".Print();
+		IScoreList s = last.Scores();
+		Bool first = true;
+		while (!s.IsEmpty())
+		{
+			if (!first)
+			{
+				" ".Print();
+			}
+			first = false;
+			"(".Print();
+			s.First().Name().ToString().Print();
+			" ".Print();
+			s.First().Bulls().ToString().Print();
+			")".Print();
+			s = s.Rest();
+		}
+		"))".Print();
+		"\n".Print();
+	}
+}

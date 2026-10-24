@@ -1,0 +1,273 @@
+# Stand-ins for Racket builtins: strings, vectors, char hash table, lists.
+
+class Text implements IText
+{
+	private readonly ArrayList<Int> chars;
+	public constructor(ArrayList<Int> cs)
+	{
+		chars = cs;
+	}
+	public fun Length() : Int
+	{
+		return chars.Length();
+	}
+	public fun CharAt(Int i) : Int
+	{
+		return chars.Get(i);
+	}
+	public fun Push(Int c) : IText
+	{
+		chars.Add(c);
+		return this;
+	}
+}
+
+class Vec implements IVec
+{
+	private readonly ArrayList<Int> elems;
+	public constructor(ArrayList<Int> e)
+	{
+		elems = e;
+	}
+	public fun Length() : Int
+	{
+		return elems.Length();
+	}
+	public fun Ref(Int i) : Int
+	{
+		return elems.Get(i);
+	}
+	public fun Set(Int i, Int v) : Int
+	{
+		elems.Set(i, v);
+		return v;
+	}
+}
+
+# a mutable hash table with character keys (characters are small codes: one slot per code)
+class CharTable implements ICharTable
+{
+	private readonly ArrayList<IText> slots;
+	private readonly ArrayList<Bool> present;
+	public constructor(ArrayList<IText> s, ArrayList<Bool> p)
+	{
+		slots = s;
+		present = p;
+	}
+	public fun Ref(Int c, IText dflt) : IText
+	{
+		if (c < 0 || c >= present.Length())
+		{
+			return dflt;
+		}
+		if (present.Get(c))
+		{
+			return slots.Get(c);
+		}
+		return dflt;
+	}
+	public fun Set(Int c, IText s) : Int
+	{
+		slots.Set(c, s);
+		present.Set(c, true);
+		return c;
+	}
+}
+
+class Builtins
+{
+	public static fun EmptyText() : IText
+	{
+		return new Text(new ArrayList<Int>());
+	}
+
+	# up to 9 characters packed as base-128 codes, first character in the lowest digit
+	public static fun PushWord(IText t, Int packed) : IText
+	{
+		while (packed > 0)
+		{
+			t.Push(packed % 128);
+			packed = packed / 128;
+		}
+		return t;
+	}
+
+	# (make-vector n 0)
+	public static fun MakeVector(Int n) : IVec
+	{
+		ArrayList<Int> e = new ArrayList<Int>();
+		Int i = 0;
+		while (i < n)
+		{
+			e.Add(0);
+			i = i + 1;
+		}
+		return new Vec(e);
+	}
+
+	# (make-hash)
+	public static fun MakeCharTable() : ICharTable
+	{
+		ArrayList<IText> s = new ArrayList<IText>();
+		ArrayList<Bool> p = new ArrayList<Bool>();
+		Int i = 0;
+		while (i < 256)
+		{
+			s.Add(Builtins.EmptyText());
+			p.Add(false);
+			i = i + 1;
+		}
+		return new CharTable(s, p);
+	}
+
+	# char-downcase (ASCII)
+	public static fun CharDowncase(Int c) : Int
+	{
+		if (c >= 65 && c <= 90)
+		{
+			return c + 32;
+		}
+		return c;
+	}
+
+	# string->list
+	public static fun StringToList(IText s) : ICharList
+	{
+		ICharList l = new CharNil();
+		Int i = s.Length() - 1;
+		while (i >= 0)
+		{
+			l = new CharCons(s.CharAt(i), l);
+			i = i - 1;
+		}
+		return l;
+	}
+
+	public static fun ListLength(ICharList l) : Int
+	{
+		Int n = 0;
+		while (!l.IsEmpty())
+		{
+			n = n + 1;
+			l = l.Rest();
+		}
+		return n;
+	}
+
+	# list->vector
+	public static fun ListToVector(ICharList l) : IVec
+	{
+		IVec v = Builtins.MakeVector(Builtins.ListLength(l));
+		Int i = 0;
+		while (!l.IsEmpty())
+		{
+			v.Set(i, l.First());
+			i = i + 1;
+			l = l.Rest();
+		}
+		return v;
+	}
+
+	# (apply string-append strs)
+	public static fun StringAppendList(ITextList strs) : IText
+	{
+		IText res = Builtins.EmptyText();
+		while (!strs.IsEmpty())
+		{
+			IText s = strs.First();
+			Int i = 0;
+			while (i < s.Length())
+			{
+				res.Push(s.CharAt(i));
+				i = i + 1;
+			}
+			strs = strs.Rest();
+		}
+		return res;
+	}
+}
+
+class CharNil implements ICharList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : Int
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ICharList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class CharCons implements ICharList
+{
+	private readonly Int first;
+	private readonly ICharList rest;
+	public constructor(Int f, ICharList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : Int
+	{
+		return first;
+	}
+	public fun Rest() : ICharList
+	{
+		return rest;
+	}
+}
+
+class TextNil implements ITextList
+{
+	public constructor()
+	{
+	}
+	public fun IsEmpty() : Bool
+	{
+		return true;
+	}
+	public fun First() : IText
+	{
+		ERROR("car: empty list");
+	}
+	public fun Rest() : ITextList
+	{
+		ERROR("cdr: empty list");
+	}
+}
+
+class TextCons implements ITextList
+{
+	private readonly IText first;
+	private readonly ITextList rest;
+	public constructor(IText f, ITextList r)
+	{
+		first = f;
+		rest = r;
+	}
+	public fun IsEmpty() : Bool
+	{
+		return false;
+	}
+	public fun First() : IText
+	{
+		return first;
+	}
+	public fun Rest() : ITextList
+	{
+		return rest;
+	}
+}
+
