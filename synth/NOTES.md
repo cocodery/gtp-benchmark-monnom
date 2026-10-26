@@ -27,8 +27,9 @@ Ten modules are merged into six files (486 configurations).
   nondeterministic), and MonNom seeds the same way. `bass-drum`/`snare` are built in `Main`
   before the timed region (module instantiation); the snare draws random numbers lazily during
   the run, as in Racket.
-- `(expt (expt 2 1/12) k)` is a repeated flonum product (the resulting sample periods are equal);
-  `exact-floor`/`round` of flonums are computed by binary search (no Float->Int conversion).
+- `(expt (expt 2 1/12) k)` is `(2.0 ** (1.0 / 12.0)) ** (k + 0.0)` (Float `**`, i.e. C `pow`)
+  and `(expt 2 bits-per-sample)` is `2 ** bits`; `exact-floor`/`round` of flonums are computed
+  by binary search (no Float->Int conversion).
 - Closure fields are copied to a local before being called (benchmark-generator limitation).
 - `main` prints the length, sum and a rolling hash of the emitted samples.
 - Input: LOOPS 6 -> 18 (MonNom LOOPS 6: 0.6 s).

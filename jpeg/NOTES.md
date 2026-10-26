@@ -9,7 +9,7 @@ JPEG with recomputed quantization and Huffman tables.
 | Racket | MonNom | Contents |
 |--------|--------|----------|
 | `base/typedefs.rkt`, jfif struct types, builtins | `types.mn` | `IBytes`, `IVec`, `IPort`, `IBitPort`, `IHuffman`, `IQTables`, `IHTables`, `IFreqs`, `IHuffmanTables`, `IBlockArray`, `IMcu`, `IMcuArray`, `ICodesMcu`, `ICodesArray`, `IComponent`, `IFrame`, `IMisc`, `IParams`, `IJfif`, `IJfifState`, `IInterp`, `IPT`, `IText`, `ITypeParser`, `IValueInterpreter`, `IExifState`, `ISymbols`, `IScanComponent(s)`, lists |
-| builtins, `base/math/array`, `base/bytevectors-6-typed.rkt` | `lib.mn` | bytes, vectors, byte ports, the typedefs vectors (`BitPortV`, `HuffmanV`, `QTablesV`, ...), strict row-major arrays, strings, symbols, `Interps`, `Bits` (bitwise operations), `Bytevectors`, `Builtins`, lists |
+| builtins, `base/math/array`, `base/bytevectors-6-typed.rkt` | `lib.mn` | bytes, vectors, byte ports, the typedefs vectors (`BitPortV`, `HuffmanV`, `QTablesV`, ...), strict row-major arrays, strings, symbols, `Interps`, `Bits` (arithmetic shift, `bitwise-bit-set?`), `Bytevectors`, `Builtins`, lists |
 | `bit-ports.rkt` + `huffman.rkt` | `huffman.mn` | static `BitPorts`, `Huffman` |
 | `jfif.rkt` | `jfif.mn` | struct classes, `ScanComponentV`, closures of `allocate-dct-matrix`, static `Jfif` |
 | `exif.rkt` | `exif.mn` | type parsers and value interpreters (closure classes), `ExifStateS`, static `Exif` |
@@ -20,8 +20,9 @@ JPEG with recomputed quantization and Huffman tables.
 
 ## Deviations
 
-- MonNom has no bitwise operators at run time: `arithmetic-shift`, `bitwise-and/ior`,
-  `bitwise-bit-set?` are computed arithmetically on two's-complement values (`Bits`).
+- `bitwise-and`/`bitwise-ior` are MonNom's `&`/`|`. MonNom has no shift operators in use, so
+  `arithmetic-shift` is `Bits.Shift` (multiplication by `2 ** n`, or floor division by
+  `2 ** -n`), and `bitwise-bit-set?` is `Bits.BitSet` (`(Bits.Shift(x, 0 - i) & 1) == 1`).
 - Ports are byte ports over embedded data; strings, symbols (interned Ints) and the `Interp`
   union (`IInterp` with a kind) are lib stand-ins. `(U #f Natural)` vector elements are -1.
 - math/array is replaced by strict arrays built in row-major order (build-array is strict by
@@ -42,7 +43,9 @@ copy of `main.rkt` printing these values; one run, 0.47 s).
 
 ## Results
 
-- Fully typed: 1.1 s (15 runs).
+- Fully typed: 0.82 s (15 runs); 1.1 s with the earlier arithmetic emulation of `&`, `|` and
+  powers of two. The configuration results below were measured with the emulation and have
+  not been regenerated since.
 - `nombench --byfile`: 486 configurations. All 96 nominal configurations agree; 140 of 486
   agree in total. Every configuration with a structural `lib.mn`, `jfif.mn` or `exif.mn`
   fails (263 segmentation faults, 54 aborts, 29 runtime errors).

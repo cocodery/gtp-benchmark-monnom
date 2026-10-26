@@ -38,6 +38,9 @@ The result differs from quadT (273 drawn texts instead of 272).
 
 ## Deviations
 
+- `(flexpt 10.0 7.0)` and `(flexpt (fl- measure line-width) 2.0)` in `wrap.rkt` are Float `**`;
+  the module constant `base = (expt 10.0 precision)` of `measure.rkt` is the literal `10000.0`
+  in `Utils.RoundFloat` (no static fields, and computing it per call would add work).
 - Quads are s-expressions in Racket. Here a quad is an `IQuad` (name, attributes, items), an
   attribute value an `IVal` with a kind for each case of `QuadAttrValue`, symbols interned Ints;
   `equal?` is structural. The deep predicates of quad-types.rkt check the name (and, for group

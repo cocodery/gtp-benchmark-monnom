@@ -19,6 +19,7 @@ differences between all pairs of 38 dates, with time zones from `base/tzinfo`.
 
 ## Deviations
 
+- `(< (bitwise-xor rem y) 0)` in `div`/`mod` (`ymd.rkt`) is `(rem ^ y) < 0`.
 - Exact rationals (`Exact-Rational`) are mixed numbers whole + num/den with exact 128-bit
   intermediate products (`Q.MulDivMod`); `datetime-nanoseconds-between` produces bignums
   (year 9999 vs year 1), represented as days * NS/DAY + ns (`IBig`) and only used modulo P.

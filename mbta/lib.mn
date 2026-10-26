@@ -661,27 +661,14 @@ class Builtins
 		return Txt.PushWord(Txt.Empty(), 213743202);
 	}
 
-	# set operations on (Setof Line) bit sets (MonNom's runtime does not implement & | ^,
-	# so bits are read with division)
+	# set operations on (Setof Line) bit sets
 	public static fun Has(Int s, Int line) : Bool
 	{
-		return (s / Builtins.Bit(line)) % 2 == 1;
+		return (s & Builtins.Bit(line)) != 0;
 	}
 	public static fun Subset(Int a, Int b) : Bool
 	{
-		Int i = 0;
-		while (i < 10)
-		{
-			if (Builtins.Has(a, i))
-			{
-				if (!Builtins.Has(b, i))
-				{
-					return false;
-				}
-			}
-			i = i + 1;
-		}
-		return true;
+		return (a & b) == a;
 	}
 	public static fun ProperSubset(Int a, Int b) : Bool
 	{
@@ -694,38 +681,15 @@ class Builtins
 	# (set-empty? (set-intersect a b))
 	public static fun Disjoint(Int a, Int b) : Bool
 	{
-		Int i = 0;
-		while (i < 10)
-		{
-			if (Builtins.Has(a, i))
-			{
-				if (Builtins.Has(b, i))
-				{
-					return false;
-				}
-			}
-			i = i + 1;
-		}
-		return true;
+		return (a & b) == 0;
 	}
 	public static fun Bit(Int line) : Int
 	{
-		Int b = 1;
-		Int i = 0;
-		while (i < line)
-		{
-			b = b * 2;
-			i = i + 1;
-		}
-		return b;
+		return 2 ** line;
 	}
 	public static fun SetAdd(Int s, Int line) : Int
 	{
-		if (Builtins.Has(s, line))
-		{
-			return s;
-		}
-		return s + Builtins.Bit(line);
+		return s | Builtins.Bit(line);
 	}
 	# (set-map b values): the line names of a set
 	public static fun SetMapNames(Int s) : ITextList

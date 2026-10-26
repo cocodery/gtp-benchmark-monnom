@@ -100,19 +100,6 @@ class Synth
 		return b;
 	}
 
-	# 2^n
-	public static fun Expt2(Int n) : Int
-	{
-		Int r = 1;
-		Int i = 0;
-		while (i < n)
-		{
-			r = r * 2;
-			i = i + 1;
-		}
-		return r;
-	}
-
 	# signal->integer-sequence; the samples are read with in-array (row-major order)
 	public static fun SignalToIntegerSequence(IArray signal, Float gain) : IIdx
 	{
@@ -123,8 +110,8 @@ class Synth
 		Int size = ArrayStruct.ArraySize(signal);
 		IIndexProc proc = ArrayStruct.UnsafeArrayProc(signal);
 		IIdx js = Builtins.MakeIdx(dims, 0);
-		Int hi = Synth.Expt2(Synth.BitsPerSample()) - 1;
-		Float mid = Synth.Expt2(Synth.BitsPerSample() - 1) + 0.0;
+		Int hi = 2 ** Synth.BitsPerSample() - 1;
+		Float mid = 2 ** (Synth.BitsPerSample() - 1) + 0.0;
 		Int j = 0;
 		while (j < size)
 		{
@@ -329,32 +316,10 @@ class NoteS implements INote
 
 class Sequencer
 {
-	# (expt (expt 2 1/12) k) for an exact integer k: repeated multiplication of the flonum
-	public static fun Expt(Float b, Int k) : Float
-	{
-		Float r = 1.0;
-		Int i = 0;
-		if (k >= 0)
-		{
-			while (i < k)
-			{
-				r = r * b;
-				i = i + 1;
-			}
-			return r;
-		}
-		while (i < 0 - k)
-		{
-			r = r / b;
-			i = i + 1;
-		}
-		return r;
-	}
-
 	# A4 (440Hz) is 57 semitones above C0, which is our base
 	public static fun NoteFreq(Int note) : Float
 	{
-		return 440.0 * Sequencer.Expt(1.0594630943592953, note - 57);
+		return 440.0 * (2.0 ** (1.0 / 12.0)) ** (note - 57 + 0.0);
 	}
 
 	# note names (symbols) are encoded as Ints:

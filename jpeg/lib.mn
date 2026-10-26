@@ -818,18 +818,6 @@ class PTS implements IPT
 
 class Bits
 {
-	public static fun Pow2(Int n) : Int
-	{
-		Int r = 1;
-		Int i = 0;
-		while (i < n)
-		{
-			r = r * 2;
-			i = i + 1;
-		}
-		return r;
-	}
-
 	public static fun FloorDiv(Int a, Int b) : Int
 	{
 		Int q = a / b;
@@ -851,81 +839,20 @@ class Bits
 		return r;
 	}
 
-	# (arithmetic-shift x n)
+	# (arithmetic-shift x n): MonNom has no shift operators
 	public static fun Shift(Int x, Int n) : Int
 	{
 		if (n >= 0)
 		{
-			return x * Bits.Pow2(n);
+			return x * 2 ** n;
 		}
-		return Bits.FloorDiv(x, Bits.Pow2(0 - n));
-	}
-
-	# (bitwise-and x (sub1 (arithmetic-shift 1 k)))
-	public static fun Low(Int x, Int k) : Int
-	{
-		return Bits.Mod(x, Bits.Pow2(k));
-	}
-
-	public static fun IsSign(Int x) : Int
-	{
-		if (x == 0)
-		{
-			return 1;
-		}
-		if (x == 0 - 1)
-		{
-			return 1;
-		}
-		return 0;
-	}
-
-	public static fun IsMinus1(Int x) : Int
-	{
-		if (x == 0 - 1)
-		{
-			return 1;
-		}
-		return 0;
-	}
-
-	public static fun And(Int a, Int b) : Int
-	{
-		Int r = 0;
-		Int place = 1;
-		while (Bits.IsSign(a) * Bits.IsSign(b) == 0)
-		{
-			Int ba = Bits.Mod(a, 2);
-			Int bb = Bits.Mod(b, 2);
-			r = r + place * ba * bb;
-			a = Bits.FloorDiv(a, 2);
-			b = Bits.FloorDiv(b, 2);
-			place = place * 2;
-		}
-		return r - place * Bits.IsMinus1(a) * Bits.IsMinus1(b);
-	}
-
-	public static fun Or(Int a, Int b) : Int
-	{
-		Int r = 0;
-		Int place = 1;
-		while (Bits.IsSign(a) * Bits.IsSign(b) == 0)
-		{
-			Int ba = Bits.Mod(a, 2);
-			Int bb = Bits.Mod(b, 2);
-			r = r + place * (ba + bb - ba * bb);
-			a = Bits.FloorDiv(a, 2);
-			b = Bits.FloorDiv(b, 2);
-			place = place * 2;
-		}
-		Int m1 = Bits.IsMinus1(a) + Bits.IsMinus1(b) - Bits.IsMinus1(a) * Bits.IsMinus1(b);
-		return r - place * m1;
+		return Bits.FloorDiv(x, 2 ** (0 - n));
 	}
 
 	# (bitwise-bit-set? x i)
 	public static fun BitSet(Int x, Int i) : Bool
 	{
-		return Bits.Mod(Bits.Shift(x, 0 - i), 2) == 1;
+		return (Bits.Shift(x, 0 - i) & 1) == 1;
 	}
 }
 
@@ -958,9 +885,9 @@ class Bytevectors
 
 	public static fun Signed(Int u, Int bits) : Int
 	{
-		if (u >= Bits.Pow2(bits - 1))
+		if (u >= 2 ** (bits - 1))
 		{
-			return u - Bits.Pow2(bits);
+			return u - 2 ** bits;
 		}
 		return u;
 	}
@@ -1038,7 +965,7 @@ class Bytevectors
 				i = i + 1;
 				continue;
 			}
-			Int c = Bits.Mod(b, Bits.Pow2(6 - n));
+			Int c = Bits.Mod(b, 2 ** (6 - n));
 			Int k = 1;
 			while (k <= n)
 			{

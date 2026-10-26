@@ -19,6 +19,7 @@ library-loader bug, see `../forth/NOTES.md`).
 
 ## Deviations
 
+- `(exact-ceiling (expt 2 i))` in `bitstring->natural` is `2 ** i`.
 - **The plot library is not ported.** `lnm-plot` builds plots with `plot/typed/pict` (lines,
   ticks, `function`, `plot-pict`), a large untyped library that renders pictures. The port
   computes everything the typed code computes and, instead of rendering, applies the function

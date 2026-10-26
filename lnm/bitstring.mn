@@ -50,12 +50,10 @@ class Bitstring
 		Int n = str.Length();
 		Int res = 0;
 		Int i = 0;
-		Int p = 1;
 		while (i < n)
 		{
 			Int c = str.CharAt(n - (i + 1));
-			res = res + Bitstring.DigitValue(c, p);
-			p = p * 2;
+			res = res + Bitstring.DigitValue(c, 2 ** i);
 			i = i + 1;
 		}
 		return res;

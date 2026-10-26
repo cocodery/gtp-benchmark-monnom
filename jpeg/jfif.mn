@@ -440,7 +440,7 @@ class Jfif
 			{
 				ERROR("Expected a marker, got #xFF00");
 			}
-			return Bits.Or(65280, b);
+			return 65280 | b;
 		}
 		return 0;
 	}
@@ -477,7 +477,7 @@ class Jfif
 		{
 			ERROR("EOF while reading two-byte value");
 		}
-		return Bits.Or(Bits.Shift(msb, 8), lsb);
+		return Bits.Shift(msb, 8) | lsb;
 	}
 
 	public static fun ReadBytesExactly(Int n, IPort port) : IBytes
@@ -511,7 +511,7 @@ class Jfif
 			}
 			Int pt = Jfif.ReadU8(port);
 			Int pq = Bits.Shift(pt, 0 - 4);
-			Int tq = Bits.And(pt, 15);
+			Int tq = pt & 15;
 			IVec table = Builtins.MakeVector(64, 0 - 1);
 			remaining = remaining - (1 + 64 * (pq + 1));
 			if (tq >= 4)
@@ -564,7 +564,7 @@ class Jfif
 			}
 			Int t = Jfif.ReadU8(port);
 			Int tc = Bits.Shift(t, 0 - 4);
-			Int th = Bits.And(t, 15);
+			Int th = t & 15;
 			IBytes sizeCounts = Jfif.ReadBytesExactly(16, port);
 			Int count = 0;
 			Int i = 0;
@@ -830,7 +830,7 @@ class Jfif
 			Int id = Jfif.ReadU8(port);
 			Int samp = Jfif.ReadU8(port);
 			Int sampX = Bits.Shift(samp, 0 - 4);
-			Int sampY = Bits.And(samp, 15);
+			Int sampY = samp & 15;
 			Int table = Jfif.ReadU8(port);
 			# Although 3 is technically permitted, it's pretty bogus.
 			if (!Jfif.IsSampling(sampX))
@@ -891,7 +891,7 @@ class Jfif
 		{
 			Int code = Huffman.ReadHuffmanCodedValue(bitPort, acTable);
 			Int r = Bits.Shift(code, 0 - 4);
-			Int s = Bits.And(code, 15);
+			Int s = code & 15;
 			if (s == 0)
 			{
 				# #xf0 indicates 16 zeroes.  Otherwise stop.
@@ -1014,7 +1014,7 @@ class Jfif
 			Int id = Jfif.ReadU8(port);
 			Int t = Jfif.ReadU8(port);
 			Int td = Bits.Shift(t, 0 - 4);
-			Int ta = Bits.And(t, 15);
+			Int ta = t & 15;
 			IComponent component = Jfif.FindComponent(frame, id);
 			if (td >= 4)
 			{
@@ -1048,7 +1048,7 @@ class Jfif
 		Int se = Jfif.ReadU8(port);
 		Int a = Jfif.ReadU8(port);
 		Int ah = Bits.Shift(a, 0 - 4);
-		Int al = Bits.And(a, 15);
+		Int al = a & 15;
 		IBitPort bitPort = BitPorts.MakeBitPort(port);
 		if (Jfif.FrameSequential(frame))
 		{
@@ -1233,7 +1233,7 @@ class Jfif
 
 	public static fun CodeAndBits(Int code, Int bits) : Int
 	{
-		return Bits.Or(code, Bits.Shift(bits, 8));
+		return code | Bits.Shift(bits, 8);
 	}
 
 	public static fun EncodeDc(Int dc) : Int
@@ -1243,7 +1243,7 @@ class Jfif
 
 	public static fun EncodeAc(Int ac, Int zeroCount) : Int
 	{
-		return Jfif.CodeAndBits(Bits.Or(Bits.Shift(zeroCount, 4), Jfif.BitCount(ac)), ac);
+		return Jfif.CodeAndBits(Bits.Shift(zeroCount, 4) | Jfif.BitCount(ac), ac);
 	}
 
 	public static fun SkipZeroes(IVec zzq, Int i, Int zeroCount, IIntList codes) : IIntList
@@ -1341,7 +1341,7 @@ class Jfif
 
 	public static fun CountBang(IVec table, Int code) : Int
 	{
-		Int idx = Bits.And(code, 255);
+		Int idx = code & 255;
 		table.Set(idx, Huffman.AssertValue(table.Ref(idx)) + 1);
 		return 0;
 	}
@@ -1427,7 +1427,7 @@ class Jfif
 	public static fun WriteShort(Int u16, IPort port) : Int
 	{
 		port.WriteByte(Bits.Shift(u16, 0 - 8));
-		port.WriteByte(Bits.And(u16, 255));
+		port.WriteByte(u16 & 255);
 		return 0;
 	}
 
@@ -1457,7 +1457,7 @@ class Jfif
 		{
 			IComponent c = cs.Ref(i);
 			port.WriteByte(c.Id());
-			port.WriteByte(Bits.Or(Bits.Shift(c.SampX(), 4), c.SampY()));
+			port.WriteByte(Bits.Shift(c.SampX(), 4) | c.SampY());
 			port.WriteByte(c.QTable());
 			i = i + 1;
 		}
@@ -1474,7 +1474,7 @@ class Jfif
 				IVec table = qTables.Ref(i);
 				Jfif.WriteShort(65499, port);
 				Jfif.WriteShort(3 + 64, port);
-				port.WriteByte(Bits.Or(Bits.Shift(0, 4), i));
+				port.WriteByte(Bits.Shift(0, 4) | i);
 				Int j = 0;
 				while (j < 64)
 				{
@@ -1497,7 +1497,7 @@ class Jfif
 				IHuffman table = tables.Ref(k);
 				Jfif.WriteShort(65476, port);
 				Jfif.WriteShort(19 + table.Values().Length(), port);
-				port.WriteByte(Bits.Or(Bits.Shift(tc, 4), k));
+				port.WriteByte(Bits.Shift(tc, 4) | k);
 				port.WriteBytes(table.SizeCounts());
 				port.WriteBytes(table.Values());
 			}
@@ -1525,20 +1525,20 @@ class Jfif
 			Int td = Jfif.IdxOf(k);
 			Int ta = Jfif.IdxOf(k);
 			port.WriteByte(cs.Ref(k).Id());
-			port.WriteByte(Bits.Or(Bits.Shift(td, 4), ta));
+			port.WriteByte(Bits.Shift(td, 4) | ta);
 			k = k + 1;
 		}
 		port.WriteByte(0);
 		port.WriteByte(63);
-		port.WriteByte(Bits.Or(Bits.Shift(0, 4), 0));
+		port.WriteByte(Bits.Shift(0, 4) | 0);
 		return 0;
 	}
 
 	public static fun WriteCode(IBitPort bp, Int code, IHuffman table) : Int
 	{
-		Int u8 = Bits.And(code, 255);
+		Int u8 = code & 255;
 		Int diff = Bits.Shift(code, 0 - 8);
-		Int ssss = BitPorts.AssertNatural(Bits.And(code, 15));
+		Int ssss = BitPorts.AssertNatural(code & 15);
 		Int codeIndex = Huffman.AssertValue(table.ValueIndexes().Ref(u8));
 		Int c = Huffman.AssertValue(table.Codes().Ref(codeIndex));
 		Int size = table.Sizes().Ref(codeIndex);

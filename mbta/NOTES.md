@@ -28,8 +28,7 @@ pair of green-line and blue-line stations (GTP `mbta`, Matthias Felleisen).
 - Strings are `IText` (character codes). The three regular expressions of `run-t.rkt`, the
   `#px"--* (.*)"` of `line-specification?` and the `regexp-quote` search of `station` are
   matched by hand with the same semantics (leftmost match, greedy groups).
-- `Line` is an index 0..9 and `(Setof Line)` a bit set; the bits are read with division because
-  the runtime does not implement `&`, `|` and `^` (`Invalid operation on given operands!`).
+- `Line` is an index 0..9 and `(Setof Line)` a bit set (`&`, `|` and `2 ** line`).
   `set-map` lists the lines in index order (only the content, not the length, of `render`'s
   result depends on that order).
 - The graph library is ported only as far as it is used: `unweighted-graph/directed`,

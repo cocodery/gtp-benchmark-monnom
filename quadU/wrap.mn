@@ -477,13 +477,12 @@ class PenaltyProc implements IMatrixProc
 		Float lineWidth = Wrap.GetLineWidth(Wrap.MakeTrialLine(widths, bbWidths, i, j));
 		if (lineWidth > World.AllowedOverfullRatio() * measure)
 		{
-			return (lineWidth - measure) * 10000000.0;
+			return (lineWidth - measure) * 10.0 ** 7.0;
 		}
 		if (Wrap.ShortLastLineTest(j, pieces.Length()))
 		{
 			Float words = Wrap.CountTrue(Vecs.BoolCopy(withWordSpace, i, j - 1)) + 0.0;
-			Float d = measure - lineWidth;
-			return d * d / Fl.Max(1.0, words);
+			return (measure - lineWidth) ** 2.0 / Fl.Max(1.0, words);
 		}
 		return 0.0;
 	}

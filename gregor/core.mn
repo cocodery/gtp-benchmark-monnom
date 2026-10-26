@@ -245,7 +245,7 @@ class Ymd
 	public static fun Div(Int x, Int y) : Int
 	{
 		Int rem = x % y;
-		if (Ymd.SignsDiffer(rem, y))
+		if ((rem ^ y) < 0)
 		{
 			return x / y - 1;
 		}
@@ -255,22 +255,11 @@ class Ymd
 	public static fun Mod(Int x, Int y) : Int
 	{
 		Int rem = x % y;
-		if (Ymd.SignsDiffer(rem, y))
+		if ((rem ^ y) < 0)
 		{
 			return rem + y;
 		}
 		return rem;
-	}
-
-	# (< (bitwise-xor rem y) 0): the signs of rem and y differ (and rem is not 0... as in racket,
-	# a zero rem has the sign of a non-negative number)
-	public static fun SignsDiffer(Int rem, Int y) : Bool
-	{
-		if (rem < 0)
-		{
-			return y >= 0;
-		}
-		return y < 0;
 	}
 
 	public static fun Mod1(Int x, Int y) : Int

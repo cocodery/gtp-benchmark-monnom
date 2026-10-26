@@ -805,8 +805,8 @@ class VIFlash implements IValueInterpreter
 	public fun this(Int value) : IInterp
 	{
 		Bool fired = Bits.BitSet(value, 0);
-		Int ret = Bits.And(3, Bits.Shift(value, 0 - 1));
-		Int mode = Bits.And(3, Bits.Shift(value, 0 - 3));
+		Int ret = 3 & Bits.Shift(value, 0 - 1);
+		Int mode = 3 & Bits.Shift(value, 0 - 3);
 		Bool present = Bits.BitSet(value, 5);
 		Bool redEye = Bits.BitSet(value, 6);
 		IPTList l = new PTCons(new PTS(true, syms.Intern(Txt.PushWord(Txt.Empty(), 35914234499511026)), Interps.Boolean(redEye)), new PTNil());
