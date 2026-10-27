@@ -45,36 +45,57 @@ Other helpers in `tools/`:
 | `textlit.py`      | print the MonNom expression building an `IText` for an ASCII string literal |
 | `ifassign.py`     | find `if` branches that assign a local without ending in `return`/`continue`/`break` (the compiler bug below) |
 | `renamefields.py` | experiment helper (rename private fields) |
+| `runall.sh`       | generate and run all configurations of all (or the given) benchmarks with the runtime `$NOM` in base mode, then rerun the failures with GC off; writes summaries per benchmark (see [Base-mode run](#base-mode-run-of-2026-10-27)) |
 
 Racket reference outputs were computed from scratch copies of the benchmarks (never in `gtp-benchmarks/`) with `require-typed-check` replaced by a local shim that maps `require/typed/check` to `require/typed` (the package is not installed).
 
 ## Status
 
-| Benchmark  | Status  | Files | Configs | Typed time | Notes |
-|------------|---------|-------|---------|------------|-------|
-| sieve      | DONE    | 2     | 27      | 2.2 s      | ported again from Racket; original input |
-| snake      | DONE    | 7     | 432     | 0.75 s     | exact port of Racket's `random`; 2 module merges |
-| forth      | PARTIAL | 6     | 324     | 1.2 s      | all 96 nominal configs agree; 180 structural configs fail at run time; LOOPS 10 -> 2000 |
-| fsm        | PARTIAL | 6     | 486     | 1.4 s      | all 96 nominal configs agree; 270 structural configs fail; 4000 cycles |
-| fsmoo      | PARTIAL | 6     | 486     | 1.0 s      | all 96 nominal configs agree; 242 structural configs fail; 4000 cycles |
-| zombie     | PARTIAL | 5     | 162     | 1.3 s      | 54 configs with structural `zombie.mn` fail; 2000 replays |
-| tetris     | DONE    | 7     | 432     | 1.25 s     | LOOPS 2 -> 6; 4 module merges |
-| kcfa       | PARTIAL | 6     | 486     | 3.2 s      | all 96 nominal configs agree; 234 structural configs fail |
-| morsecode  | PARTIAL | 6     | 216     | 5 s        | all 96 nominal configs agree; all 120 structural configs fail |
-| take5      | PARTIAL | 6     | 486     | 0.95 s     | all 96 nominal configs agree; 160 structural configs fail; LOOPS 6000 |
-| mbta       | PARTIAL | 6     | 324     | 1.45 s     | all 96 nominal configs agree; 218 structural configs fail (2 print a wrong result); neighbors sorted (hash order) |
-| lnm        | PARTIAL | 6     | 324     | 1.35 s     | plot rendering not ported; all 96 nominal configs agree; 180 structural configs fail |
-| dungeon    | PARTIAL | 6     | 486     | 1.0 s      | all 96 nominal configs agree; 330 structural configs fail; LOOPS 100 -> 200 |
-| suffixtree | PARTIAL | 5     | 243     | 1.8 s      | all 48 nominal configs agree; 99 structural configs fail |
-| synth      | PARTIAL | 6     | 486     | 1.7 s      | all 96 nominal configs agree; 342 structural configs fail; seeded `random`; LOOPS 6 -> 18 |
-| gregor     | PARTIAL | 6     | 486     | 2.4 s      | all 96 nominal configs agree; 270 structural configs fail; tz data embedded; 200 iterations |
-| jpeg       | PARTIAL | 6     | 486     | 1.1 s      | all 96 nominal configs agree; 346 structural configs fail; image embedded; 15 runs |
-| zordoz     | PARTIAL | 7     | 432     | 2.1 s      | all 192 nominal configs agree; 144 structural configs fail; parsed .zo graph embedded |
-| acquire    | PARTIAL | 6     | 486     | 3.0 s      | all 96 nominal configs agree; 270 structural configs fail; 10 games (original 100) |
-| quadT      | PARTIAL | 6     | 324     | 2.0 s      | all 96 nominal configs agree; all 228 structural configs fail; font metrics embedded, PDF dc replaced by a recorder; 20 runs |
-| quadU      | PARTIAL | 6     | 324     | 1.9 s      | derived from the quadT port with quadU semantics; all 96 nominal configs agree; all 228 structural configs fail; 20 runs |
+"Pass @500c674c" is the number of configurations that print the expected result in the [base-mode run of 2026-10-27](#base-mode-run-of-2026-10-27). The Notes column describes the state when each port was written.
+
+| Benchmark  | Status  | Files | Configs | Pass @500c674c | Typed time | Notes |
+|------------|---------|-------|---------|----------------|------------|-------|
+| sieve      | DONE    | 2     | 27      | 27             | 2.2 s      | ported again from Racket; original input |
+| snake      | DONE    | 7     | 432     | 432            | 0.75 s     | exact port of Racket's `random`; 2 module merges |
+| forth      | PARTIAL | 6     | 324     | 144            | 1.2 s      | all 96 nominal configs agree; 180 structural configs fail at run time; LOOPS 10 -> 2000 |
+| fsm        | PARTIAL | 6     | 486     | 216            | 1.4 s      | all 96 nominal configs agree; 270 structural configs fail; 4000 cycles |
+| fsmoo      | PARTIAL | 6     | 486     | 244            | 1.0 s      | all 96 nominal configs agree; 242 structural configs fail; 4000 cycles |
+| zombie     | DONE    | 5     | 162     | 162            | 1.3 s      | when ported, 54 configs with structural `zombie.mn` failed; all pass @500c674c; 2000 replays |
+| tetris     | DONE    | 7     | 432     | 432            | 1.25 s     | LOOPS 2 -> 6; 4 module merges |
+| kcfa       | PARTIAL | 6     | 486     | 324            | 3.2 s      | all 96 nominal configs agree; 234 structural configs failed when ported |
+| morsecode  | PARTIAL | 6     | 216     | 144            | 5 s        | all 96 nominal configs agree; all 120 structural configs failed when ported |
+| take5      | PARTIAL | 6     | 486     | 323            | 0.95 s     | all 96 nominal configs agree; 160 structural configs failed when ported; LOOPS 6000 |
+| mbta       | PARTIAL | 6     | 324     | 110            | 1.45 s     | all 96 nominal configs agree; 218 structural configs failed when ported (2 printed a wrong result); neighbors sorted (hash order) |
+| lnm        | PARTIAL | 6     | 324     | 144            | 1.35 s     | plot rendering not ported; all 96 nominal configs agree; 180 structural configs fail |
+| dungeon    | PARTIAL | 6     | 486     | 157            | 1.0 s      | all 96 nominal configs agree; 330 structural configs failed when ported; LOOPS 100 -> 200 |
+| suffixtree | PARTIAL | 5     | 243     | 162            | 1.8 s      | all 48 nominal configs agree; 99 structural configs failed when ported |
+| synth      | PARTIAL | 6     | 486     | 216            | 1.7 s      | all 96 nominal configs agree; 342 structural configs failed when ported; seeded `random`; LOOPS 6 -> 18 |
+| gregor     | PARTIAL | 6     | 486     | 216            | 2.4 s      | all 96 nominal configs agree; 270 structural configs fail; tz data embedded; 200 iterations |
+| jpeg       | PARTIAL | 6     | 486     | 138            | 1.1 s      | all 96 nominal configs agree; 346 structural configs failed when ported (348 @500c674c); image embedded; 15 runs |
+| zordoz     | PARTIAL | 7     | 432     | 288            | 2.1 s      | all 192 nominal configs agree; 144 structural configs fail; parsed .zo graph embedded |
+| acquire    | PARTIAL | 6     | 486     | 216            | 3.0 s      | all 96 nominal configs agree; 270 structural configs fail; 10 games (original 100) |
+| quadT      | PARTIAL | 6     | 324     | 96             | 2.0 s      | all 96 nominal configs agree; all 228 structural configs fail; font metrics embedded, PDF dc replaced by a recorder; 20 runs |
+| quadU      | PARTIAL | 6     | 324     | 96             | 1.9 s      | derived from the quadT port with quadU semantics; all 96 nominal configs agree; all 228 structural configs fail; 20 runs |
+| **total**  |         |       | **7938** | **4287**      |            | |
 
 "Nominal" configurations are those in which every file is typed or untyped (classes and interfaces); "structural" ones turn some classes into records and lambdas. In every benchmark all nominal configurations print the expected result; the failures of structural configurations are run-time errors of the MonNom runtime (segmentation faults, `UNIMPLEMENTED!`, `No such method!`, invalid generated LLVM code, ...), listed per benchmark in its `NOTES.md` with a command that reproduces one.
+
+## Base-mode run of 2026-10-27
+
+Every configuration of every benchmark was generated with `nombench --byfile` and run once with the runtime snapshot `nom-snapshot/nom-500c674c-20261027` (a copy of `sourcecode/Runtime/nom` built from monnom commit `500c674c`), in base mode: `nom -p <dir> -o3 <P>`, no `--trans`/`--sync`, 16 in parallel, 300 s timeout.
+
+- **4287 of 7938 configurations (54%) print the expected result.** sieve, snake, tetris and zombie pass completely. All failures are in structural configurations (some class turned into a record or lambda). Every nominal configuration passes.
+- 2629 of the 3651 failures pass when rerun with `GC_DONT_GC=1`. They are all one runtime bug: records are allocated too small, so their last fields are not traced by the GC (B1).
+- The other 1022 failures come from four more runtime bugs (`this` in nested record initializers, records cast to two interfaces, invoking a record with a `this` method, typed record fields that are never cast), one benchmark-generator bug, and two failures that are not yet reduced.
+
+[`bugs/BUGS.md`](bugs/BUGS.md) has the per-benchmark breakdown, the cause of each bug and how the failures were attributed. [`bugs/GtpBugs.mn`](bugs/GtpBugs.mn) has one small test function per bug (all fail on the snapshot). [`bugs/results-500c674c/`](bugs/results-500c674c/) lists the failing configurations with their error lines.
+
+To repeat the run with another runtime, and to rerun the bug tests:
+
+```bash
+NOM=$PWD/sourcecode/Runtime/nom gtp-benchmark-monnom/tools/runall.sh /tmp/gtprun   # all benchmarks; or list some
+NOM=$PWD/sourcecode/Runtime/nom gtp-benchmark-monnom/bugs/run_test.sh
+```
 
 ## Porting conventions forced by the current MonNom toolchain
 

@@ -1,0 +1,213 @@
+# One test per bug found by running all GTP benchmark configurations with the
+# runtime snapshot nom-snapshot/nom-500c674c-20261027 (base mode, -o3).
+# BUGS.md (next to this file) describes each bug and the benchmarks it breaks.
+#
+# Each test prints "<name>: PASS" or "<name>: FAIL got ...". Most of these
+# bugs abort the runtime, and the runtime compiles every method of Main when
+# it loads the class, so run_test.sh runs every test in its own process
+# (it removes the other tests' # BEGIN/# END blocks before compiling).
+# Blocks tagged [compile] crash the compiler; run_test.sh reports that as FAIL.
+#
+# Apart from the construct each test is about, the tests use only constructs
+# that work: results go through if/else, at most two arguments per call.
+
+interface IA { fun Get() : Int; }
+interface IB { fun Get() : Int; }
+interface ISym { fun Chars() : Int; }
+
+class Main
+{
+	public static fun Pass(String name) : Void
+	{
+		name.Print();
+		": PASS\n".Print();
+	}
+	# prints "<name>: FAIL got"; follow with Show(...) for each value and End()
+	public static fun Fail(String name) : Void
+	{
+		name.Print();
+		": FAIL got".Print();
+	}
+	public static fun Show(dyn v) : Void
+	{
+		" ".Print();
+		v.ToString().Print();
+	}
+	public static fun End() : Void
+	{
+		"\n".Print();
+	}
+
+	# BEGIN Test_RecordFieldsGC
+	# B1: CPP_NOM_RECORDALLOC allocates RecordHeader::SizeOf() + 8 * fields,
+	#     but the fields follow a char[fields] WrittenTags array, so the last
+	#     field lies past the end of the GC block: the collector does not
+	#     trace it (and the next object can overlap it)
+	public static fun MkHolder(dyn n) : dyn
+	{
+		dyn s = new ArrayList<dyn>();
+		dyn i = 0;
+		while (i < n)
+		{
+			s.Add(i);
+			i = i + 1;
+		}
+		return new(dyn slots = s)
+		{
+			public fun Ref(dyn h) : dyn { return slots.Get(h); }
+		};
+	}
+	public static fun Test_RecordFieldsGC() : Void
+	{
+		dyn keep = Main.MkHolder(7);
+		dyn k = 0;
+		while (k < 200000)
+		{
+			dyn junk = Main.MkHolder(7);
+			k = k + 1;
+		}
+		dyn r = keep.Ref(3);
+		if (r == 3) { Main.Pass("Test_RecordFieldsGC"); }
+		else { Main.Fail("Test_RecordFieldsGC"); Main.Show(r); Main.End(); }
+	}
+	# END Test_RecordFieldsGC
+
+	# BEGIN Test_ThisInRecordInitializer
+	# B2: in a record method, `this` in the field initializers of a nested
+	#     record literal is the new nested record, not the enclosing record
+	#     (RecordHeader::GenerateConstructorCode sets register 0 to the new
+	#     record before it compiles the initializer instructions)
+	public static fun MkPayer(dyn p) : dyn
+	{
+		return new(dyn payoff = p)
+		{
+			public fun Pay() : dyn { return payoff; }
+			public fun Pair(dyn other) : dyn
+			{
+				return new(dyn fst = this, dyn snd = other)
+				{
+					public fun Fst() : dyn { return fst; }
+					public fun Snd() : dyn { return snd; }
+				};
+			}
+		};
+	}
+	public static fun Test_ThisInRecordInitializer() : Void
+	{
+		dyn x = Main.MkPayer(5);
+		dyn y = Main.MkPayer(7);
+		dyn r = x.Pair(y);
+		dyn f = r.Fst().Pay();
+		if (f == 5) { Main.Pass("Test_ThisInRecordInitializer"); }
+		else { Main.Fail("Test_ThisInRecordInitializer"); Main.Show(f); Main.End(); }
+	}
+	# END Test_ThisInRecordInitializer
+
+	# BEGIN Test_RecordTwoInterfaces
+	# B3: after a record is cast to two different interfaces, calls through the
+	#     interface call-tag hit the multi-cast-list case of
+	#     NomInterfaceCallTag, which aborts with "UNIMPLEMENTED!"
+	public static fun UseA(IA a) : Int { return a.Get(); }
+	public static fun UseB(IB b) : Int { return b.Get(); }
+	public static fun Test_RecordTwoInterfaces() : Void
+	{
+		dyn r = new(dyn v = 4) { public fun Get() : dyn { return v; } };
+		Int a = Main.UseA(r);
+		Int b = Main.UseB(r);
+		if (a + b == 8) { Main.Pass("Test_RecordTwoInterfaces"); }
+		else { Main.Fail("Test_RecordTwoInterfaces"); Main.Show(a); Main.Show(b); Main.End(); }
+	}
+	# END Test_RecordTwoInterfaces
+
+	# BEGIN Test_InvokeRecord
+	# B4: a record with a `this` method cannot be invoked: the dynamic invoke
+	#     only accepts values whose vtable has a raw-invoke entry (lambdas), so
+	#     it aborts with "Given value is not invokable!"
+	public static fun MkDir() : dyn
+	{
+		return new
+		{
+			public fun this(dyn p, dyn n) : dyn { return p + n; }
+			public fun Kind() : dyn { return 0; }
+		};
+	}
+	public static fun Test_InvokeRecord() : Void
+	{
+		dyn d = Main.MkDir();
+		dyn r = d(3, 4);
+		if (r == 7) { Main.Pass("Test_InvokeRecord"); }
+		else { Main.Fail("Test_InvokeRecord"); Main.Show(r); Main.End(); }
+	}
+	# END Test_InvokeRecord
+
+	# BEGIN Test_TypedRecordField
+	# B5: a typed record field (ISym sub = v) initialized from a dyn value is
+	#     not cast, so the record in it has no cast data; the first interface
+	#     call through the field then segfaults in the interface call-tag, which
+	#     reads the (null) cast data without checking it
+	public static fun MkSym() : dyn
+	{
+		return new(dyn c = 5) { public fun Chars() : dyn { return c; } };
+	}
+	public static fun Test_TypedRecordField() : Void
+	{
+		dyn r = new(ISym sub = Main.MkSym()) { public fun Go() : dyn { return sub.Chars(); } };
+		dyn v = r.Go();
+		if (v == 5) { Main.Pass("Test_TypedRecordField"); }
+		else { Main.Fail("Test_TypedRecordField"); Main.Show(v); Main.End(); }
+	}
+	# END Test_TypedRecordField
+
+	# BEGIN Test_ErrorMessage
+	# S1: ERROR(msg) prints "ERROR!" instead of msg. The test passes when the
+	#     message itself ("Test_ErrorMessage: PASS") is printed.
+	public static fun Test_ErrorMessage() : Void
+	{
+		ERROR("Test_ErrorMessage: PASS");
+	}
+	# END Test_ErrorMessage
+
+	# BEGIN Test_VoidReturn [compile]
+	# S2: `return;` in a Void method crashes nomc (NullReferenceException)
+	public static fun Early(Int x) : Void
+	{
+		if (x > 0)
+		{
+			return;
+		}
+		"negative\n".Print();
+	}
+	public static fun Test_VoidReturn() : Void
+	{
+		Main.Early(1);
+		Main.Pass("Test_VoidReturn");
+	}
+	# END Test_VoidReturn
+
+	# BEGIN Test_InvokeRecordField [compile]
+	# S3: invoking a record field inside a record method (fn(x)) crashes nomc
+	#     (NotImplementedException); a dyn local or parameter can be invoked
+	public static fun Test_InvokeRecordField() : Void
+	{
+		dyn f = (dyn x) => { return x + 1; } : dyn;
+		dyn r = new(dyn fn = f) { public fun Run(dyn x) : dyn { return fn(x); } };
+		dyn v = r.Run(3);
+		if (v == 4) { Main.Pass("Test_InvokeRecordField"); }
+		else { Main.Fail("Test_InvokeRecordField"); Main.Show(v); Main.End(); }
+	}
+	# END Test_InvokeRecordField
+
+	public static fun Main() : Void
+	{
+		# TESTS-BEGIN (run_test.sh keeps one of these lines)
+		Main.Test_RecordFieldsGC();
+		Main.Test_ThisInRecordInitializer();
+		Main.Test_RecordTwoInterfaces();
+		Main.Test_InvokeRecord();
+		Main.Test_TypedRecordField();
+		Main.Test_ErrorMessage();
+		Main.Test_VoidReturn();
+		Main.Test_InvokeRecordField();
+		# TESTS-END
+	}
+}
