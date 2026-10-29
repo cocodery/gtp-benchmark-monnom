@@ -72,6 +72,43 @@ class Main
 	}
 	# END Test_RecordFieldsGC
 
+	# BEGIN Test_ManyRecordFields
+	# G1: a record with more than 8 fields (like acquire's TurnS record, 14
+	#     fields) reads its fields at a different offset from the one
+	#     NomRecordField::GenerateWrite writes to: the constructor and field
+	#     reads passed hasRawInvoke (a bool) as RecordHeader's fieldCount, so
+	#     they used the layout of a 1-field record. A write in a record method
+	#     lands in the next field's slot and the following read still sees
+	#     the old value (decisions.Len() stays 0, eliminated is overwritten)
+	public static fun MkNil() : dyn
+	{
+		return new { public fun Len() : dyn { return 0; } };
+	}
+	public static fun MkCons(dyn r) : dyn
+	{
+		return new(dyn rest = r) { public fun Len() : dyn { return 1 + rest.Len(); } };
+	}
+	public static fun MkTurn(dyn d, dyn e) : dyn
+	{
+		return new(dyn f0 = 0, dyn f1 = 1, dyn f2 = 2, dyn f3 = 3, dyn f4 = 4, dyn cash = 7, dyn f6 = 6, dyn f7 = 7, dyn decisions = d, dyn eliminated = e)
+		{
+			public fun Push() : dyn { decisions = Main.MkCons(decisions); return decisions.Len(); }
+			public fun Cash() : dyn { return cash; }
+			public fun Elim() : dyn { return eliminated.Len(); }
+		};
+	}
+	public static fun Test_ManyRecordFields() : Void
+	{
+		dyn t = Main.MkTurn(Main.MkNil(), Main.MkNil());
+		dyn a = t.Push();
+		dyn b = t.Push();
+		dyn c = t.Cash();
+		dyn e = t.Elim();
+		if (a == 1 && b == 2 && c == 7 && e == 0) { Main.Pass("Test_ManyRecordFields"); }
+		else { Main.Fail("Test_ManyRecordFields"); Main.Show(a); Main.Show(b); Main.Show(c); Main.Show(e); Main.End(); }
+	}
+	# END Test_ManyRecordFields
+
 	# BEGIN Test_ThisInRecordInitializer
 	# B2: in a record method, `this` in the field initializers of a nested
 	#     record literal is the new nested record, not the enclosing record
@@ -201,6 +238,7 @@ class Main
 	{
 		# TESTS-BEGIN (run_test.sh keeps one of these lines)
 		Main.Test_RecordFieldsGC();
+		Main.Test_ManyRecordFields();
 		Main.Test_ThisInRecordInitializer();
 		Main.Test_RecordTwoInterfaces();
 		Main.Test_InvokeRecord();
