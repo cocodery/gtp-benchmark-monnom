@@ -14,6 +14,7 @@
 interface IA { fun Get() : Int; }
 interface IB { fun Get() : Int; }
 interface ISym { fun Chars() : Int; }
+interface IFn { fun this(dyn x) : dyn; }
 
 class Main
 {
@@ -234,6 +235,29 @@ class Main
 	}
 	# END Test_InvokeRecordField
 
+	# BEGIN Test_NoLambdaOpt [flags: --nolambdaopt]
+	# S4: with --nolambdaopt every program aborted while the runtime loaded
+	#     (RefValueHeader::GenerateReadRawInvoke throws without lambda
+	#     optimization), and lambdas had no other way to be invoked. Covers
+	#     each invoke path: a lambda (dynamic invoke and held in a record
+	#     field), a record with a `this` method, and typed calls through a
+	#     functional interface on both. run_test.sh adds --nolambdaopt.
+	public static fun Twice(IFn f, dyn x) : dyn { return f(f(x)); }
+	public static fun Test_NoLambdaOpt() : Void
+	{
+		dyn f = (dyn x) => { return x + 1; } : dyn;
+		dyn a = f(1);
+		dyn h = new(dyn fn = f) { public fun Get() : dyn { return fn; } };
+		dyn b = h.fn(2);
+		dyn r = new { public fun this(dyn x) : dyn { return x * 10; } };
+		dyn c = r(3);
+		dyn d = Main.Twice(r, 4);
+		dyn e = Main.Twice(f, 5);
+		if (a == 2 && b == 3 && c == 30 && d == 400 && e == 7) { Main.Pass("Test_NoLambdaOpt"); }
+		else { Main.Fail("Test_NoLambdaOpt"); Main.Show(a); Main.Show(b); Main.Show(c); Main.Show(d); Main.Show(e); Main.End(); }
+	}
+	# END Test_NoLambdaOpt
+
 	public static fun Main() : Void
 	{
 		# TESTS-BEGIN (run_test.sh keeps one of these lines)
@@ -246,6 +270,7 @@ class Main
 		Main.Test_ErrorMessage();
 		Main.Test_VoidReturn();
 		Main.Test_InvokeRecordField();
+		Main.Test_NoLambdaOpt();
 		# TESTS-END
 	}
 }

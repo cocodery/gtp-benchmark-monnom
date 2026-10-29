@@ -6,8 +6,10 @@
 # NOM selects the runtime binary (default: nom from setpath.sh), e.g.
 #   NOM=$PWD/nom-snapshot/nom-500c674c-20261027 bugs/run_test.sh
 # NOMC selects the compiler. Default flag: -o3.
+# A test whose block line ends in [flags: ...] (e.g.
+# `# BEGIN Test_NoLambdaOpt [flags: --nolambdaopt]`) also gets those flags.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"
 NAME=""
 if [ $# -gt 0 ] && [ "$1" != "--" ]; then NAME=$1; shift; fi
 [ "$1" = "--" ] && shift
@@ -42,7 +44,9 @@ for T in $TESTS; do
     echo "$T: FAIL (compiler) $(grep -m1 -o '[A-Za-z.]*Exception[^.]*' "$W/compile.txt")"
     rm -rf "$W"; continue
   fi
-  OUT=$(cd "$W" && timeout 120 $NOM -p "$W" "${FLAGS[@]}" GtpBugs 2>&1)
+  EXTRA=$(grep -m1 "# BEGIN $T " "$HERE/GtpBugs.mn" |
+          sed -n 's/.*\[flags: \([^]]*\)\].*/\1/p')
+  OUT=$(cd "$W" && timeout 120 $NOM -p "$W" "${FLAGS[@]}" $EXTRA GtpBugs 2>&1)
   STATUS=$?
   if echo "$OUT" | grep -q "^$T: PASS"; then
     echo "$T: PASS"; pass=$((pass+1))
