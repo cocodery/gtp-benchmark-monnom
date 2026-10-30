@@ -1,0 +1,23 @@
+acquire configs=486 ok=486
+dungeon configs=486 ok=486
+forth configs=324 ok=324
+fsm configs=486 ok=486
+fsmoo configs=486 ok=486
+gregor configs=486 ok=486
+jpeg configs=486 ok=486
+kcfa configs=486 ok=486
+lnm configs=324 ok=324
+mbta configs=324 ok=324
+morsecode configs=216 ok=216
+quadT configs=324 ok=324
+quadU configs=324 ok=324
+sieve configs=27 ok=27
+snake configs=432 ok=432
+suffixtree configs=243 ok=243
+synth configs=486 ok=486
+take5 configs=486 ok=486
+tetris configs=432 ok=432
+zombie configs=162 ok=162
+zordoz configs=432 ok=432
+TOTAL configs=7938 ok=7938
+#### runall exit=0 23:59:34

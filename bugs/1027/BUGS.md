@@ -17,18 +17,18 @@ On the snapshot, the first 8 tests fail. `Test_ManyRecordFields` (G1) and `Test_
 1. Every failing configuration was rerun with `GC_DONT_GC=1`. 2629 of the 3651 failures then pass. For the four benchmarks checked (acquire, dungeon, forth, fsmoo), an `LD_PRELOAD` shim that pads every `GC_malloc` by 64 bytes, with the GC still on, fixes exactly the same configurations. So these are all bug B1.
 2. For the remaining 1022 failures, the failing JIT function was found by running the configuration under gdb (break on `NOM_RT_Fail`, or the SIGSEGV). An `INTEL_JIT_PROFILER64` agent library logged the address and name of every JIT-compiled function. Then the construct was rebuilt in a small program.
 
-| Benchmark | Failing | Pass with GC off (B1) | Pass with B1 + B4 fix | Remaining failures |
+| Benchmark | Failing | Pass with GC off (B1) | Pass with B1 + B4 fix | Remaining after B1 + B4, all fixed by 2026-10-30 |
 |---|---|---|---|---|
 | acquire | 270 | 108 | **270** | — (the 36 `Cast failed!` were G1, the 126 segfaults U2; both are B1's `fieldCount` bug) |
-| dungeon | 329 | 59 | 167 | 162, all with B2's message: the 132 B2, and 30 of the 90 U1, which now get past B4 and hit B2. The 48 B4 and the other 60 U1 pass |
-| forth | 180 | 176 | 176 | 4: B5 |
+| dungeon | 329 | 59 | 167 162, all with B2's message: the 132 B2, and 30 of the 90 U1, which now get past B4 and hit B2. The 48 B4 and the other 60 U1 pass. Fixed by B2 |
+| forth | 180 | 176 | 176 | 4: B5, fixed |
 | fsm | 270 | 270 | **270** | — |
-| fsmoo | 242 | 80 | 80 | 162: 126 B2, 36 B3 |
-| gregor | 270 | 222 | 222 | 48: 30 B5, 18 B3 |
+| fsmoo | 242 | 80 | 80 | 162: 126 B2, 36 B3, all fixed |
+| gregor | 270 | 222 | 222 | 48: 30 B5, 18 B3, all fixed |
 | jpeg | 348 | 348 | **348** | — |
 | kcfa | 162 | 162 | **162** | — |
 | lnm | 180 | 180 | **180** | — |
-| mbta | 214 | 198 | 198 | 16: B5 |
+| mbta | 214 | 198 | 198 | 16: B5, fixed |
 | morsecode | 72 | 72 | **72** | — |
 | quadT | 228 | 48 | **228** | — (72 B4; of the 108 segfaults, 72 were B1's `fieldCount` bug and 36 then failed with B4) |
 | quadU | 228 | 48 | **228** | — (same as quadT) |
@@ -37,7 +37,7 @@ On the snapshot, the first 8 tests fail. `Test_ManyRecordFields` (G1) and `Test_
 | take5 | 163 | 163 | **163** | — |
 | zordoz | 144 | 144 | **144** | — |
 | sieve, snake, tetris, zombie | 0 | | | |
-| **total** | **3651** | **2629** | **3259** | **392** |
+| **total** | **3651** | **2629** | **3259** | **392, all fixed** |
 
 A configuration that fails because of B1 could hide a second bug only if that bug also disappeared with GC off. The "pass with GC off" column therefore counts configurations whose only bug is B1.
 
@@ -46,6 +46,8 @@ The "pass with B1 + B4 fix" column (2026-10-29) counts configurations that were 
 - with the B1 and B4 fixes: all remaining failures of dungeon, quadT and quadU (630). Of these, 468 pass. The 162 dungeon configurations in the last column all fail with B2's message (`Tried to load invokable value from field, but value has no lambda method!`), including the 30 U1 configurations that used to fail with `Cast failed!`. The 276 that passed but were not attributed to B4 were run once more with the B1 fix alone, to split the two fixes (see B4).
 
 So 3259 of the 3651 failures are fixed (bold: the whole benchmark now passes). The remaining failures of forth, fsmoo, gregor and mbta (B2, B3, B5) were not rerun. The runtime used was `500c674c` plus the fix. The exception is suffixtree, which was run with the current tree plus the fix, because its `.BM_*` folders were regenerated later and the `500c674c` runtime aborts while loading them.
+
+**Final run (2026-10-30): all 7938 configurations of all 21 benchmarks print the expected result.** The run used the working tree on top of `64543734`, with the B2 generator fix, the B5 compiler and runtime fixes, S1, S5 and the `Main.Main` fix. The benchmark folders in the repository were not changed. Each benchmark was copied to a scratch directory, and its `.BM_*` folders were generated there with the current nombench (`nombench --byfile`). The B2 fix changes what nombench writes, so the old folders cannot show it. Every configuration was then run with `nom -o3` and compared with `expected.txt`, as `runconfigs.sh` does. (The table lists 21 benchmarks; the "20 benchmarks" at the top of this file is a miscount, and 7938 is the total for all 21.)
 
 ## Runtime bugs (B)
 
@@ -71,14 +73,23 @@ So 3259 of the 3651 failures are fixed (bold: the whole benchmark now passes). T
 - **Verified:** `Test_RecordFieldsGC` passes with `-o3`, `-o0`, `-o3 --trans` and `-o3 --sync`, and still fails with only the allocator change reverted. A record with 10 fields (constructor writes, method reads and writes, dynamic reads, 200 000 more allocations with GC on) gives the right values in all modes.
 - **Benchmarks:** all 2629 configurations that failed only because of B1, in 17 benchmarks, now print the expected result with the GC on (`nom -o3`, as `runconfigs.sh` runs them). So do acquire's 162 G1/U2 configurations, which were the `fieldCount` part. The `.mnil` files match different runtimes, so the runs used two builds. The suffixtree `.BM_*` folders were regenerated on 2026-10-28 at 09:31, and the `500c674c` runtime aborts while loading them (`terminate ... char const*`), with or without the fix, so suffixtree's 81 configurations were run with the current tree plus the fix. All other configurations were run with `500c674c` plus the fix. B1 is not involved in that abort. The table above has the per-benchmark counts.
 
-### B2: `this` in a nested record's field initializer is the new record (`Test_ThisInRecordInitializer`)
+### B2: the benchmark generator passes `this` into a record's field initializers (`Test_ThisInRecordInitializer`)
 - **Symptom:** in a record method, `new(dyn fst = this, …) { … }` stores the *new* record in `fst`. Later calls on `fst` fail with `Dictionary entry not found` and `Tried to load invokable value from field, but value has no lambda method!`. This breaks dungeon (`cell.mn`) and fsmoo (`automata.mn`, `MatchPair`).
-- **Cause:** `RecordHeader::GenerateConstructorCode` sets `(*env)[0] = newmem` (register 0 is `this`) before it compiles the field-initializer instructions, so they read the new record instead of the enclosing `this`.
-- **Workaround in source:** `dyn me = this; return new(dyn fst = me, …)`.
+- **What it is:** first filed as a runtime bug. The cause given was that `RecordHeader::GenerateConstructorCode` sets register 0 (`this`) to the new record before it compiles the initializers. That is not a mistake in the runtime: the type checker maps `this`/`dis` in a record literal's field initializers to register 0 on purpose. Since `a33ec7b3`, `VisitStructExpr` also evaluates such initializers right after the construction, with `this`/`dis` bound to the new record (`MayReferToRecord`, `IsRecordSelf`). That is the intended meaning of `this` there, and it stays. The bug is in the benchmark generator.
+- **Cause:** when nombench replaces `new C(a, b)` with a record literal (or a lambda), it substitutes each constructor argument into the field initializers. An argument that is a plain identifier is substituted as it is, and any other expression is bound with a fresh `letvar` at the construction site (`FullDevolution.cs`, the four `argpairs` loops). `this` is an identifier, so `new MatchPair(this, o)` in a method of a class that is itself turned into a record became `new(dyn fst = this, …)`. There, `this` is the new pair.
+- **Fix** (`sourcecode/BenchmarkGenerator/FullDevolution.cs`): a new `IsSubstitutableArgument` treats `this`/`dis` as non-variables, so they get a `letvar` too: `letvar f__bm_fresh_1 = this in new(IPayer fst = f__bm_fresh_1, IPayer snd = o)`. The constructor's own statements are unchanged: a `this` written in the class constructor means the object under construction, which is the new record.
+- **Test:** `Test_ThisInRecordInitializer` checks the meaning of `this` and the code the generator now produces:
+  - `this` in an initializer is the new record: `new(dyn me = this, dyn v = 3)`, then `me.V()` gives 3;
+  - in a record method, `letvar m = this in new(dyn fst = m, …)` (the generated form) and `dyn me = this; new(dyn fst = me, …)` both store the enclosing record.
+
+  A source test cannot exercise the generator, so the generator was checked with a small project shaped like fsmoo's `MatchPair`: `Payer.PairWith(o)` returns `new MatchPair(this, o)`, and `Main` prints the payoffs of both. Of its 162 configurations:
+  - with the old generator, 54 fail with "Tried to load invokable value from field, but value has no lambda method!";
+  - with the fixed generator, all 162 print the expected result.
 
 ### B3: a record cast to two interfaces aborts with `UNIMPLEMENTED!` (`Test_RecordTwoInterfaces`)
 - **Symptom:** after a record has been cast to `IA` and then to `IB`, the next interface call aborts with `UNIMPLEMENTED!`. This affects fsmoo (where the pair record from B2 is cast to both `IAutomatonPair` and `IAutomaton`) and gregor.
 - **Cause:** the second cast turns the record's cast data into a cast list (tag bit 1). `NomInterfaceCallTag` jumps to an `UNIMPLEMENTED!` block for that case (`IR/CallTags/NomInterfaceCallTag.cpp`, `multiCastListBlock`).
+- **Fixed** by `9a0fa38f` ("K1+K12 add multi-imposition"), which implements the cast-list case in `NomInterfaceCallTag`. That commit is on the current branch but not in the `500c674c` snapshot, so the benchmark run of 2026-10-27 still hit it. `Test_RecordTwoInterfaces` passes on the current tree.
 
 ### B4: a record with a `this` method cannot be invoked (`Test_InvokeRecord`)
 - **Symptom:** `d(3, 4)` on `new { public fun this(dyn p, dyn n) : dyn { … } … }` aborts with `Given value is not invokable!`. The benchmark generator emits such records for classes that have a `this` method and other methods (dungeon's directions, quadT/quadU `Ocm`).
@@ -108,6 +119,13 @@ So 3259 of the 3651 failures are fixed (bold: the whole benchmark now passes). T
 ### B5: a typed record field initialized from a `dyn` value is not cast (`Test_TypedRecordField`)
 - **Symptom:** `new(ISym sub = v) { … sub.Chars() … }` with a `dyn` record `v` segfaults on the first interface call through `sub`. This appears in forth, gregor and mbta (where the record `new(IMBTA mbtaSubways = …, ITextList disabled = …)` in `main.mn` crashes in `MONNOM_RT_ICT_IMBTA…Station`). quadT/quadU crash in the same way in `MONNOM_RT_ICT_IVal…Kind`, which is likely the same bug (not reduced separately).
 - **Cause:** the value is stored in the typed field without a cast, so the record never gets cast data. The interface call-tag reads that cast data (`StructuralValueHeader::GenerateReadCastData`), finds null, and dereferences it (`RTClassType::GenerateReadClassDescriptorLink`) without checking it.
+- **Where it really is:** in the compiler. Since `a33ec7b3`, `VisitStructExpr` (`TypeChecker/CodeTransformer.cs`) evaluates a field initializer at the construction site and passes its value to the record as a `dyn` argument, which the record stores as it is. The initializer only got an optimistic subtype check (`IsSubtypeOf(fieldType, true)`), so a `dyn` value went into an `ISym` field uncast. The record's methods then rely on the field's type.
+- **Fix:** a value for an *interface*-typed field is cast to the field's type at the construction site (`etr.EnsureType(fieldType, env)`) before it is passed. The record still receives a `dyn` argument, so records that differ only in their initializers can still be merged. Other field types are stored without a cast, as before. Casting all typed fields broke 54 forth configurations: with `lib.mn` structural, the record for `SymTable` has the field `ArrayList<ArrayList<ISymbol>> buckets` and is initialized from the untyped `Txt.EmptyBuckets`, which creates an `ArrayList<dyn>`. A cast of an `ArrayList<dyn>` to any `ArrayList<X>` fails (`Cast failed!`), because a class's type arguments are checked exactly; a typed class field would reject the value too. Initializers that run after the construction (those that mention `this`/`dis`) are written through the dynamic field write, which casts at runtime. A test with such a field before `ISym sub = …` prints 5.
+- **Test:** `Test_TypedRecordField` passes with `-o3`, `-o0`, `-o3 --trans` and `-o3 --nolambdaopt`. The interface call-tag still does not check for null cast data. Every typed field now gets a cast, so it no longer reaches that case.
+- **Second case, a parameter (`Test_TypedRecordParam`):** gregor's 30 segfaults and mbta's 6 B5 configurations still crashed with the field fix. A JIT profiling agent that logs every compiled function's address (`INTEL_JIT_PROFILER64`) showed where mbta crashes. It is in the interface call-tag `IPathStar.IsEmpty`, called on a record, inside the record method `BestPathAsStrings(IPathStar …)`, which was reached through its dynamic dispatcher `NOMMON_RT_DD_…`. That dispatcher (`NomRecord::GetDynamicDispatcherLookup`) passed the arguments on without casting them to the method's parameter types. The IMT entries (`NomIMTUtils.cpp`) and a class's raw invoke both cast them. So an interface-typed parameter held a record without cast data, as in the field case.
+  - **Fix** (`IR/Data/NomRecord.cpp`): the dispatcher casts each value argument to its parameter type with `RTCast::GenerateCast`, as the IMT entries do.
+  - **Test:** `Test_TypedRecordParam`, a record method `Go(ISym s)` called dynamically with a `dyn` record, passes with `-o3`, `-o0`, `-o3 --trans` and `-o3 --nolambdaopt`. With only the dispatcher cast removed from the runtime, it segfaults (exit 139), and the other 11 tests still pass.
+  - **Benchmarks:** all 36 failing gregor configurations and all 6 failing mbta configurations pass.
 
 ## G1: writes to a record with more than 8 fields go to the wrong slot (`Test_ManyRecordFields`)
 
@@ -138,9 +156,21 @@ G1 was first listed as a benchmark-generator bug. It is a runtime bug: the `fiel
 
 These don't affect the benchmarks (the ports avoid these constructs), but they have tests too:
 
-- **S1 `Test_ErrorMessage`:** `ERROR("msg")` prints `ERROR!` instead of `msg`.
-- **S2 `Test_VoidReturn` [compile]:** `return;` in a `Void` method crashes `nomc` with a `NullReferenceException`.
-- **S3 `Test_InvokeRecordField` [compile]:** invoking a record field inside a record method (`fn(x)`) crashes `nomc` with a `NotImplementedException`. Copying it to a local first (`dyn g = fn; g(x)`) works.
+- **S1 `Test_ErrorMessage`, fixed:** `ERROR("msg")` printed `ERROR!` instead of `msg`. `ErrorInstruction::Compile` never read its register and always passed the constant `"ERROR!"` to `NOM_RT_Fail`. When the message's static type is `String`, it now calls a new `NOM_RT_FailWithString` (`Runtime/RTOutput.cpp`, registered in `NomJIT.cpp`). That function prints the text through `NOM_RT_Fail`, so the output keeps the `ERROR!` header, and the shutdown and exit code stay the same. A message of another static type (an `Int`, or a `dyn` value that happens to be a string) still prints the generic `ERROR!`.
+- **S2 `Test_VoidReturn` [compile], fixed:** `return;` in a `Void` method crashed `nomc` with a `NullReferenceException`. This was fixed as R15 (`37f761fe`, see `experiments/monnom/function/bugs/BUGS.md`), and the test passes.
+- **S3 `Test_InvokeRecordField` [compile], fixed:** invoking a record field inside a record method (`fn(x)`) crashed `nomc` with a `NotImplementedException`. Copying it to a local first (`dyn g = fn; g(x)`) worked. A bare call `f(x)` in a record method went through `StructMethodTransformEnvironment.GetLocalCallable`, which knew only the method's locals, and then into `StructTransformEnvironment.GetLocalCallable`, a `NotImplementedException` placeholder. Changes (`TypeChecker/StructTransformEnvironment.cs`):
+  - **Record method:** the name is now resolved as a variable through the method's indexer (locals, then the record's fields, then variables the record captures), read in the method's frame and called, the same as when the name is used as a value.
+  - **Record:** the placeholder now looks up only static methods of the enclosing class (`GetStaticMethod` on `Context.Container`), whose call does not use the enclosing frame. A bare call to an *instance* method of the enclosing object would need its `this`, which a record does not capture (`this` in a record method is the record). It is now a compile error ("Inc … is not a name of an accessible field or method"), not a crash.
+
+  A test calls a field, a captured lambda (needs S5), a static method of the enclosing class and a local that shadows a field: `4 13 6 300` in all four modes.
+- **S5 `Test_RecordMethodCapture`, fixed:** found while fixing S3. A record method that uses a local of the enclosing scope crashed the runtime while it loaded the record, even for a plain `Int` (`return add + x;`). `HEAD`'s compiler (`64543734`) does the same. There were three problems, all in the type checker:
+  1. `VisitStructExpr` built the construction's argument list from the initializer environment's captures *before* compiling the methods. A method that names an enclosing local adds a capture while it is compiled, so the record expected one more argument than the construction passed. The list is now built after the methods.
+  2. Such captures were also passed a second time through `StructTransformEnvironment.GetClosureAccessors`. That read the capture's register in the record constructor's frame while running in the enclosing frame. The function and its arguments are removed: the capture's own argument already carries the value.
+  3. `EndArgRegisterCount` (the number of arguments the runtime moves to the end of the frame) counted those captures. But `InsertArgRegister` keeps every argument in registers 1..n, and the runtime's move put them out of range (`regcount - (i - argc - 1)` is `regcount + 1` for the last one). It is now 0.
+
+  In addition, a record built inside a record method that used a variable of the outermost method read it through the outer record's field reference. That reference is only valid in the outer method's frame, so it read the inner record's field at the same index instead (`mm + k` gave `mm + mm`). `StructTransformEnvironment`'s indexer now captures any enclosing variable through the initializer environment. The construction then reads it with the enclosing frame's reference, and the record keeps a copy. Static fields are the exception: they are the same in every frame and can change, so they stay direct references (reads see later changes, and writes from the record are visible outside). A field of the enclosing *object* is now captured by value as well: a record method reads its value from the construction, and a write changes only the record's copy. Before, such reads and writes used the wrong frame. Lambdas see these fields live through a captured `this`; giving records a hidden capture of the enclosing `this` would do the same, but no benchmark needs it.
+
+  `Test_RecordMethodCapture` covers a local used by two methods, a captured lambda called by name, and the nested record. It passes with `-o3`, `-o0`, `-o3 --trans` and `-o3 --nolambdaopt`.
 - **S4 `Test_NoLambdaOpt` [flags: `--nolambdaopt`], fixed:** with `--nolambdaopt`, every program aborted while the runtime loaded (`terminate called after throwing an instance of 'std::exception*'`). Details:
   - **Cause:** `RTVTable::GenerateFindDynamicDispatcherPair` (the path that loads an invokable value from a field) and `EnsureDynamicMethodInstruction::GenerateGetBestInvokeDispatcherDyn` (`v(…)` on a `dyn` value) always read the raw-invoke pointer. `RefValueHeader::GenerateReadRawInvoke` throws when lambda optimization is off, and the field path is compiled for the standard library's interfaces at startup. Beyond the crash, the mode was unfinished: without lambda optimization a lambda gets no raw-invoke pointer (`StructuralValueHeader` even drops the slot), its dynamic-dispatch list is empty and its IMT slots are error stubs, so nothing could invoke it. The intended design is visible in `NomClass.cpp` and `NomInterface.cpp`, which keep `this` methods in the method tables only without lambda optimization: `this` is dispatched as an ordinary method named `""`.
   - **Fix**, without lambda optimization only:
@@ -149,4 +179,4 @@ These don't affect the benchmarks (the ports avoid these constructs), but they h
     - `NomRecord`: records already have a `""` dispatcher for their `this` method. `GetHasRawInvoke()` (the vtable flag and pointer bit, meaning "invokable", as for lambdas) no longer depends on the level, and the raw-invoke pointer is stored only with lambda optimization.
     - `CPP_NOM_GetIMTTransition` returns early for a value without a `NomRecord` (a lambda reached through a functional interface with `--trans`). It has no IMT graph, and its descriptor is constant. This was a segfault in `NomIMTGraph::GetIMTGraph(nullptr)`.
   - **Test:** a dynamic invoke of a lambda, a lambda in a record field, a record with `this`, and typed calls through a functional interface on a record and on a lambda. With the old code it aborts (exit 134). With the fix it passes in every mode, with and without `--nolambdaopt`. `experiments/monnom/function/bugs` passes 29 of 29 under `-o3`, `-o0`, `-o3 --trans`, `-o3 --sync`, `-o3 --trans --sync` and each of these with `--nolambdaopt`. In the same 10 modes this file's tests give the same results: only B2, B5, S1 and S3 fail. `function/imtshare` prints `68010` with `--trans`, `--trans --sync` and both with `--nolambdaopt`.
-- Not testable as a function: if the **last statement of the entry method `Main.Main`** is `ERROR(...)`, the JIT aborts with LLVM's `Cannot get value when an error exists!` assertion. The same `ERROR` at the end of any other `Void` method is fine.
+- **`ERROR` as the last statement of `Main.Main`, fixed** (not testable as a function, because the harness's `Main.Main` ends with the test call): the JIT aborted with LLVM's `Cannot get value when an error exists!` assertion. The void object `RT_NOM_VOIDOBJ` is a global that is emitted into a module only when some code there uses it, normally a `return` of `Void`. `RTModule` calls `GetVoidObject()` at the end of loading, and that lookup failed when no code in the program module returned `Void`. `RTModule` now emits the void object into every module, as it already does for the Bool objects (`RuntimeData/RTModule.cpp`). A program whose `Main.Main` prints a line and then ends with `ERROR("last statement")` prints the line and the message, and exits with 1, in all four modes.

@@ -111,33 +111,45 @@ class Main
 	# END Test_ManyRecordFields
 
 	# BEGIN Test_ThisInRecordInitializer
-	# B2: in a record method, `this` in the field initializers of a nested
-	#     record literal is the new nested record, not the enclosing record
-	#     (RecordHeader::GenerateConstructorCode sets register 0 to the new
-	#     record before it compiles the initializer instructions)
+	# B2: in a record literal's field initializers, `this` is the new record
+	#     (by design, a33ec7b3). The benchmark generator substituted a
+	#     constructor argument `this` into the initializers as it was, so
+	#     `new MatchPair(this, o)` in a record method stored the new pair, not
+	#     the enclosing record. It now binds such an argument with a letvar at
+	#     the construction site, as it does for any other expression; the
+	#     second case is the code it generates.
 	public static fun MkPayer(dyn p) : dyn
 	{
 		return new(dyn payoff = p)
 		{
 			public fun Pay() : dyn { return payoff; }
-			public fun Pair(dyn other) : dyn
+			public fun PairLet(dyn other) : dyn
 			{
-				return new(dyn fst = this, dyn snd = other)
+				return letvar m = this in new(dyn fst = m, dyn snd = other)
 				{
 					public fun Fst() : dyn { return fst; }
-					public fun Snd() : dyn { return snd; }
+				};
+			}
+			public fun PairLocal(dyn other) : dyn
+			{
+				dyn me = this;
+				return new(dyn fst = me, dyn snd = other)
+				{
+					public fun Fst() : dyn { return fst; }
 				};
 			}
 		};
 	}
 	public static fun Test_ThisInRecordInitializer() : Void
 	{
+		dyn self = new(dyn me = this, dyn v = 3) { public fun V() : dyn { return v; } };
+		dyn a = self.me.V();
 		dyn x = Main.MkPayer(5);
 		dyn y = Main.MkPayer(7);
-		dyn r = x.Pair(y);
-		dyn f = r.Fst().Pay();
-		if (f == 5) { Main.Pass("Test_ThisInRecordInitializer"); }
-		else { Main.Fail("Test_ThisInRecordInitializer"); Main.Show(f); Main.End(); }
+		dyn b = x.PairLet(y).Fst().Pay();
+		dyn c = x.PairLocal(y).Fst().Pay();
+		if (a == 3 && b == 5 && c == 5) { Main.Pass("Test_ThisInRecordInitializer"); }
+		else { Main.Fail("Test_ThisInRecordInitializer"); Main.Show(a); Main.Show(b); Main.Show(c); Main.End(); }
 	}
 	# END Test_ThisInRecordInitializer
 
@@ -196,6 +208,25 @@ class Main
 	}
 	# END Test_TypedRecordField
 
+	# BEGIN Test_TypedRecordParam
+	# B5 (second case): a record method with an interface-typed parameter,
+	#     called dynamically with a dyn record, got the argument uncast (the
+	#     record's dynamic dispatcher did not cast arguments); the first
+	#     interface call on the parameter then segfaulted in the interface
+	#     call-tag (mbta's BestPathAsStrings(IPathStar), gregor)
+	public static fun MkSym5() : dyn
+	{
+		return new(dyn c = 5) { public fun Chars() : dyn { return c; } };
+	}
+	public static fun Test_TypedRecordParam() : Void
+	{
+		dyn r = new(dyn k = 2) { public fun Go(ISym s) : dyn { return s.Chars() * k; } };
+		dyn v = r.Go(Main.MkSym5());
+		if (v == 10) { Main.Pass("Test_TypedRecordParam"); }
+		else { Main.Fail("Test_TypedRecordParam"); Main.Show(v); Main.End(); }
+	}
+	# END Test_TypedRecordParam
+
 	# BEGIN Test_ErrorMessage
 	# S1: ERROR(msg) prints "ERROR!" instead of msg. The test passes when the
 	#     message itself ("Test_ErrorMessage: PASS") is printed.
@@ -235,6 +266,41 @@ class Main
 	}
 	# END Test_InvokeRecordField
 
+	# BEGIN Test_RecordMethodCapture
+	# S5: a record method that uses a variable of the enclosing scope crashed
+	#     the runtime while it loaded the record (the construction did not pass
+	#     the captured value), and a nested record read it from the wrong
+	#     frame. Covers a local used by two methods, a captured lambda called
+	#     by name, and a record built in a record method that uses a variable
+	#     of the outermost method.
+	public static fun MkCounter(dyn k) : dyn
+	{
+		dyn base = k * 10;
+		dyn add = (dyn x) => { return x + k; } : dyn;
+		return new(dyn a = 1)
+		{
+			public fun Up(dyn x) : dyn { return base + x; }
+			public fun Down(dyn x) : dyn { return base - x; }
+			public fun Add(dyn x) : dyn { return add(x); }
+			public fun Make(dyn m) : dyn
+			{
+				dyn mm = m * 2;
+				return new(dyn b = 2) { public fun Get() : dyn { return mm + k; } };
+			}
+		};
+	}
+	public static fun Test_RecordMethodCapture() : Void
+	{
+		dyn c = Main.MkCounter(4);
+		dyn a = c.Up(1);
+		dyn b = c.Down(1);
+		dyn d = c.Add(3);
+		dyn e = c.Make(5).Get();
+		if (a == 41 && b == 39 && d == 7 && e == 14) { Main.Pass("Test_RecordMethodCapture"); }
+		else { Main.Fail("Test_RecordMethodCapture"); Main.Show(a); Main.Show(b); Main.Show(d); Main.Show(e); Main.End(); }
+	}
+	# END Test_RecordMethodCapture
+
 	# BEGIN Test_NoLambdaOpt [flags: --nolambdaopt]
 	# S4: with --nolambdaopt every program aborted while the runtime loaded
 	#     (RefValueHeader::GenerateReadRawInvoke throws without lambda
@@ -267,9 +333,11 @@ class Main
 		Main.Test_RecordTwoInterfaces();
 		Main.Test_InvokeRecord();
 		Main.Test_TypedRecordField();
+		Main.Test_TypedRecordParam();
 		Main.Test_ErrorMessage();
 		Main.Test_VoidReturn();
 		Main.Test_InvokeRecordField();
+		Main.Test_RecordMethodCapture();
 		Main.Test_NoLambdaOpt();
 		# TESTS-END
 	}
