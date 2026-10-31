@@ -1,6 +1,6 @@
 # expected outputs are tracked even though the repository ignores *.txt
 !expected.txt
-results.csv
+*.csv
 *.txt
 
 .BM_*
