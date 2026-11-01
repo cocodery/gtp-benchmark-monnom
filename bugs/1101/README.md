@@ -1,5 +1,7 @@
 # IMT transition comparison after the fixes, 2026-11-01
 
+**Superseded by `../1102`.** The four fsmoo variations this file lists as slower were caused by dead lists kept alive on the stack, not by the IMT.
+
 The same 415 variations as `../1031/imt`, timed in base, `--trans` and `--trans --sync`. `tables/<test>.md` has one row per variation, best first, and `SUMMARY.md` has the per-test figures.
 
 **Result: suffixtree no longer loses time. It went from 13.7% slower than base to 4.0% faster. fsm, quadT, fsmoo and morsecode all improved too. synth lost its 15.8% gain, because that gain was parallel GC and not the IMT.**
