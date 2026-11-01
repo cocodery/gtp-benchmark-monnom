@@ -1,5 +1,7 @@
 # IMT transition comparison, 2026-11-01
 
+**Superseded by `../../1101`.** The gains below include parallel GC that ran only in `--trans`, so they overstate the IMT, and synth in particular.
+
 Six GTP tests chosen for heavy interface calls on records, timed in base, `--trans` and `--trans --sync`. `tables/<test>.md` has one row per variation, best first. `SUMMARY.md` has the per-test figures.
 
 **Result: `--trans` is clearly faster on synth and fsm, about 10-14% at the median. fsmoo and quadT gain a little, morsecode does not change, and suffixtree gets 11% slower. No test needs lambda functions in IMT entries.**
